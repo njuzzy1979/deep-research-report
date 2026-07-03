@@ -451,46 +451,53 @@ research/extracted/
 
 #### 工具 A：drawio — 架构图、流程图
 
-**生成 `.drawio` 文件**：使用 MCP 工具 `mcp__drawio__create_diagram`，直接生成 mxGraphModel XML。
+**生成 `.drawio` 文件**：使用 MCP 工具 `mcp__drawio__create_diagram`，通过 Mermaid 语法或 mxGraphModel XML 生成，返回的 XML 直接写入文件即可。
 
 ```text
-调用方式: mcp__drawio__create_diagram
-  参数: mermaid (流程图/架构图) 或 xml (复杂自定义图)
-  生成后: 将 XML 内容写入 research/figures/<图名>.drawio
+调用: mcp__drawio__create_diagram
+  参数: mermaid (流程图/架构图/泳道图推荐) 或 xml (需精确控制布局时)
+  写入: 将返回的 xml 字段内容写入 research/figures/<图号-描述>.drawio
 ```
 
-**导出 SVG**：需要 draw.io 桌面版 CLI（已安装时自动使用，未安装时保留 `.drawio` 文件，用户可在 draw.io 桌面版或 app.diagrams.net 中打开编辑后手动导出）。
+**导出 SVG**：需要通过 draw.io 桌面版 CLI 导出。当前系统状态：
 
-```bash
-# 导出 SVG（draw.io 桌面版已安装时）：
-"C:\Program Files\draw.io\draw.io.exe" -x -f svg -e -b 10 -o research/figures/<图名>.drawio.svg research/figures/<图名>.drawio
+| 项 | 状态 |
+|----|------|
+| draw.io MCP（生成 `.drawio`） | ✅ 可用 |
+| draw.io 桌面版（导出 SVG） | ⚠️ 未安装 |
+
+draw.io 桌面版未安装时，生成的 `.drawio` 文件可直接拖入 [app.diagrams.net](https://app.diagrams.net)（免费在线版，无需安装）编辑和导出 SVG/PNG。安装桌面版后（https://www.drawio.com/），可用以下命令导出 SVG：
+
+```powershell
+& "C:\Program Files\draw.io\draw.io.exe" -x -f svg -e -b 10 -o research/figures/<图名>.drawio.svg research/figures/<图名>.drawio
 ```
 
-⚠️ draw.io 桌面版当前未安装。生成的 `.drawio` 文件可直接拖入 [app.diagrams.net](https://app.diagrams.net)（免费在线版）编辑，支持导出 SVG/PNG/PDF。
-
-**文件命名**：图号-描述.drawio，如 `2-1-技术架构全景.drawio`。
+**文件命名**：`<图号>-<描述>.drawio`，如 `2-1-技术架构全景.drawio`。
 
 ---
 
 #### 工具 B：fireworks-tech-graph — 技术架构图
 
-**生成 SVG + PNG**：使用内置的 `generate-from-template.py` 脚本。
+**生成 SVG + PNG**：使用 `generate-from-template.py` 生成 SVG，再用 `cairosvg` 导出 PNG。
 
-```bash
+**实测可用** ✅：SVG 生成和 PNG 导出均验证通过。
+
+```powershell
 # Step 1: 生成 SVG（architecture 模板）
-python "C:\Users\张\.claude\skills\fireworks-tech-graph\scripts\generate-from-template.py" \
-  architecture \
-  research/figures/<图名>.svg \
+# Windows 上须加 -X utf8 避免 GBK 编码错误
+python -X utf8 "C:\Users\张\.claude\skills\fireworks-tech-graph\scripts\generate-from-template.py" `
+  architecture `
+  research/figures/<图号-描述>.svg `
   '{"title":"<图标题>","nodes":[...],"arrows":[...]}'
 
 # Step 2: 验证 SVG 语法
-python -c "import xml.etree.ElementTree as ET; ET.parse('research/figures/<图名>.svg')" && echo "✓ SVG OK"
+python -c "import xml.etree.ElementTree as ET; ET.parse('research/figures/<图名>.svg'); print('SVG OK')"
 
 # Step 3: 导出 PNG（2x 高清）
 python -c "import cairosvg; cairosvg.svg2png(url='research/figures/<图名>.svg', write_to='research/figures/<图名>.png', scale=2)"
 ```
 
-**JSON 数据格式**（传入 `generate-from-template.py` 的第三个参数）：
+**JSON 数据格式**（传入 `generate-from-template.py` 的第三个参数，注意 PowerShell 中 JSON 用单引号包裹、内部用双引号）：
 ```json
 {
   "title": "六层技术架构全景",
@@ -504,9 +511,11 @@ python -c "import cairosvg; cairosvg.svg2png(url='research/figures/<图名>.svg'
 }
 ```
 
-**样式参考**：默认使用 Style 1（Flat Icon，白底），技术架构图可用 Style 3（Blueprint，深色底）。加载 `C:\Users\张\.claude\skills\fireworks-tech-graph\references\style-1-flat-icon.md` 获取精确色值。
+**可用模板类型**：`architecture`（架构图）、`data-flow`（数据流）、`flowchart`（流程图）、`sequence`（时序图）、`agent`（Agent 架构）、`memory`（记忆架构）、`network-topology`（网络拓扑）、`class`（UML 类图）、`state-machine`（状态机）、`er-diagram`（ER 图）等。
 
-**文件命名**：图号-描述.svg / .png，如 `4-1-技术架构全景.svg` + `4-1-技术架构全景.png`。
+**样式参考**：默认 Style 1（Flat Icon，白底），加载 `C:\Users\张\.claude\skills\fireworks-tech-graph\references\style-1-flat-icon.md` 获取精确色值。其他可用样式见 `references/` 目录下的 `style-N-*.md` 文件。
+
+**文件命名**：`<图号>-<描述>.svg` + `<图号>-<描述>.png`，如 `4-1-技术架构全景.svg` + `4-1-技术架构全景.png`。
 
 ---
 
