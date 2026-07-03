@@ -1,0 +1,2 @@
+claim_id,claim_text,source_file,page_or_location,claim_type,verification_status,evidence_sources,confidence,rewrite_suggestion,risk_note
+C001,示例：该系统于2024年首次实现全自动决策,素材/某报告.pdf,第3页,首次性判断,无法证实,,低,据称该系统具备自动决策能力，但"首次"和"全自动"尚未独立证实,如以确定语气写入正文会严重误导读者
