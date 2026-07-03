@@ -459,18 +459,18 @@ research/extracted/
   写入: 将返回的 xml 字段内容写入 research/figures/<图号-描述>.drawio
 ```
 
-**导出 SVG**：需要通过 draw.io 桌面版 CLI 导出。当前系统状态：
+**导出 SVG**：通过 draw.io 桌面版 CLI 导出。当前系统状态：
 
 | 项 | 状态 |
 |----|------|
 | draw.io MCP（生成 `.drawio`） | ✅ 可用 |
-| draw.io 桌面版（导出 SVG） | ⚠️ 未安装 |
-
-draw.io 桌面版未安装时，生成的 `.drawio` 文件可直接拖入 [app.diagrams.net](https://app.diagrams.net)（免费在线版，无需安装）编辑和导出 SVG/PNG。安装桌面版后（https://www.drawio.com/），可用以下命令导出 SVG：
+| draw.io 桌面版（导出 SVG） | ✅ 已安装（`D:\Program Files\draw.io`） |
 
 ```powershell
-& "C:\Program Files\draw.io\draw.io.exe" -x -f svg -e -b 10 -o research/figures/<图名>.drawio.svg research/figures/<图名>.drawio
+& "D:\Program Files\draw.io\draw.io.exe" -x -f svg -e -b 10 -o research/figures/<图名>.drawio.svg research/figures/<图名>.drawio
 ```
+
+`-e` 将原始 `.drawio` XML 嵌入 SVG，导出的 SVG 可通过 draw.io 重新编辑；`-b 10` 加 10px 边距。
 
 **文件命名**：`<图号>-<描述>.drawio`，如 `2-1-技术架构全景.drawio`。
 
