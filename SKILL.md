@@ -427,43 +427,99 @@ research/extracted/
 
 ## 阶段 6：核心架构图——先于写作
 
-**核心架构图必须在分章写作之前完成**。它们不是文字的附属品——没有它们，分章写作会失去逻辑锚点。
+**核心架构图必须在分章写作之前完成**。它们是报告的骨架——定义分析框架、拆解层次、展示逻辑链路，文字要围绕它们展开。
 
-但**不是所有图表都在这个阶段出**。图表分两类，出图时机不同：
+### 6.1 出图清单
 
-| 图表类型 | 出图时机 | 原因 |
-|---------|---------|------|
-| **核心架构图**：总览图、架构图、流程图 | 写作前（阶段 6） | 它们是报告的骨架——定义分析框架、拆解层次、展示逻辑链路，文字要围绕它们展开 |
-| **数据图表**：对比表/矩阵、趋势图、市场份额图、雷达图、具体数据统计图 | 写作中（阶段 7） | 它们必须与文字内容绑定、由具体数据驱动。写作中会发现：这个数据需要可视化、那个对比用表格更清晰——此时才是做数据图表的正确时机 |
+从阶段 4.3 的"核心架构图"清单中取出，按此优先级：
 
-### 6.1 核心架构图清单
+1. **总览图**（1–3 张）—— 全文核心判断、主题闭环图，读者看完就理解报告主线
+2. **架构图**（3–6 张）—— 主题的 X 层架构拆解，报告的分析框架
+3. **流程图**（3–5 张）—— 关键流程的端到端展示
 
-1. **总览图**（1–3 张）：全文核心判断、主题闭环图——读者看完就理解报告主线
-2. **架构图**（3–6 张）：主题的 X 层架构拆解——报告的分析框架
-3. **流程图**（3–5 张）：关键流程的端到端展示
+### 6.2 出图工具——选择与使用
 
-### 6.2 出图工具
+根据图的类型选择合适的工具：
 
-- **drawio**（`.drawio` 文件 + MCP）：架构图、流程图首选
-- **fireworks-tech-graph**（SVG/PNG）：技术架构图
-- **Mermaid**（内联）：简单流程图、时序图
+| 图类型 | 首选工具 | 输出格式 | 保存路径 |
+|--------|---------|---------|---------|
+| **架构图、流程图**（分层/组件/连接关系复杂） | drawio | `.drawio` + `.svg` | `research/figures/` |
+| **技术架构图**（系统拓扑/技术栈分层/部署架构） | fireworks-tech-graph | `.svg` + `.png` | `research/figures/` |
+| **简单流程图/时序图**（线性逻辑） | Mermaid（内联到 Markdown） | 无需独立文件 | — |
 
-### 6.3 数据图表规划——先列清单，随写作产出
+---
 
-在阶段 4 的大纲中已列出了全部图表清单。这个阶段做的是：确认数据来源、预估图表类型、在写作中按章依次产出。
+#### 工具 A：drawio — 架构图、流程图
 
-数据图表出图指引：
-- **看到数据就出图**：写作中遇到对比数据（≥3 组）→ 出对比表；遇到时间序列数据 → 出折线图；遇到占比数据 → 出饼图/环形图
-- **Markdown 表格优先**：对比表、统计表用 Markdown 表格直接写，保持与正文的紧密绑定
-- **数据来源写在图注中**：每张数据图的题注末尾标注数据来源（V3.0 §4.2）
+**生成 `.drawio` 文件**：使用 MCP 工具 `mcp__drawio__create_diagram`，直接生成 mxGraphModel XML。
+
+```text
+调用方式: mcp__drawio__create_diagram
+  参数: mermaid (流程图/架构图) 或 xml (复杂自定义图)
+  生成后: 将 XML 内容写入 research/figures/<图名>.drawio
+```
+
+**导出 SVG**：需要 draw.io 桌面版 CLI（已安装时自动使用，未安装时保留 `.drawio` 文件，用户可在 draw.io 桌面版或 app.diagrams.net 中打开编辑后手动导出）。
+
+```bash
+# 导出 SVG（draw.io 桌面版已安装时）：
+"C:\Program Files\draw.io\draw.io.exe" -x -f svg -e -b 10 -o research/figures/<图名>.drawio.svg research/figures/<图名>.drawio
+```
+
+⚠️ draw.io 桌面版当前未安装。生成的 `.drawio` 文件可直接拖入 [app.diagrams.net](https://app.diagrams.net)（免费在线版）编辑，支持导出 SVG/PNG/PDF。
+
+**文件命名**：图号-描述.drawio，如 `2-1-技术架构全景.drawio`。
+
+---
+
+#### 工具 B：fireworks-tech-graph — 技术架构图
+
+**生成 SVG + PNG**：使用内置的 `generate-from-template.py` 脚本。
+
+```bash
+# Step 1: 生成 SVG（architecture 模板）
+python "C:\Users\张\.claude\skills\fireworks-tech-graph\scripts\generate-from-template.py" \
+  architecture \
+  research/figures/<图名>.svg \
+  '{"title":"<图标题>","nodes":[...],"arrows":[...]}'
+
+# Step 2: 验证 SVG 语法
+python -c "import xml.etree.ElementTree as ET; ET.parse('research/figures/<图名>.svg')" && echo "✓ SVG OK"
+
+# Step 3: 导出 PNG（2x 高清）
+python -c "import cairosvg; cairosvg.svg2png(url='research/figures/<图名>.svg', write_to='research/figures/<图名>.png', scale=2)"
+```
+
+**JSON 数据格式**（传入 `generate-from-template.py` 的第三个参数）：
+```json
+{
+  "title": "六层技术架构全景",
+  "nodes": [
+    {"id": "perception", "label": "感知层", "x": 40, "y": 40, "width": 880, "height": 80},
+    {"id": "network", "label": "网络层", "x": 40, "y": 160, "width": 880, "height": 80}
+  ],
+  "arrows": [
+    {"source": "perception", "target": "network", "label": "观测数据"}
+  ]
+}
+```
+
+**样式参考**：默认使用 Style 1（Flat Icon，白底），技术架构图可用 Style 3（Blueprint，深色底）。加载 `C:\Users\张\.claude\skills\fireworks-tech-graph\references\style-1-flat-icon.md` 获取精确色值。
+
+**文件命名**：图号-描述.svg / .png，如 `4-1-技术架构全景.svg` + `4-1-技术架构全景.png`。
+
+---
+
+#### 工具 C：Mermaid — 简单流程图（备选）
+
+仅用于简单线性流程（≤15 个节点），不产出独立文件，直接内联在 Markdown 的 ` ```mermaid ` 代码块中。复杂架构图仍用 drawio。
 
 ### ▶ 阶段 6 质量门槛
 
-- [ ] 总览图至少 1 张完成
+- [ ] 总览图至少 1 张完成（`.drawio` 或 `.svg` + `.png` 已保存到 `research/figures/`）
 - [ ] 每个核心分析章节至少 1 张架构图草图
 - [ ] 架构图之间逻辑一致（同一对象在不同图中名称统一）
-- [ ] 数据图表清单确认（每张图有标题、类型、数据来源、所属章节）
-- [ ] 所有架构图有逻辑或来源标注
+- [ ] 所有架构图有逻辑或来源标注（在图注中说明）
 
 🔴 CHECKPOINT · 🛑 STOP：总览图和核心章架构图就位后进入阶段 7。总览图未完成或核心章缺架构图 → 回到阶段 6.1 补充。
 
