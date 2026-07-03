@@ -1,0 +1,4 @@
+# 工作区产物（运行时生成）
+output/
+research/
+test-prompts.json
