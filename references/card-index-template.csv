@@ -1,0 +1,2 @@
+card_id,card_type,title,chapter_ref,evidence_packet_refs,credibility_summary,status,used_in_chapter
+CASE-01,案例卡,示例：某企业XX案例,3.2,C012;C015,中——效果数据为B级来源，风险争议为C级,final,3.2
