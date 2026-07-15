@@ -1,0 +1,53 @@
+{
+  "_comment": "外部工具路径配置 — 由用户或 skill 初始化时填写。所有路径均为绝对路径（skill 执行命令时需要），相对路径仅供参考。",
+  "_usage": "填写后，SKILL.md 中的命令示例会引用此文件中的路径。如果某个工具未安装/未配置，保持值为空字符串 \"\" 即可，对应命令会被跳过。",
+  "web_search_skill": {
+    "display_name": "web-search-skill",
+    "relative_path": "web-search-skill/scripts/search.js",
+    "absolute_path": "",
+    "description": "通用网页搜索（Tavily + 百度双引擎）",
+    "download_url": "https://github.com/njuzzy1979/web-search-skill",
+    "clone_command": "git clone https://github.com/njuzzy1979/web-search-skill.git web-search-skill",
+    "env_vars": ["TAVILY_API_KEY", "QIANFAN_API_KEY"]
+  },
+  "paper_search": {
+    "display_name": "paper-search",
+    "relative_path": "paper-search/",
+    "absolute_path": "",
+    "description": "学术论文搜索与下载（20+ 数据源）",
+    "cli_command": "paper-search",
+    "install_command": "uv tool install paper-search-mcp",
+    "download_url": "",
+    "env_vars": []
+  },
+  "mineru": {
+    "display_name": "MinerU",
+    "relative_path": "mineru/scripts/mineru_parse.py",
+    "absolute_path": "",
+    "description": "文档精准解析（PDF/Office/图片/HTML → Markdown，含 OCR）",
+    "download_url": "https://github.com/njuzzy1979/MinerU-Skill",
+    "clone_command": "git clone https://github.com/njuzzy1979/MinerU-Skill.git mineru",
+    "env_vars": ["MINERU_TOKEN"]
+  },
+  "drawio_desktop": {
+    "display_name": "draw.io 桌面版",
+    "relative_path": "",
+    "absolute_path": "",
+    "description": "架构图、流程图绘制，导出 .drawio + .svg",
+    "download_url": "https://github.com/jgraph/drawio-desktop/releases",
+    "find_commands": {
+      "windows": "where draw.io",
+      "linux_mac": "which draw.io"
+    },
+    "env_vars": []
+  },
+  "fireworks_tech_graph": {
+    "display_name": "fireworks-tech-graph",
+    "relative_path": "fireworks-tech-graph/scripts/generate-from-template.py",
+    "absolute_path": "",
+    "description": "技术架构图生成，16 种模板，导出 .svg + .png",
+    "clone_command": "git clone <repo-url> fireworks-tech-graph",
+    "dependency": "cairosvg (pip install cairosvg)",
+    "env_vars": []
+  }
+}
