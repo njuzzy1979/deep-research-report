@@ -4,7 +4,7 @@
   "web_search_skill": {
     "display_name": "web-search-skill",
     "relative_path": "web-search-skill/scripts/search.js",
-    "absolute_path": "",
+    "absolute_path": "C:\\Users\\张\\.claude\\skills\\web-search-skill\\scripts\\search.js",
     "description": "通用网页搜索（Tavily + 百度双引擎）",
     "download_url": "https://github.com/njuzzy1979/web-search-skill",
     "clone_command": "git clone https://github.com/njuzzy1979/web-search-skill.git web-search-skill",
@@ -13,7 +13,7 @@
   "paper_search": {
     "display_name": "paper-search",
     "relative_path": "paper-search/",
-    "absolute_path": "",
+    "absolute_path": "C:\\Users\\张\\.local\\bin\\paper-search.exe",
     "description": "学术论文搜索与下载（20+ 数据源）",
     "cli_command": "paper-search",
     "install_command": "uv tool install paper-search-mcp",
@@ -23,7 +23,7 @@
   "mineru": {
     "display_name": "MinerU",
     "relative_path": "mineru/scripts/mineru_parse.py",
-    "absolute_path": "",
+    "absolute_path": "C:\\Users\\张\\.claude\\skills\\mineru\\scripts\\mineru_parse.py",
     "description": "文档精准解析（PDF/Office/图片/HTML → Markdown，含 OCR）",
     "download_url": "https://github.com/njuzzy1979/MinerU-Skill",
     "clone_command": "git clone https://github.com/njuzzy1979/MinerU-Skill.git mineru",
@@ -32,7 +32,7 @@
   "drawio_desktop": {
     "display_name": "draw.io 桌面版",
     "relative_path": "",
-    "absolute_path": "",
+    "absolute_path": "D:\\Program Files\\draw.io\\draw.io.exe",
     "description": "架构图、流程图绘制，导出 .drawio + .svg",
     "download_url": "https://github.com/jgraph/drawio-desktop/releases",
     "find_commands": {
@@ -44,7 +44,7 @@
   "fireworks_tech_graph": {
     "display_name": "fireworks-tech-graph",
     "relative_path": "fireworks-tech-graph/scripts/generate-from-template.py",
-    "absolute_path": "",
+    "absolute_path": "C:\\Users\\张\\.claude\\skills\\fireworks-tech-graph\\scripts\\generate-from-template.py",
     "description": "技术架构图生成，16 种模板，导出 .svg + .png",
     "clone_command": "git clone <repo-url> fireworks-tech-graph",
     "dependency": "cairosvg (pip install cairosvg)",
