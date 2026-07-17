@@ -179,6 +179,8 @@ research/
 
 **路径配置**：`references/tool-paths.json` 中 `web_search_skill.absolute_path` 字段。如为空则使用相对路径 `web-search-skill/scripts/search.js`。
 
+> **执行前**：先读取 `references/tool-paths.json`，取 `web_search_skill.absolute_path`。若已填写 → `node "<absolute_path>" ...`；若为空 → `node "web-search-skill/scripts/search.js" ...`。
+
 **5 个子命令**，按场景选用：
 
 | 子命令 | 用途 | 报告编写中的典型场景 | 命令示例 |
@@ -268,6 +270,8 @@ research/
 对搜集到的所有 PDF/DOCX/PPT/HTML/图片素材，使用 MinerU VLM API 进行高精度文本抽取。
 
 **工具路径**：`references/tool-paths.json` 中 `mineru.absolute_path` 字段。如已填写则使用该绝对路径；如为空则使用相对路径 `mineru/scripts/mineru_parse.py`。  
+
+> **执行前**：先读取 `references/tool-paths.json`，取 `mineru.absolute_path`。若已填写 → `python "<absolute_path>" ...`；若为空 → `python "mineru/scripts/mineru_parse.py" ...`。  
 **前提**：`MINERU_TOKEN` 环境变量已配置  
 **能力**：OCR 扫描件识别、公式提取、表格还原、结构化 Markdown 输出
 
@@ -585,6 +589,8 @@ research/extracted/
 
 **导出 SVG**：通过 draw.io 桌面版 CLI 导出。路径配置见 `references/tool-paths.json` 中 `drawio_desktop.absolute_path` 字段。
 
+> **执行前**：先读取 `references/tool-paths.json`，取 `drawio_desktop.absolute_path`。若已填写 → 直接使用；若为空 → 用 `where draw.io`（Win）或 `which draw.io`（Linux/macOS）查找。
+
 | 项 | 状态 |
 |----|------|
 | draw.io MCP（生成 `.drawio`） | ✅ 可用 |
@@ -606,6 +612,8 @@ research/extracted/
 **生成 SVG + PNG**：使用 `generate-from-template.py` 生成 SVG，再用 `cairosvg` 导出 PNG。
 
 **路径配置**：`references/tool-paths.json` 中 `fireworks_tech_graph.absolute_path` 字段。如为空则使用相对路径 `fireworks-tech-graph/scripts/generate-from-template.py`。
+
+> **执行前**：先读取 `references/tool-paths.json`，取 `fireworks_tech_graph.absolute_path`。若已填写 → `python -X utf8 "<absolute_path>" ...`；若为空 → `python -X utf8 "fireworks-tech-graph/scripts/generate-from-template.py" ...`。
 
 **实测可用** ✅：SVG 生成和 PNG 导出均验证通过。
 
@@ -983,10 +991,6 @@ python scripts/markdown_to_docx.py \
 | 科技/IT | 原始论文（arXiv/ACM/IEEE）、专利、标准（ISO/W3C） | MIT Tech Review、IEEE Spectrum |
 
 > 用户未提供领域特定列表时，使用阶段 2.1 的通用标准（A=官方文件/法规/论文/专利，B=高公信力媒体/权威期刊）。
-
-### 适配 2：替换架构分析维度
-
-根据主题从下方映射表选择，替换阶段 1.3 的通用架构维度：
 
 ### 适配 2：替换架构分析维度
 

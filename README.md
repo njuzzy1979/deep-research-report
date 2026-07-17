@@ -69,7 +69,7 @@ deep-research-report/
 
 ## 使用方式
 
-在 Claude Code 中，当用户提出"研究报告、深度分析、白皮书、政策研究、行业分析、技术评估、可行性研究"等相关请求时，本 skill 会自动触发（见 `SKILL.md` frontmatter 的 `description` 字段）。也可以直接输入自然语言请求，如：
+本 skill 面向支持 Agent Skills 标准的运行时（Claude Code、Codex、Cursor、OpenClaw 等）。当用户提出"研究报告、深度分析、白皮书、政策研究、行业分析、技术评估、可行性研究"等相关请求时，skill 会自动触发（见 `SKILL.md` frontmatter 的 `description` 字段）。也可以直接输入自然语言请求，如：
 
 > 帮我写一份关于 XX 行业的深度研究报告
 
