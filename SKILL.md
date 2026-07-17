@@ -594,7 +594,7 @@ research/extracted/
 | 项 | 状态 |
 |----|------|
 | draw.io MCP（生成 `.drawio`） | ✅ 可用 |
-| draw.io 桌面版（导出 SVG） | 需安装 | 路径见 `tool-paths.json` 中 `drawio_desktop.absolute_path`；也可通过 `where draw.io`（Win）或 `which draw.io`（Linux/macOS）查找 |
+| draw.io 桌面版（导出 SVG） | ✅ 已安装 | 路径见 `tool-paths.json` 中 `drawio_desktop.absolute_path`；也可通过 `where draw.io`（Win）或 `which draw.io`（Linux/macOS）查找 |
 
 ```powershell
 # 路径取自 tool-paths.json 中 drawio_desktop.absolute_path，如为空则用 where/which 查找
