@@ -275,6 +275,8 @@ research/
 **前提**：`MINERU_TOKEN` 环境变量已配置  
 **能力**：OCR 扫描件识别、公式提取、表格还原、结构化 Markdown 输出
 
+> **超限文档自动拆分**：`mineru_parse.py` 内置自动处理——单文件超过 200 页或 200MB 时，自动本地切分为多个分片、分别解析、最后合并为完整 `full.md`，用户无需手动分批。前提：`pip install pypdf`（PDF 拆分所需，常规调用不需要）；若 Word 文档超限还需 LibreOffice 的 `soffice` 在 PATH 中（用于先转 PDF 再拆分）。Token 通过 `MINERU_TOKEN` 环境变量读取（在 https://mineru.net/apiManage 申请）。
+
 #### 使用方式
 
 ```bash
