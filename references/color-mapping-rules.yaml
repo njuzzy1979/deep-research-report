@@ -1,0 +1,131 @@
+# 颜色映射规则 —— 项目级灰度色板与约束
+# 来源: design/chart-quality-constraints/00-chart-quality-design.md §3.1 + §3.3
+# 用途: 阶段6/7出图时查询色值；阶段9转换器做颜色合规校验
+# 版本: 1.0 / 2026-07-21
+
+# ============================================================
+# 1. 学术灰度色板（Academic Grayscale Palette）
+# ============================================================
+
+palette:
+  name: "学术灰度色板"
+  version: "1.0"
+  description: >
+    7档明度梯度 + 白色系，用于报告全部图表。多系列数据时按此顺序取色。
+    明度 L 值基于 BT.601 加权公式: L = 0.299*R + 0.587*G + 0.114*B。
+
+  colors:
+    - name: Black
+      hex: "#000000"
+      usage: "标题 / 主轴线 / 第一数据系列"
+      luminance: 0
+    - name: Gray-80
+      hex: "#333333"
+      usage: "第二数据系列 / 节点边框"
+      luminance: 20
+    - name: Gray-60
+      hex: "#555555"
+      usage: "第三数据系列 / 次要网格线"
+      luminance: 33
+    - name: Gray-40
+      hex: "#777777"
+      usage: "第四数据系列"
+      luminance: 47
+    - name: Gray-20
+      hex: "#999999"
+      usage: "第五数据系列 / 辅助标注"
+      luminance: 60
+    - name: Gray-10
+      hex: "#BBBBBB"
+      usage: "第六数据系列"
+      luminance: 73
+    - name: Gray-05
+      hex: "#DDDDDD"
+      usage: "第七数据系列 / 浅底"
+      luminance: 87
+    - name: SheetAltRow
+      hex: "#F2F2F2"
+      usage: "表格交替行灰底 / 定义框底色"
+      luminance: 95
+    - name: PureWhite
+      hex: "#FFFFFF"
+      usage: "图底 / 单元格白底"
+      luminance: 100
+
+  # 强调色（仅一种，全图最多3处）
+  accent:
+    name: Tol-Red
+    hex: "#D62728"
+    usage: "关键节点高亮 / 需要读者注意的单一数据点"
+    luminance: 40
+    note: "CUD 安全红色——色觉障碍者仍可感知其与灰度系列的亮度差异"
+    max_per_figure: 3
+
+# ============================================================
+# 2. 禁用规则
+# ============================================================
+
+prohibited:
+  - color_category: "彩色（蓝/绿/黄/紫/橙等）"
+    reason: "防止不同图中同一概念配色不一致"
+    exception: "仅 Tol-Red #D62728 作为强调色"
+  - chart_type: "3D 图表（3D饼图/3D柱状图/3D曲面图/3D散点图）"
+    reason: "3D 投影扭曲数据比例，学术图形公认反模式"
+  - chart_type: "饼图扇区 > 5 项"
+    reason: "改用横向条形图（horizontal bar）"
+  - chart_type: "饼图无 hatch 纹理"
+    reason: "仅靠灰度区分扇区在灰度打印下不可区分"
+
+# ============================================================
+# 3. 跨图颜色一致性注册表规则
+# ============================================================
+
+color_registry:
+  path: "research/figures/color-registry.csv"
+  description: >
+    同一概念在全报告所有图中必须使用相同颜色。
+    阶段6首张架构图出图后立即登记，后续出图前先查此表。
+  fields:
+    - concept       # 概念/实体名称（如"感知层""应用层"）
+    - color_hex     # 色值（必须在 palette.colors 或 palette.accent 中）
+    - shape_hint    # 形状提示（矩形/圆角矩形/菱形等）
+    - layer         # 所属层级编号
+    - first_used_fig # 首次使用的图号
+    - notes          # 备注
+
+  rules:
+    - "阶段6首张架构图出图后，立即将图中的颜色映射登记到 color-registry.csv"
+    - "后续每张架构图/数据图表出图前，先查 color-registry.csv——若已有映射则复用"
+    - "若图中出现新概念（注册表无记录），登记新的映射"
+    - "阶段6质量门槛：color-registry.csv 至少覆盖所有核心架构图的节点"
+
+# ============================================================
+# 4. 灰度可区分性约束
+# ============================================================
+
+grayscale_constraints:
+  min_contrast_ratio: 30
+  description: >
+    相邻两个数据系列在灰度图中的亮度差（0-255尺度）必须 >= 30，
+    否则在灰度打印/色觉障碍模拟中不可区分。
+  fallback: >
+    当数据系列数 > 5 且无法用灰度拉开时，使用 hatch 纹理
+    ('/' / '\' / 'x' / '-' / '|' / '+') 作为辅助区分手段。
+
+# ============================================================
+# 5. matplotlib rcParams 映射（供自动化参考）
+# ============================================================
+
+matplotlib_mapping:
+  style_file: "design/chart-quality-constraints/matplotlib-report-style.mplstyle"
+  key_params:
+    axes.prop_cycle: "cycler('color', ['#000000','#333333','#555555','#777777','#999999','#BBBBBB','#DDDDDD'])"
+    axes.edgecolor: "#000000"
+    figure.facecolor: "white"
+    axes.facecolor: "white"
+    font.size: 10.0
+    axes.labelsize: 10.0
+    xtick.labelsize: 9.0
+    ytick.labelsize: 9.0
+    legend.fontsize: 9.0
+    savefig.dpi: 300
