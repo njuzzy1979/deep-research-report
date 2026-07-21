@@ -1,14 +1,7 @@
-"""
-md2docx - Markdown → Word (.docx) 研究报告格式转换引擎
+"""md2docx —— Markdown 研究报告 → Word(.docx) 转换器 v2。
 
-将符合约定的 Markdown 研究报告转换为严格遵循《研究报告格式规范 V3.0》的 Word 文档。
-
-核心管道: Preprocessor → Parser → IR Builder → Renderer → Postprocessor
+全新重写（不基于旧 markdown_to_docx.py / md2docx 包代码），详见
+design/md-to-docx-design-v2/00-master-design.md。
 """
 
 __version__ = "2.0.0"
-
-from .preprocessor import preprocess
-from .parser import parse_markdown
-from .config import Config, load_config
-from .ir import DocumentIR, build_ir

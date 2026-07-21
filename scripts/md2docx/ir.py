@@ -1,258 +1,265 @@
+"""IR（中间表示）dataclass 全集（C-03）。
+
+纯数据、零逻辑（01-architecture.md §4.1 设计原则）：本文件只包含 dataclass 与
+Enum 定义，不 import 本包任何其他模块，不含任何计算/校验/解析函数。
+
+H-05 硬约束：内容性字段（题注、路径、标题文本、编号等）一律无默认值，构造时
+必须由 assemble/*（未来任务）从文档解析结果显式传入——这使"硬编码兜底"在
+schema 层面没有安放位置。唯一例外是 InlineRun 的纯格式布尔字段（bold/italic/
+code/superscript）与 link_url：H-05 只约束"内容性"字段，不约束格式开关本身
+（00-master-design.md 任务说明已明确此边界）。
+
+V-05 说明：textstage/* 与 render/*（均为未来任务）都会 import 本文件，这不违反
+"两域互不 import"的架构红线——V-05 禁止的是 textstage 与 render 互相 import
+对方，二者各自 import 纯数据的 ir.py 是允许的（ir.py 不属于任何一侧）。
 """
-IR（中间表示）数据模型和构建器。
+from __future__ import annotations
 
-将 AST 元素列表重组为结构化的 DocumentIR，包含：
-- 结构化章节（front/body/back）
-- 图/表注册表（从 Markdown 提取，数据驱动）
-- 文档元数据
+from dataclasses import dataclass
+from enum import Enum
 
-原始来源: 设计文档 §3.3 数据模型 + §4.4 IR Builder
-"""
-
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+# ---------------------------------------------------------------------------
+# 行内格式（textstage/inline.py 产出，render/paragraphs.py 消费）
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class ChapterInfo:
-    """章节元数据"""
-    number: int                    # 章序号 (1-based)
-    cn_number: str                 # 中文数字 ("一")
-    title: str                     # 章标题（无编号）
-    h2_counter: int = 0            # 节计数器
-    h3_counters: Dict[int, int] = field(default_factory=dict)  # {h2_number: h3_counter}
-    fig_counter: int = 0           # 图序号计数器
-    tbl_counter: int = 0           # 表序号计数器
-    fn_counter: int = 0            # 脚注计数器
+class InlineRun:
+    """行内文本片段。
+
+    text 为内容性字段，构造时必须显式提供；bold/italic/code/superscript/
+    link_url 是纯格式开关，允许默认值（H-05 边界说明见模块 docstring）。
+    """
+
+    text: str
+    bold: bool = False
+    italic: bool = False
+    code: bool = False
+    superscript: bool = False
+    link_url: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# 标题
+# ---------------------------------------------------------------------------
+
+
+class HeadingKind(Enum):
+    """标题语义分类（01-architecture.md §4.3）。"""
+
+    MAIN_TITLE = "main_title"  # md H1 唯一 → 封面标题（不渲染为正文标题）
+    ABSTRACT = "abstract"  # "摘要"/"执行摘要" H2 → 无编号，罗马页码节
+    CHAPTER = "chapter"  # 正文章 H2 → "第X章"（中文数字）
+    SECTION = "section"  # H3 → "X.Y"
+    SUBSECTION = "subsection"  # H4 → "X.Y.Z"（样本 0 处，规范支持）
+    APPENDIX = "appendix"  # "附录X：" H2 → 字母编号
+    PLAIN = "plain"  # 段落小标题（不编号不入目录）
+
+
+# 结构化编号的联合类型：章=int｜节=(章,节)｜小节=(章,节,小节)｜附录=字母 str｜无编号=None
+# （01-architecture.md §4.3 HeadingIR.number 字段原始表述）
+HeadingNumber = int | tuple[int, int] | tuple[int, int, int] | str | None
 
 
 @dataclass
-class ChapterElements:
-    """一章的所有元素"""
-    chapter: ChapterInfo
-    elements: List[Any] = field(default_factory=list)
+class HeadingIR:
+    kind: HeadingKind
+    raw_text: str  # 剥离前原文（报告/审计用）
+    text: str  # 剥离编号后的纯标题文字
+    number: HeadingNumber  # 结构化编号，供连续性校验；无编号或解析失败为 None
+    display_number: str  # 渲染文本："第三章" / "3.1" / "附录A" / ""（Assembler 算好，Renderer 只拼接）
+    source_line: int
+
+
+# ---------------------------------------------------------------------------
+# 段落 / 列表 / 引用块（防御性）
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class FigureMeta:
-    """图元数据"""
-    id: str                # 图号 "2-1"
-    chapter: int           # 所属章号
-    seq: int               # 章内序号
-    caption: str           # 题注文本
-    file_path: str         # 图片文件路径（绝对或相对）
-    alt_text: str = ""     # 替代文本
+class ParagraphIR:
+    runs: list[InlineRun]
+    source_line: int
 
 
 @dataclass
-class TableMeta:
-    """表元数据"""
-    id: str                # 表号 "2-1"
-    chapter: int           # 所属章号
-    seq: int               # 章内序号
-    caption: str           # 题注文本
-    header_text: str = ""  # 表头文本（用于降级匹配）
-    source_note: str = ""  # 数据来源注释
+class ListBlockIR:
+    ordered: bool
+    items: list[list[InlineRun]]  # 样本仅 1 级，schema 不设嵌套（防御：嵌套输入降级平铺+WARNING）
+    source_line: int
 
 
 @dataclass
-class FootnoteMeta:
-    """脚注元数据"""
-    id: int                # 脚注编号（章内）
-    chapter: int           # 所属章号
-    text: str              # 脚注文本
+class QuoteIR:
+    """引用块（`>` 语法防御性支持；样本 0 处触发，04-interface-spec.md §2.9）。"""
+
+    runs: list[InlineRun]
+    source_line: int
+
+
+# ---------------------------------------------------------------------------
+# 图（FigureAssembler 产出，D1 三元组 100% 动态解析）
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FigureIR:
+    figure_id: str  # "1-1"（来自 alt 正则捕获组）
+    chapter_no: int  # 1
+    seq_no: int  # 1
+    caption_text: str  # 图号后空格分隔的剩余全文；标题内部冒号原样保留
+    alt_raw: str  # 完整 alt 原文（审计用）
+    path_raw: str  # md 中的原始相对路径
+    path_resolved: str  # 以 md 文件所在目录为基准解析出的绝对路径
+    file_exists: bool  # 阶段3 探测结果
+    bookmark_name: str  # "fig_1_1"；用途见下方注释（04-interface-spec.md §6 修订）
+    px_w: int | None  # R13：PNG IHDR 头解析得到的像素宽；不可用时为 None
+    px_h: int | None  # R13：同上，像素高
+    source_line: int
+    # 注意：无"目标尺寸"字段——宽度是渲染策略（config.figure_max_width_cm），不是
+    # 文档数据；px_w/px_h 是"解析得到的原始像素事实"，与目标尺寸是两个不同概念
+    # （R13 裁决明确区分，00-master-design.md §4 R13 行）。
+    # bookmark_name 用途（04-interface-spec.md §6 修订注释）：
+    #   Tier1 下消费，仅供图表目录 PAGEREF；Tier2 下额外供正文 REF。
+
+
+# ---------------------------------------------------------------------------
+# 表（TableAssembler 产出，D1 邻接语法关联）
+# ---------------------------------------------------------------------------
+
+
+class TableKind(Enum):
+    BODY = "body"  # 正文表：有 **表X-Y** 题注行（数据来源行可有可无）
+    APPENDIX = "appendix"  # 附录表：无题注行、无来源行（两类惯例之一，非错误）
+
+
+@dataclass
+class TableIR:
+    kind: TableKind
+    table_id: str | None  # "2-1"；附录表为 None
+    caption_text: str | None  # 题注行剥离 "表X-Y " 前缀后的标题；附录表 None
+    source_note: list[InlineRun] | None  # M9：改为 list[InlineRun]（承载未来 [来源](URL) 链接语法）
+    header_cells: list[list[InlineRun]]
+    body_rows: list[list[list[InlineRun]]]
+    n_cols: int
+    bookmark_name: str | None  # 用途见下方注释（04-interface-spec.md §6 修订）
+    source_line: int
+    # bookmark_name 用途（04-interface-spec.md §6 修订注释）：
+    #   Tier1 下消费，仅供图表目录 PAGEREF；Tier2 下额外供正文 REF。
+
+
+# ---------------------------------------------------------------------------
+# 分页（breaks.py 唯一生成点消费的 IR 元素，D5/N1）
+# ---------------------------------------------------------------------------
+
+
+class BreakOrigin(Enum):
+    EXPLICIT_HR = "explicit_hr"  # 来自文档中的 ---
+    AUTO_APPENDIX = "auto_appendix"  # 附录 H2 边界自动补插（R14/R18 前置条件）
+    AUTO_TOC = "auto_toc"  # M1："目录→图表目录"换页，breaks.py 规划
+    AUTO_RULE = "auto_rule"  # 其他规则补插（保留枚举位）
+
+
+@dataclass
+class PageBreakIR:
+    origin: BreakOrigin  # 报告中区分"文档自带 / 自动补插"来源
+    source_line: int | None
+
+
+# ---------------------------------------------------------------------------
+# 分节规划（breaks.py 产出，headerfooter/document 消费；04-interface-spec.md §2.4 I1）
+# ---------------------------------------------------------------------------
+
+
+class SectionKind(Enum):
+    """04-interface-spec.md §2.4 I1：四节方案（架构默认三节草案的回填细化）。"""
+
+    COVER = "cover"
+    ABSTRACT = "abstract"
+    TOC = "toc"  # 含目录 + 图表目录（若生成）
+    BODY = "body"  # 正文各章 + 附录
+
+
+class PageNumFormat(Enum):
+    NONE = "none"
+    LOWER_ROMAN = "lowerRoman"
+    DECIMAL = "decimal"
+
+
+class HeaderMode(Enum):
+    NONE = "none"
+    TITLE_SHORT = "title_short"
+
+
+@dataclass
+class SectionSpec:
+    kind: SectionKind
+    page_num_fmt: PageNumFormat
+    page_num_restart: bool
+    header_mode: HeaderMode
+    start_element_index: int  # 该节在 DocumentIR.elements 中的起始索引
+
+
+@dataclass
+class SectionPlan:
+    """breaks.py（未来任务）产出。
+
+    默认四节：COVER（无页眉脚）/ ABSTRACT（有页眉，罗马页码 start=1）/
+    TOC（无页眉，罗马页码续接）/ BODY（有页眉，阿拉伯页码 start=1）。
+
+    M9 无摘要降级规则：若文档中不存在 ABSTRACT 类 H2（HeadingKind.ABSTRACT），
+    则退化为三节方案（COVER/TOC/BODY），此时前置罗马页码节（TOC）仅含目录本身
+    （不含摘要正文）。本 dataclass 只是数据容器，三节/四节的具体判定逻辑由
+    assemble/breaks.py（未来任务）实现，此处不作数据驱动之外的假设。
+    """
+
+    sections: list[SectionSpec]
+
+
+# ---------------------------------------------------------------------------
+# 交叉引用登记（阶段3 从段落文本登记，阶段4 消费，只读校验用）
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class XRefMention:
+    ref_id: str  # "图1-1" / "表4-1"
+    ref_type: str  # "figure" | "table"
+    mention_line: int
+    style: str  # "paren"（图X-Y） | "asshown"（如图X-Y所示） | "positional"（下图/上表, 违规）
+
+
+# ---------------------------------------------------------------------------
+# 文档头元数据
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MetadataIR:
+    title: str  # H1 文本；md 无 H1 是 FATAL 场景，故此字段构造时必然非空
+    subtitle: str | None
+    report_type: str | None
+    organization: str | None
+    version_raw: str | None  # "V1.0 | 2026年7月"
+    version: str | None  # "V1.0"（二次拆分）
+    date: str | None  # "2026年7月"（二次拆分，允许 None——无独立日期字段是实测事实）
+    title_short: str | None  # 页眉简称（来源策略从 metadata/配置取，不硬编码）
+
+
+# ---------------------------------------------------------------------------
+# 顶层文档结构
+# ---------------------------------------------------------------------------
+
+# 有序正文元素流的成员类型（01-architecture.md §4.3："不存在 HorizontalRule 类型"——
+# `---` 在阶段3 已被 breaks.py 消费为 PageBreakIR，渲染器分派字典中没有 HR 分支）。
+BlockIR = HeadingIR | ParagraphIR | FigureIR | TableIR | ListBlockIR | PageBreakIR | QuoteIR
 
 
 @dataclass
 class DocumentIR:
-    """文档中间表示"""
-    metadata: Dict[str, str] = field(default_factory=dict)
-    front_matter: List[Any] = field(default_factory=list)       # 摘要、目录（不编号）
-    body_chapters: List[ChapterElements] = field(default_factory=list)  # 各章内容
-    back_matter: List[Any] = field(default_factory=list)         # 参考文献、附录
-    figure_registry: Dict[str, FigureMeta] = field(default_factory=dict)  # 图注册表
-    table_registry: Dict[str, TableMeta] = field(default_factory=dict)    # 表注册表
-    footnotes: List[FootnoteMeta] = field(default_factory=list)  # 脚注列表
-    term_index: List[str] = field(default_factory=list)          # 术语索引
-
-
-# ── 中文数字映射 ──
-
-CN_NUM_MAP = {
-    1: '一', 2: '二', 3: '三', 4: '四', 5: '五',
-    6: '六', 7: '七', 8: '八', 9: '九', 10: '十',
-    11: '十一', 12: '十二', 13: '十三', 14: '十四', 15: '十五',
-    16: '十六', 17: '十七', 18: '十八', 19: '十九', 20: '二十',
-}
-
-# 扩展到 50 章（通用阿拉伯数字→中文数字转换）
-def _num_to_cn(n: int) -> str:
-    """阿拉伯数字 → 中文数字（1-99）"""
-    if n in CN_NUM_MAP:
-        return CN_NUM_MAP[n]
-    if n <= 0:
-        return str(n)
-    if n < 100:
-        tens = n // 10
-        ones = n % 10
-        if ones == 0:
-            return f'{CN_NUM_MAP[tens]}十'
-        if tens == 1:
-            return f'十{CN_NUM_MAP[ones]}'
-        return f'{CN_NUM_MAP[tens]}十{CN_NUM_MAP[ones]}'
-    return str(n)
-
-
-# ── 章节边界检测关键词 ──
-
-BACK_MATTER_KEYWORDS = ['参考文献', '附录', '术语表', '索引', '图表索引', '资料清单']
-
-
-def is_back_matter(text: str) -> bool:
-    """判断标题文本是否属于 back matter"""
-    return any(kw in text for kw in BACK_MATTER_KEYWORDS)
-
-
-# ── IR Builder ──
-
-def build_ir(elements: list, metadata: dict) -> DocumentIR:
-    """将 AST 元素列表重组为结构化 DocumentIR。
-
-    算法：
-    1. 遍历元素，根据 H1/H2 标题判断 front/body/back 状态
-    2. 第一个非 front/back 的 H1 → 进入 body 状态
-    3. 遇到 back matter 关键词的标题 → 进入 back 状态
-    4. 在 body 状态下，遇到 H1 创建新 ChapterInfo
-    5. 提取图/表元数据注册到 figure_registry/table_registry
-
-    Args:
-        elements: parser.parse_markdown() 产出的 AST 元素列表
-        metadata: 文档元数据 dict
-
-    Returns:
-        DocumentIR 实例
-    """
-    # 避免循环导入
-    from .parser import Heading, Paragraph, ImageElement, TableElement, ListItem
-    from .parser import extract_figure_meta, extract_table_caption
-
-    ir = DocumentIR(metadata=metadata)
-    current_chapter = None
-    current_elements = ir.front_matter
-    state = "front"  # front | body | back
-    found_first_h1 = False
-
-    # 章节计数器
-    ch_counter = 0
-    fig_counter = {}
-    tbl_counter = {}
-
-    for elem in elements:
-        # --- 处理 Heading ---
-        if isinstance(elem, Heading):
-            text = elem.text if hasattr(elem, 'text') else str(elem)
-
-            if elem.level == 1:
-                if not found_first_h1:
-                    # 第一个 H1 是封面标题（跳过，不加入任何 section）
-                    found_first_h1 = True
-                    continue
-
-                if state == "front" and not is_back_matter(text):
-                    # 第一个非 front/back 的 H1 → 进入正文
-                    state = "body"
-                    ch_counter += 1
-                    cn = _num_to_cn(ch_counter)
-                    current_chapter = ChapterInfo(
-                        number=ch_counter,
-                        cn_number=cn,
-                        title=text
-                    )
-                    fig_counter[ch_counter] = 0
-                    tbl_counter[ch_counter] = 0
-                    chapter_elements = ChapterElements(chapter=current_chapter)
-                    ir.body_chapters.append(chapter_elements)
-                    current_elements = chapter_elements.elements
-                    continue
-                elif is_back_matter(text):
-                    state = "back"
-                    current_chapter = None
-                    current_elements = ir.back_matter
-                    continue
-                elif state == "body":
-                    # 新一章
-                    ch_counter += 1
-                    cn = _num_to_cn(ch_counter)
-                    current_chapter = ChapterInfo(
-                        number=ch_counter,
-                        cn_number=cn,
-                        title=text
-                    )
-                    fig_counter[ch_counter] = 0
-                    tbl_counter[ch_counter] = 0
-                    chapter_elements = ChapterElements(chapter=current_chapter)
-                    ir.body_chapters.append(chapter_elements)
-                    current_elements = chapter_elements.elements
-                    continue
-
-            current_elements.append(elem)
-            continue
-
-        # --- 提取图元数据 ---
-        if isinstance(elem, ImageElement) and current_chapter:
-            ch = current_chapter.number
-            fig_counter.setdefault(ch, 0)
-            fig_counter[ch] += 1
-            meta = extract_figure_meta(elem.alt_text, ch, fig_counter[ch])
-            if meta:
-                fig = FigureMeta(
-                    id=meta['id'],
-                    chapter=ch,
-                    seq=meta['seq'],
-                    caption=meta['caption'],
-                    file_path=elem.url,
-                    alt_text=elem.alt_text
-                )
-                ir.figure_registry[fig.id] = fig
-
-        # --- 提取表元数据 ---
-        if isinstance(elem, TableElement) and current_chapter:
-            ch = current_chapter.number
-            tbl_counter.setdefault(ch, 0)
-            tbl_counter[ch] += 1
-            # 表题注由调用方在构建时传入，这里先占位
-            tbl = TableMeta(
-                id=f'{ch}-{tbl_counter[ch]}',
-                chapter=ch,
-                seq=tbl_counter[ch],
-                caption='',
-                header_text=' | '.join(elem.header)
-            )
-            ir.table_registry[tbl.id] = tbl
-
-        current_elements.append(elem)
-
-    return ir
-
-
-def resolve_table_captions(ir: DocumentIR, pending_captions: Dict[int, str] = None) -> DocumentIR:
-    """将解析阶段收集的表题注关联到 table_registry。
-
-    遍历 IR 中的表，用 pending_captions（{表在body中的序号: caption}）填充 TableMeta.caption。
-
-    Args:
-        ir: DocumentIR 实例
-        pending_captions: {表序号: 题注文本} 映射
-
-    Returns:
-        更新后的 DocumentIR（原地修改）
-    """
-    if not pending_captions:
-        return ir
-
-    tbl_list = list(ir.table_registry.values())
-    for i, tbl in enumerate(tbl_list):
-        if i in pending_captions:
-            tbl.caption = pending_captions[i]
-
-    return ir
+    metadata: MetadataIR  # 文档头元数据（供封面/页眉简称）
+    elements: list[BlockIR]  # 有序正文元素流（含 PageBreakIR）
+    section_plan: SectionPlan  # 分节规划（breaks.py 产出）
+    figure_registry: dict[str, FigureIR]  # "1-1" → FigureIR（校验用索引，与 elements 同对象引用）
+    table_registry: dict[str, TableIR]  # "2-1" → TableIR（仅含有编号的正文表）
+    xref_registry: list[XRefMention]  # 正文图表提及登记（先文后图检测用）
