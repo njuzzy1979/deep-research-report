@@ -591,6 +591,13 @@ research/extracted/
   写入: 将返回的 xml 字段内容写入 research/figures/<图号-描述>.drawio
 ```
 
+**图表样式约束**：调用 `mcp__drawio__create_diagram` 时，在 Mermaid/XML 描述之后注入样式约束文本（完整模板见 `design/chart-quality-constraints/chart-quality-checklist.md` 第四节）：
+- 配色：灰度色板 + 暗红 #D62728 唯一强调色
+- 字体：≥12px（≈9pt），标题 ≥14px
+- 边框：1pt #333333，箭头 1.5pt
+- 背景：纯白 #FFFFFF
+- 图例：>2 种灰度/形状时必须附
+
 **导出 SVG**：通过 draw.io 桌面版 CLI 导出。路径配置见 `references/tool-paths.json` 中 `drawio_desktop.absolute_path` 字段。
 
 > **执行前**：先读取 `references/tool-paths.json`，取 `drawio_desktop.absolute_path`。若已填写 → 直接使用；若为空 → 用 `where draw.io`（Win）或 `which draw.io`（Linux/macOS）查找。
@@ -693,6 +700,9 @@ print('PNG 300dpi OK, size:', img.size)
 - [ ] 架构图之间逻辑一致（同一对象在不同图中名称统一）
 - [ ] 所有架构图有逻辑或来源标注（在图注中说明）
 - [ ] 所有 PNG 均已验证达到 300dpi（`PIL.Image.open(p).info.get('dpi')` 应为 `(300, 300)` 或更高）
+- [ ] **颜色映射注册表已创建**：`research/figures/color-registry.csv` 已建立，至少覆盖本报告所有核心分析章对应的架构图首张图。每个节点/实体的颜色登记后，后续出图直接复用，确保同一概念的跨图一致性
+- [ ] **配色符合灰度色板**：所有架构图仅在灰度色板（#000000 / #333333 / #555555 / #777777 / #999999 / #BBBBBB / #DDDDDD / #F2F2F2 / #FFFFFF）中选择颜色。如使用强调色，仅限暗红 #D62728 且全图 ≤3 处。抽查 2 张图确认无违规彩色
+- [ ] **PNG 分辨率达标**：所有 PNG 宽度 ≥1102px（对应 14cm 宽、~9pt 文字在 200dpi 下的最低打印可读阈值，与阶段 9 转换器已有的 W-IMG-02 检查一致）
 
 🔴 CHECKPOINT · 🛑 STOP：总览图和核心章架构图就位后进入阶段 7。总览图未完成或核心章缺架构图 → 回到阶段 6.1 补充。
 
@@ -748,7 +758,21 @@ print('PNG 300dpi OK, size:', img.size)
 具体步骤：
 1. **调取该章对应的专题卡片**：按 `card-index.csv` 的 `chapter_ref` 找到本章卡片，卡片是本章的一手素材——案例卡的"时间线/动作/效果"直接转写为案例分析段落，技术卡的"输入输出/局限"直接转写为机制阐述，不重新凭记忆组织
 2. 完成当前章的**文字草稿**（不含图表）
-3. **立即产出该章的数据图表**：写作中遇到对比数据 → 出对比表；遇到时间序列 → 出折线图；遇到占比 → 出饼图。用 matplotlib/类似工具直接出图时，**必须以 `dpi=300` 保存**（`plt.savefig(path, dpi=300, bbox_inches='tight')`），不要沿用早期 `dpi=200` 的惯例——V3.1 §5.2 要求 PNG 300dpi+，matplotlib 按此 dpi 保存的 PNG 自动写入正确的 pHYs 元数据，无需额外用 Pillow 二次处理（这一点与工具 A/B 出的架构图不同，架构图工具链是 SVG→PNG 转换才需要 Pillow 补写 dpi）
+3. **立即产出该章的数据图表**：
+   a. **加载报告图表样式模板**：
+      ```python
+      import matplotlib.pyplot as plt
+      plt.style.use('design/chart-quality-constraints/matplotlib-report-style.mplstyle')
+      ```
+      此模板设定了全报告统一的字体（宋体+TNR）、字号（标签10pt/刻度9pt/图例9pt）、
+      灰度色板（7档）、300dpi 等全局参数。**每张图出图前必须先执行此语句**。
+   b. 选择图表类型——对照 `design/chart-quality-constraints/00-chart-quality-design.md`
+      第 3.4 节的"图表类型选择决策表"，禁止使用 3D 图表和 >5 扇区的饼图
+   c. 写作中遇到对比数据 → 出对比表；遇到时间序列 → 出折线图；遇到占比 → 出饼图
+      （≤5 项；>5 项用横向条形图）。所有数据图表用 `dpi=300` + `bbox_inches='tight'`
+      保存到 `research/figures/`，文件命名 `<图号>-<描述>.png`
+   d. **颜色注册**：若图中出现了新的概念/实体（`color-registry.csv` 中无记录），
+      在 `color-registry.csv` 中登记其颜色映射
 4. 将图表**嵌入**文字中对应位置，确保首次引用在图表之前
 5. 检查该章的证据源是否都标注了可信度等级
 6. 检查是否出现了阶段 3 台账中标记为"不入正文"的主张
@@ -826,6 +850,8 @@ print('PNG 300dpi OK, size:', img.size)
 - 只堆材料不做机制提炼，或只谈概念不给案例/数据/图表
 - 写"据外媒报道""有消息称"等空泛来源——必须写具体媒体+日期+标题
 
+> **dataviz 颜色校验（可选）**：如果项目环境中 `dataviz` skill 可用，在阶段 7 首张数据图表产出后触发 `/dataviz` 进行颜色合规校验。若不可用，执行 `python scripts/chart_checks.py --colors --figures-dir research/figures/` 作为等价替代。校验结果不阻塞写作流程，仅记录到阶段 7 质量门槛备注中。
+
 ### ▶ 阶段 7 质量门槛
 
 - [ ] 每章开头有"本章结论"，末尾有"对主论点的贡献"（含至少 1 句局限说明）
@@ -837,6 +863,9 @@ print('PNG 300dpi OK, size:', img.size)
 - [ ] **证据密度检查**：抽查 3 段连续文字，均能找到对应来源
 - [ ] **建议可操作性检查**：每条建议回答了谁/做什么/资源/指标四个问题
 - [ ] **摘要自足性检查**：遮蔽正文只读摘要，能否理解报告的核心发现和方法？
+- [ ] **matplotlib 样式模板已加载**：所有数据图表的出图脚本/notebook 以 `plt.style.use('design/chart-quality-constraints/matplotlib-report-style.mplstyle')` 开头，未使用系统默认样式（grep 检查所有含 `plt.savefig` 或 `plt.show` 的文件）
+- [ ] **图表类型合规**：每张数据图表的类型在决策表"首选"或"次选"列中。若使用了"禁止"类型（3D图表、>5扇区饼图等），已给出书面理由（记录在阶段 7 质量门槛备注中）
+- [ ] **色盲友好**：饼图使用了阴影线（hatch）区分扇区，多系列折线图使用了不同 dash 样式 + 图例标注。纯灰度图像除外（3 档以上灰度差异足够区分）
 
 ---
 
@@ -855,6 +884,7 @@ print('PNG 300dpi OK, size:', img.size)
 | **偏题** | 哪些内容偏离了核心问题？哪些章节在写"科普"而非"分析"？ |
 | **矛盾** | 不同章节对同一事实的表述是否一致？结论是否与案例矛盾的？ |
 | **卡片浪费** | `card-index.csv` 中 `used_in_chapter` 长期为空的卡片——是该案例/技术后来判断不重要而合理舍弃，还是遗漏了本该写入的重要素材？ |
+| **图表一致性** | 抽查 3 组不同章中的同概念图（如同一实体在不同架构图中的颜色是否一致？注册表是否准确？）；抽查 2 张数据图表确认配色在灰度打印下仍可区分（截图→去色→各系列仍可分辨）；所有图表是否有数据来源标注；图题的描述是否传达了核心发现而非仅"X与Y的关系图" |
 
 ### 8.2 产出红队风险清单
 
