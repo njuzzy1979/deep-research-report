@@ -1,0 +1,157 @@
+# deep-research-report matplotlib 样式模板
+# 用途：阶段7 数据图表绘制的全局样式，确保全报告图表视觉一致
+# 来源：design/chart-quality-constraints/00-chart-quality-design.md
+# 使用：plt.style.use('design/chart-quality-constraints/matplotlib-report-style.mplstyle')
+# 版本：2026-07-21
+
+# ===========================================================================
+# 字体体系 (Q-07, Q-08: MUST)
+# ===========================================================================
+# 中文 宋体(SimSun) + 西文 Times New Roman + 等宽 Consolas
+# 备选：macOS/Linux 无 SimSun 时回退 DejaVu Sans
+font.family:              sans-serif
+font.sans-serif:          SimSun, Times New Roman, DejaVu Sans, Arial
+font.size:                10.0          # V3.1 §5.2: 坐标轴标签 10pt
+font.weight:              normal
+
+# 各级字号 (Q-08: MUST)
+axes.titlesize:           12.0          # 标题
+axes.labelsize:           10.0          # 坐标轴标签 = V3.1 规定
+xtick.labelsize:          9.0           # 刻度 = V3.1 规定
+ytick.labelsize:          9.0
+legend.fontsize:          9.0           # 图例 = V3.1 规定
+legend.title_fontsize:    9.0
+
+# ===========================================================================
+# 颜色体系 (Q-01, Q-02: MUST)
+# ===========================================================================
+# 学术灰度色板：7 档明度梯度 + 1 个强调色
+# 原理：多系列数据用灰度区分，彩色仅用于最关键的数据点
+axes.prop_cycle:          cycler('color', ['#000000', '#333333', '#555555', '#777777', '#999999', '#BBBBBB', '#DDDDDD'])
+axes.edgecolor:           '#000000'
+axes.labelcolor:          '#000000'
+xtick.color:              '#000000'
+ytick.color:              '#000000'
+grid.color:               '#999999'
+grid.alpha:               0.3           # 网格线半透明
+
+# 强调色（仅一种，Q-02: MUST）
+# Tol-Red #D62728 — 色觉障碍者可感知
+# 不设为全局颜色，代码中使用：
+#   ax.plot(x, y, color='#D62728', linewidth=2.5, zorder=5)  # 强调线
+
+# ===========================================================================
+# 图形底色与边框 (Q-06: MUST)
+# ===========================================================================
+figure.facecolor:         white         # 图区白底（Word嵌入时与纸白一致）
+axes.facecolor:           white
+figure.edgecolor:         white
+
+# 学术惯例：隐藏顶部和右侧脊线
+axes.spines.top:          False
+axes.spines.right:        False
+axes.spines.left:         True
+axes.spines.bottom:       True
+# 脊线颜色统一黑色
+axes.spines.left:         True          # 覆盖上一条的设置方式
+# 使用 axes.spines 方式更好，但 rcParams 不支持逐个设置
+
+# ===========================================================================
+# 网格
+# ===========================================================================
+axes.grid:                True
+axes.grid.axis:           y             # 仅水平网格线（降低视觉噪音）
+axes.grid.which:          major
+grid.linestyle:           --
+grid.linewidth:           0.5
+
+# ===========================================================================
+# 线条与标记
+# ===========================================================================
+lines.linewidth:          1.5
+lines.markersize:         6.0
+lines.markeredgewidth:    0.0           # 无标记边框（灰度下更干净）
+lines.solid_capstyle:     round
+lines.solid_joinstyle:    round
+lines.dash_capstyle:      round
+
+# 误差线
+errorbar.capsize:         3.0
+
+# ===========================================================================
+# 图例 (Q-08 legend 9pt: MUST)
+# ===========================================================================
+legend.frameon:           True
+legend.framealpha:        0.9
+legend.edgecolor:         '#DDDDDD'
+legend.fancybox:          False         # 直角边框（学术风格）
+legend.loc:               best
+legend.borderpad:         0.4
+legend.labelspacing:      0.25
+legend.handlelength:      2.0
+legend.handletextpad:     0.8
+legend.borderaxespad:     0.5
+
+# ===========================================================================
+# 刻度
+# ===========================================================================
+xtick.major.size:         3.5
+xtick.minor.size:         2.0
+xtick.major.width:        0.8
+xtick.minor.width:        0.6
+xtick.direction:          in            # 刻度朝内
+ytick.major.size:         3.5
+ytick.minor.size:         2.0
+ytick.major.width:        0.8
+ytick.minor.width:        0.6
+ytick.direction:          in
+
+# ===========================================================================
+# 图形尺寸与DPI (Q-11: MUST)
+# ===========================================================================
+figure.dpi:               300           # 300dpi = V3.1 §5.2
+figure.figsize:           6.4, 4.0      # 默认 ≈16:10
+savefig.dpi:              300
+savefig.bbox:             tight
+savefig.pad_inches:       0.1
+savefig.format:           png
+savefig.facecolor:        white
+
+# ===========================================================================
+# 饼图专用 (Q-03 hatch: MUST, Q-15 ≤5扇区: MUST)
+# ===========================================================================
+# pie 的 rcParams 有限，代码级设置：
+#   wedges, texts, autotexts = ax.pie(sizes, labels=labels,
+#       colors=['#DDDDDD','#BBBBBB','#999999','#777777','#555555'],
+#       autopct='%1.1f%%', startangle=90, pctdistance=0.75)
+#   hatches = ['/', '\\', 'x', '-', '|']  # 不同阴影线样式
+#   for w, h in zip(wedges, hatches[:len(wedges)]):
+#       w.set_hatch(h)
+#       w.set_edgecolor('#000000')
+#       w.set_linewidth(0.5)
+
+# ===========================================================================
+# 颜色循环覆盖（用于饼图/堆叠图等需显式设置颜色的场景）
+# ===========================================================================
+# 以下为全局颜色常量，代码中通过 plt.rcParams 或直接引用
+# 代码引用方式：from cycler import cycler
+#             colors = [c['color'] for c in plt.rcParams['axes.prop_cycle']]
+#             ax.bar(x, y, color=colors[:len(y)])
+
+# ===========================================================================
+# LaTeX / 数学字体（如涉及公式）
+# ===========================================================================
+text.usetex:              False         # 不使用 LaTeX（减小依赖）
+mathtext.fontset:         stix          # STIX 字体接近 Times New Roman
+mathtext.default:         regular
+
+# ===========================================================================
+# 直方图 / 分布图
+# ===========================================================================
+hist.bins:                20
+
+# ===========================================================================
+# 色条 (colorbar) — 用于热力图等
+# ===========================================================================
+# 注意：本方案禁止全彩色热力图。如需使用，应改用灰度 colormap
+image.cmap:               Greys         # 默认灰度 colormap

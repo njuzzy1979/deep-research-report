@@ -156,15 +156,6 @@ def render_toc(doc, ir: DocumentIR, styles: dict, oxml_helpers) -> None:
     """
     toc_heading_style = styles.get("TOC Heading")
 
-    # ---- 从 elements 中提取图与正文表 ----
-    figures: list[FigureIR] = [
-        e for e in ir.elements if isinstance(e, FigureIR)
-    ]
-    body_tables: list[TableIR] = [
-        e for e in ir.elements
-        if isinstance(e, TableIR) and e.kind == TableKind.BODY and e.table_id is not None
-    ]
-
     # ---- 1. 目录标题 ----
     doc.add_paragraph("目录", style=toc_heading_style)
 
@@ -184,10 +175,9 @@ def render_toc(doc, ir: DocumentIR, styles: dict, oxml_helpers) -> None:
     hint_run = p_hint.add_run(hint_text)
     _set_run_font(hint_run, size_half_pt="18", color_hex="999999", cjk_font="宋体")
 
-    # ---- 4. 图表目录（仅在图表 >= 10 时生成，R9 auto 模式） ----
-    total_charts = len(figures) + len(body_tables)
-    if total_charts >= 10:
-        render_chart_directory(doc, figures, body_tables, toc_heading_style, oxml_helpers)
+    # ---- 4. 图表目录不在此渲染（由 document.py 在分页后调用 render_chart_directory） ----
+    # G-02 约束：add_page_break 仅 document.py，故图表目录的分页由调用方控制。
+    # render_toc 只负责目录本身（标题+TOC域+提示），图表目录由 document.py 单独调用。
 
 
 def should_render_chart_directory(ir: DocumentIR) -> bool:
@@ -214,17 +204,14 @@ def render_chart_directory(doc, figures: list, body_tables: list,
         p = doc.add_paragraph()
         p.paragraph_format.line_spacing = 1.0
 
-        # 图号文本 + 制表符
-        label = f"图{fig.figure_id}\t"
+        # 图号 + 题注（左侧），制表符推到右边界后接 PAGEREF 域（页码）
+        caption = f"  {fig.caption_text}" if fig.caption_text else ""
+        label = f"图{fig.figure_id}{caption}\t"
         p.add_run(label)
 
-        # PAGEREF 域（占位 "1"，Word 更新域后回填真实页码）
+        # PAGEREF 域在右边界（占位空格，Word F9 更新后回填真实页码）
         instr = f"PAGEREF {fig.bookmark_name} \\h"
-        _add_field_with_placeholder(p, instr, "PAGEREF", "1", oxml_helpers)
-
-        # 图题注文本
-        if fig.caption_text:
-            p.add_run(f"  {fig.caption_text}")
+        _add_field_with_placeholder(p, instr, "PAGEREF", " ", oxml_helpers)
 
         _ensure_right_tab_stop(p)
 
@@ -233,17 +220,14 @@ def render_chart_directory(doc, figures: list, body_tables: list,
         p = doc.add_paragraph()
         p.paragraph_format.line_spacing = 1.0
 
-        # 表号文本 + 制表符
-        label = f"表{tbl.table_id}\t"
+        # 表号 + 题注（左侧），制表符推到右边界后接 PAGEREF 域（页码）
+        caption = f"  {tbl.caption_text}" if tbl.caption_text else ""
+        label = f"表{tbl.table_id}{caption}\t"
         p.add_run(label)
 
-        # PAGEREF 域
+        # PAGEREF 域在右边界
         instr = f"PAGEREF {tbl.bookmark_name} \\h"
-        _add_field_with_placeholder(p, instr, "PAGEREF", "1", oxml_helpers)
-
-        # 表题注文本
-        if tbl.caption_text:
-            p.add_run(f"  {tbl.caption_text}")
+        _add_field_with_placeholder(p, instr, "PAGEREF", " ", oxml_helpers)
 
         _ensure_right_tab_stop(p)
 
