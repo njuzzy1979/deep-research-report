@@ -16,6 +16,39 @@
 - [ ] **红队风险清单处理确认**：逐条核对风险清单中的实际处理结果，确认正文已按处理结果修改；未处理的中风险项已在附录中列出原因
 - [ ] 全文通读至少一遍
 
+### 9.1.x 分章合并——H1 冲突预防（解决 D-1）
+
+> 本节对应 v3 优化方案修改 4.6.1、v5 清单 #21。在多 Agent 协同体系下，本步骤由 `finalizer_agent` 执行；单 Agent 档下由 orchestrator 执行。分文件写作时各章独立用 H2（见 stage-7-writing.md §7.2.2），已从源头预防 D-1，本步是合并前的**终检兜底**。
+
+**合并前检查**：在合并所有分章文件之前，先 grep 每个文件中 H1 的数量：
+
+```bash
+for f in research/drafts/ch*.md; do
+  count=$(grep -c "^# " "$f")
+  if [ "$count" -gt 0 ]; then
+    echo "WARNING: $f 包含 $count 个 H1——合并后会产生多个主标题"
+  fi
+done
+```
+
+**如果任一分章文件包含 H1 → 在合并前将分章文件中的 H1 替换为 H2。**
+**合并后的 final-report.md 只能有 1 个 H1（即前言/导论，或由阶段 9 自动添加）。**
+
+**合并命令（推荐使用 cat + 转换器自动编号，不要在 PowerShell 中手动拼接）**：
+
+```bash
+# 正确方式：按顺序 cat 分章文件，转换器自动处理编号
+cat research/drafts/ch01-*.md research/drafts/ch02-*.md ... > research/drafts/final-report-body.md
+```
+
+**合并后终检**：对合并后的 `final-report.md` 运行合约终检（v5 清单 #6 复用）——
+
+```bash
+python scripts/contract_check.py research/drafts/final-report.md --merged
+```
+
+`--merged` 模式下 C1 允许恰好 1 个 H1；若 > 1 则说明分章 H1 未清理干净，回到上一步替换为 H2。
+
 ## 9.2 自动导出标准 Word 文档（.docx）——必须执行
 
 **研究报告的最终交付物必须是格式规范的 Word 文档。本阶段自动执行，不需要用户单独要求。**

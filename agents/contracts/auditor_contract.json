@@ -1,0 +1,50 @@
+{
+  "contract_id": "auditor_contract",
+  "version": "1.0",
+  "role": "evaluator",
+  "applies_to": "deep-research-report stage 7 chapter_auditor_agent",
+  "description": "审计 Agent 的评分维度 schema（v4 §5.1.2 AUDIT_SCHEMA 落盘）。Phase A 盲态预承诺按此写评分计划，Phase B 明态按此打分。对标 academic-paper shared/contracts/evaluator/full.json。",
+  "pre_commitment_artifacts": {
+    "scoring_plan": {
+      "minimum_dimensions": "all",
+      "per_dimension_criteria": ["dimension", "what_to_look_for", "what_triggers_block", "what_triggers_warn"],
+      "terminal_tag": "[PRE-COMMITMENT-ACKNOWLEDGED]"
+    }
+  },
+  "dimensions": [
+    {"group": "大纲对照", "id": "outline_coverage", "method": "对照 outline.md + contract_check.py 数字数", "severity": "high"},
+    {"group": "证据", "id": "evidence_density", "method": "抽 3 段均可溯源", "severity": "high"},
+    {"group": "证据", "id": "cd_source_qualifier", "method": "C/D 级来源标注限定词", "severity": "mid"},
+    {"group": "证据", "id": "no_vague_source", "method": "无'据外媒报道'等空泛来源", "severity": "mid"},
+    {"group": "表述", "id": "strong_claim", "method": "claim_strength_check.py：强表述有无 A/B 证据", "severity": "high"},
+    {"group": "表述", "id": "logic_word", "method": "因此/显然/必然前后逻辑链完整", "severity": "mid"},
+    {"group": "结构", "id": "conclusion_para", "method": "本章结论段 3-5 句", "severity": "mid"},
+    {"group": "结构", "id": "contribution_limitation", "method": "对主论点贡献含 ≥1 句局限", "severity": "mid"},
+    {"group": "结构", "id": "numbered_list_audit", "method": "编号列表仅用于机制/流程", "severity": "low"},
+    {"group": "资产", "id": "figure_reference", "method": "图表在正文引用，图在文前", "severity": "mid"},
+    {"group": "资产", "id": "card_backfill", "method": "核对 card-index.csv used_in_chapter 回填", "severity": "low"},
+    {"group": "合约", "id": "C1_h1", "method": "contract_check.py：无 H1", "severity": "high"},
+    {"group": "合约", "id": "C2_manual_number", "method": "contract_check.py：H2 无手动编号", "severity": "high"},
+    {"group": "合约", "id": "C3_image_syntax", "method": "contract_check.py：图片标准语法", "severity": "mid"},
+    {"group": "合约", "id": "C4_table_caption", "method": "contract_check.py：表格加粗题注", "severity": "mid"},
+    {"group": "合约", "id": "C5_banned", "method": "contract_check.py：无禁止内容/密级", "severity": "high"},
+    {"group": "量化", "id": "QS1_wordcount", "method": "contract_check.py：字数 vs 预算 ±30%", "severity": "mid"},
+    {"group": "量化", "id": "QS2_figures", "method": "contract_check.py：图片计数", "severity": "low"},
+    {"group": "量化", "id": "QS3_tables", "method": "contract_check.py：表格计数", "severity": "low"}
+  ],
+  "proposal_extra": [
+    {"group": "立项", "id": "P1_tech_metrics", "method": "技术指标四要素齐全(名称/目标值/考核/判定)", "severity": "high"},
+    {"group": "立项", "id": "P2_innovation", "method": "创新点三分类 + 与现有区别 + 预期效益", "severity": "high"},
+    {"group": "立项", "id": "P3_trl", "method": "引用 GJB7688/NASA TRL 定义，当前+目标 TRL", "severity": "mid"},
+    {"group": "立项", "id": "P4_milestone", "method": "阶段交付物 + 关键路径", "severity": "mid"},
+    {"group": "立项", "id": "P5_research_base", "method": "已有基础与本项目建立支撑关系", "severity": "low"}
+  ],
+  "verdict": ["PASS", "REVISE"],
+  "verdict_rule": "任一 high 严重度维度触发 block → REVISE；否则 PASS。C5 密级为红线一律 REVISE。",
+  "consistency_check": {
+    "enabled": true,
+    "rule": "Phase B 打分语言须 substring-match Phase A scoring_plan 的 what_triggers_block/warn 触发词"
+  },
+  "revision_loop": {"max_rounds": 2, "on_exhausted": "orchestrator raiseP0, 呈用户，不得默认放行"},
+  "quant_source_rule": "量化维度数字必须来自 contract_check.py 等脚本的真实 stdout，不得 Agent 文本编造"
+}

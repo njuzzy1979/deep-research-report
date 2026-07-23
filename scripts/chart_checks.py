@@ -12,6 +12,13 @@ import csv
 from pathlib import Path
 from collections import defaultdict
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 try:
     from PIL import Image
 except ImportError:

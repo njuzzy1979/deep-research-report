@@ -1,0 +1,63 @@
+{
+  "contract_id": "writer_contract",
+  "version": "1.0",
+  "role": "generator",
+  "applies_to": "deep-research-report stage 7 chapter_writer_agent",
+  "description": "写作 Agent 在 Phase A 盲态预承诺时复述、Phase B 写作时遵守的验收维度。对标 academic-paper shared/contracts/writer/full.json。",
+  "pre_commitment_artifacts": {
+    "acceptance_criteria_paraphrase": {
+      "minimum_dimensions": "all",
+      "terminal_tag": "[PRE-COMMITMENT-ACKNOWLEDGED]"
+    }
+  },
+  "acceptance_dimensions": [
+    {
+      "id": "D1",
+      "name": "outline_fidelity",
+      "cn": "大纲对照",
+      "requirement": "本章覆盖 outline.md 当前章条目的论证路径与关键素材，不凭记忆偏离大纲。"
+    },
+    {
+      "id": "D2",
+      "name": "evidence_triangle",
+      "cn": "证据密度三角",
+      "requirement": "每个关键判断呈现主张→证据→推理完整三角；每自然段至少 1 个可溯源来源，无连续 3 段无来源。"
+    },
+    {
+      "id": "D3",
+      "name": "card_transcription",
+      "cn": "卡片转写铁律",
+      "requirement": "不逐条翻译卡片字段、正文不出现字段标签、以论点为主线组织素材。"
+    },
+    {
+      "id": "D4",
+      "name": "length_target",
+      "cn": "篇幅达标",
+      "requirement": "本章字数与大纲'约 N×800 字'预算偏差在 ±30% 内，超出须在自声明说明原因。"
+    },
+    {
+      "id": "D5",
+      "name": "converter_contract",
+      "cn": "转换器合约 C1-C5",
+      "requirement": "标题 H2 起始纯文字无编号(C1/C2)、图片用 ![图X-Y](路径)(C3)、表格加粗题注 **表X-Y**(C4)、无禁止内容/密级词(C5)。"
+    },
+    {
+      "id": "D6",
+      "name": "acknowledged_boundary",
+      "cn": "承认边界",
+      "requirement": "'对主论点的贡献'段落含至少 1 句本章分析局限说明。"
+    },
+    {
+      "id": "D7",
+      "name": "proposal_modules",
+      "cn": "立项特殊模块",
+      "applies_when": "struct_template == proposal",
+      "requirement": "涉及立项模块的章节，P1 技术指标量化/P2 创新点三分/P3 TRL/P4 里程碑/P5 研究基础 按 writing-standards 标准13-17 落地。"
+    }
+  ],
+  "self_declaration_fields": [
+    "chapter_char_count", "figure_count", "table_count",
+    "cited_card_ids", "backfilled_used_in_chapter", "material_gap_markers"
+  ],
+  "notes": "自声明是给审计 Agent 的客观数据，不是质量判定。审计 Agent 用 contract_check.py 独立复核，不符时以脚本为准。"
+}
