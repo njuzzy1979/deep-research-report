@@ -49,6 +49,7 @@ class HeadingKind(Enum):
 
     MAIN_TITLE = "main_title"  # md H1 唯一 → 封面标题（不渲染为正文标题）
     ABSTRACT = "abstract"  # "摘要"/"执行摘要" H2 → 无编号，罗马页码节
+    FRONT_MATTER = "front_matter"  # 前言/导论章内的 H2/H3 → 不参与正文编号（V2.1 新增）
     CHAPTER = "chapter"  # 正文章 H2 → "第X章"（中文数字）
     SECTION = "section"  # H3 → "X.Y"
     SUBSECTION = "subsection"  # H4 → "X.Y.Z"（样本 0 处，规范支持）

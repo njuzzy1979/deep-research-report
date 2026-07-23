@@ -98,7 +98,8 @@ def _add_separator(doc: Document) -> None:
     make_pBdr_bottom(pPr, sz=COVER_SEPARATOR.sz, color=COVER_SEPARATOR.color_hex, space=1)
 
 
-def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
+def render_cover(doc: Document, metadata: MetadataIR, styles: dict,
+                 cover_metadata: dict | None = None) -> None:
     """在 Document 的当前节中渲染封面。
 
     封面布局（自上而下）：
@@ -113,21 +114,36 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
     不含密级字段（🚫严禁标密）。封面段落以 Normal 样式为基础
     （doc.add_paragraph() 默认已使用 Normal），run 级别覆盖格式属性。
 
+    封面字段优先级（改进 14）：cover_metadata > MetadataIR > 默认值。
+    cover_metadata 来自 --cover 参数指定的封面 MD 文件的 YAML frontmatter。
+
     Args:
         doc: python-docx Document 对象
         metadata: 文档头元数据（ir.MetadataIR）
         styles: 样式名 → 样式对象的映射（封面段落以 Normal 为基础，
             通过 run 级别属性覆盖；styles 参数保留供未来扩展使用）
+        cover_metadata: 封面独立元数据 dict（可选）；键名与 cover.md YAML 一致：
+            title / title_en / report_type / org / date / version / header_short
     """
+    # 封面字段解析辅助：cover_metadata > MetadataIR > 默认值
+    cm = cover_metadata or {}
+
+    def _cv(cover_key: str, metadata_val: str | None, default: str = "") -> str:
+        """取封面字段：cover_metadata[cover_key] > metadata_val > default。"""
+        if cm.get(cover_key):
+            return str(cm[cover_key])
+        return metadata_val or default
+
     # 1. 顶部留白 6cm（I11 裁决：单个空段落 space_before=Cm(6.0)）
     p_top = doc.add_paragraph()
     p_top.paragraph_format.space_before = Cm(COVER_TOP_SPACING_CM)
 
     # 2. 报告标题（28pt Bold，行距 1.5）
     title_spec = COVER_ELEMENTS["title"]
+    cover_title = _cv("title", metadata.title)
     _add_cover_paragraph(
         doc,
-        metadata.title,
+        cover_title,
         title_spec.size_pt,
         title_spec.bold,
         title_spec.color_hex,
@@ -136,12 +152,13 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
         line_spacing=1.5,
     )
 
-    # 3. 英文副标题（可选：metadata.subtitle 为 None 时跳过整段）
-    if metadata.subtitle:
+    # 3. 英文副标题（可选：cover.title_en 或 metadata.subtitle 为 None 时跳过整段）
+    cover_subtitle = _cv("title_en", metadata.subtitle)
+    if cover_subtitle:
         sub_spec = COVER_ELEMENTS["subtitle"]
         _add_cover_paragraph(
             doc,
-            metadata.subtitle,
+            cover_subtitle,
             sub_spec.size_pt,
             sub_spec.bold,
             sub_spec.color_hex,
@@ -151,7 +168,7 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
 
     # 4. 报告类型（16pt，默认文案"深度研究报告"）
     type_spec = COVER_ELEMENTS["report_type"]
-    report_type_text = metadata.report_type or "深度研究报告"
+    report_type_text = _cv("report_type", metadata.report_type, "深度研究报告")
     _add_cover_paragraph(
         doc,
         report_type_text,
@@ -167,7 +184,7 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
 
     # 6. 机构名（14pt Bold，默认"遨天科技"）
     org_spec = COVER_ELEMENTS["organization"]
-    org_text = metadata.organization or "遨天科技"
+    org_text = _cv("org", metadata.organization, "遨天科技")
     _add_cover_paragraph(
         doc,
         org_text,
@@ -180,12 +197,12 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict) -> None:
 
     # 7. 版本 + 日期（11pt，格式 V{version} | {date}）
     vd_spec = COVER_ELEMENTS["version_date"]
-    version_text = metadata.version or "V1.0"
-    date_text = metadata.date or ""
-    if date_text:
-        vd_line = f"{version_text} | {date_text}"
+    cover_version = _cv("version", metadata.version, "V1.0")
+    cover_date = _cv("date", metadata.date)
+    if cover_date:
+        vd_line = f"{cover_version} | {cover_date}"
     else:
-        vd_line = version_text
+        vd_line = cover_version
     _add_cover_paragraph(
         doc,
         vd_line,

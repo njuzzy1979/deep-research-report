@@ -49,6 +49,7 @@ class RunOptions:
     date: str | None
     header_short: str | None
     build_date: str | None
+    cover_path: str | None
 
     verbose: bool
     quiet: bool
@@ -166,6 +167,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="core_properties 三时间字段所用日期（R16）；未传时取 metadata.date 归一化，"
         "两者皆无则固定回退 2000-01-01，绝不取系统时间",
     )
+    parser.add_argument(
+        "--cover", dest="cover_path", type=str, default=None,
+        help="封面 YAML 文件路径（优先级高于正文 frontmatter）；"
+        "封面字段 = cover.md YAML > 正文 md YAML > CLI 参数 > 默认值",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument("-v", "--verbose", action="store_true", default=False, help="控制台输出提升到 DEBUG 级")
@@ -218,6 +224,7 @@ def parse_args(argv: list[str] | None = None) -> RunOptions:
         date=ns.date,
         header_short=ns.header_short,
         build_date=ns.build_date,
+        cover_path=os.path.abspath(ns.cover_path) if ns.cover_path else None,
         verbose=ns.verbose,
         quiet=ns.quiet,
     )

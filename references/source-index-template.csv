@@ -1,2 +1,2 @@
-source_id,title,language,author_or_org,publisher,publish_date,access_date,url_or_path,source_type,credibility_level,relevant_chapters,notes
-S001,示例：某主题白皮书,zh,某某机构,某某出版社,2024-06-01,2026-06-14,素材/白皮书.pdf,official,A,1-3,关键事实依据
+source_id,title,language,author_or_org,publisher,publish_date,access_date,url_or_path,source_type,credibility_level,relevant_chapters,local_path,extraction_status,notes
+S001,示例：某主题白皮书,zh,某某机构,某某出版社,2024-06-01,2026-06-14,素材/白皮书.pdf,official,A,1-3,素材/白皮书.pdf,已抽取,关键事实依据

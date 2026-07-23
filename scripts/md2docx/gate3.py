@@ -14,10 +14,12 @@ from docx.oxml.ns import qn
 from . import config
 from .ir import (
     DocumentIR,
+    FigureIR,
     HeadingIR,
     HeadingKind,
     PageBreakIR,
     PageNumFormat,
+    TableIR,
     TableKind,
 )
 from .issues import Issue, IssueCollector, Level
@@ -101,18 +103,33 @@ def run_gate3(
 def _check_secrecy(
     checks: list[dict], body, issues: IssueCollector
 ) -> None:
-    """全文搜索"绝密/机密/秘密/内部"等关键词——出现即 FATAL。
+    """全文搜索密级关键词——出现即 FATAL。
 
-    复用 config.py 中已定义的密级关键词白名单。
+    使用与 clean.py R-09弱 相同的上下文感知正则（含否定后顾断言）：
+    - "高度机密"（修饰性用语）-> 不触发
+    - "跨密级"（技术术语）-> 不触发
+    - 其余"绝密/机密/密级/内部资料"等 -> 触发 FATAL
+
+    流程：按 w:p 逐段收集所有 w:t 文本拼接为完整段落，再对每个段落
+    应用正则扫描——这样"高度机密""跨密级"之类即使跨 run 分割也能正确识别。
     """
-    all_keywords = set(config.SECRECY_WORDS_STRONG) | set(config.SECRECY_WORDS_WEAK)
+    # 复用与 clean.py R-09弱 完全一致的正则（含上下文排除断言）
+    _RX_SECRECY = re.compile(config.R_09_WEAK_SCAN)
+
     hits: list[str] = []
 
-    for t_elem in body.iter(qn("w:t")):
-        text = t_elem.text or ""
-        for kw in all_keywords:
-            if kw in text:
-                hits.append(kw)
+    for p_elem in body.iter(qn("w:p")):
+        # 收集该段落内所有 w:t 文本
+        t_texts = [
+            t.text or ""
+            for t in p_elem.iter(qn("w:t"))
+        ]
+        para_text = "".join(t_texts)
+        if not para_text:
+            continue
+
+        for m in _RX_SECRECY.finditer(para_text):
+            hits.append(m.group())
 
     if hits:
         unique_hits = sorted(set(hits))
@@ -173,6 +190,21 @@ def _check_page_breaks(
     ]
     expected_section_breaks = len(ir.section_plan.sections) - 1
     expected_page_breaks = len(page_breaks_in_ir)
+
+    # V2.1：图表目录换页由 TOC 节渲染器直接调用 add_page_break()，
+    # 不走 PageBreakIR 机制。门3 须补偿此隐含分页到期望值中。
+    # 判定逻辑与 render/toc.py 的 should_render_chart_directory() 一致：
+    # auto 模式下（图数 + 正文表数）>= 10 时渲染图表目录并插入换页。
+    figure_count = len([
+        e for e in ir.elements if isinstance(e, FigureIR)
+    ])
+    body_table_count_ir = len([
+        e for e in ir.elements
+        if isinstance(e, TableIR) and e.kind == TableKind.BODY
+        and e.table_id is not None
+    ])
+    if figure_count + body_table_count_ir >= 10:
+        expected_page_breaks += 1
 
     expected_total = expected_section_breaks + expected_page_breaks
     actual_total = actual_section_breaks + actual_page_breaks

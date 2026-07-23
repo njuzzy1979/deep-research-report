@@ -101,13 +101,17 @@ def setup_section_headers_footers(
     Raises:
         ValueError: 当 sections 长度不足 4 时
     """
-    if len(sections) < 4:
+    if len(sections) < 3:
         raise ValueError(
-            f"四节方案需要至少 4 个节（COVER/ABSTRACT/TOC/BODY），"
-            f"实际只有 {len(sections)} 个"
+            f"至少需要 3 个节（COVER/TOC/BODY），实际只有 {len(sections)} 个"
         )
 
-    sec0, sec1, sec2, sec3 = sections[0], sections[1], sections[2], sections[3]
+    has_abstract = len(sections) >= 4
+    if has_abstract:
+        sec0, sec1, sec2, sec3 = sections[0], sections[1], sections[2], sections[3]
+    else:
+        sec0, sec1, sec2 = sections[0], sections[1], sections[2]
+        sec3 = None  # no ABSTRACT section
 
     # =====================================================================
     # Sec0 (COVER)：无页眉、无页脚
@@ -117,15 +121,14 @@ def setup_section_headers_footers(
     # =====================================================================
 
     # =====================================================================
-    # Sec1 (ABSTRACT)：无页眉，页脚罗马数字 i 起始
+    # Sec1: 四节=ABSTRACT（无页眉，罗马页码 i 起始）
+    #       三节=TOC（无页眉，罗马页码 i 起始）
     # =====================================================================
 
-    # 页眉：断开链接并清空（确保不继承第一节的默认空段落中的任何残留）
     sec1_header = sec1.header
     sec1_header.is_linked_to_previous = False
     _clear_paragraph_runs(sec1_header.paragraphs[0])
 
-    # 页脚：罗马数字，居中 9pt，从 i 开始
     sec1_footer = sec1.footer
     sec1_footer.is_linked_to_previous = False
     p1 = sec1_footer.paragraphs[0]
@@ -133,43 +136,41 @@ def setup_section_headers_footers(
     _clear_paragraph_runs(p1)
     _add_page_field_to_paragraph(p1, font_size_pt=9)
 
+    if has_abstract:
+        # =================================================================
+        # Sec2 (TOC)：继承 Sec1 的空页眉和罗马格式，页码续编
+        # =================================================================
+
+        sec2.header.is_linked_to_previous = True
+        sec2_footer = sec2.footer
+        sec2_footer.is_linked_to_previous = True
+        p2 = sec2_footer.paragraphs[0]
+        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _clear_paragraph_runs(p2)
+        _add_page_field_to_paragraph(p2, font_size_pt=9)
+
+        body_sec = sec3
+    else:
+        body_sec = sec2
+
     # =====================================================================
-    # Sec2 (TOC)：继承 Sec1 的空页眉和罗马格式，页码续编
+    # BODY 节：页眉报告简称 + 底线，页脚阿拉伯数字 1 起始
     # =====================================================================
 
-    # 页眉：继承 Sec1 的空页眉
-    sec2.header.is_linked_to_previous = True
-
-    # 页脚：继承 Sec1 的罗马格式（is_linked_to_previous=True），
-    # 不调用 set_pgNumType 以保持续编（不重置 start）
-    sec2_footer = sec2.footer
-    sec2_footer.is_linked_to_previous = True
-    p2 = sec2_footer.paragraphs[0]
-    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _clear_paragraph_runs(p2)
-    _add_page_field_to_paragraph(p2, font_size_pt=9)
-
-    # =====================================================================
-    # Sec3 (BODY)：页眉报告简称 + 底线，页脚阿拉伯数字 1 起始
-    # =====================================================================
-
-    # 页眉：右对齐报告简称，9pt #000000，底部 1pt 黑色分隔线
-    sec3_header = sec3.header
-    sec3_header.is_linked_to_previous = False
-    hp = sec3_header.paragraphs[0]
+    body_header = body_sec.header
+    body_header.is_linked_to_previous = False
+    hp = body_header.paragraphs[0]
     hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     _clear_paragraph_runs(hp)
     run = hp.add_run(report_short_title)
     run.font.size = Pt(HEADER_FOOTER_FONT_SIZE_PT)
 
-    # 段落下边框（1pt = 8 八分之一磅，oxml_helpers 默认值）
     pPr = _get_or_create_pPr(hp)
     make_pBdr_bottom(pPr, sz=8, color="000000", space=1)
 
-    # 页脚：阿拉伯数字，居中 9pt，从 1 重新开始
-    sec3_footer = sec3.footer
-    sec3_footer.is_linked_to_previous = False
-    p3 = sec3_footer.paragraphs[0]
+    body_footer = body_sec.footer
+    body_footer.is_linked_to_previous = False
+    p3 = body_footer.paragraphs[0]
     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _clear_paragraph_runs(p3)
     _add_page_field_to_paragraph(p3, font_size_pt=9)

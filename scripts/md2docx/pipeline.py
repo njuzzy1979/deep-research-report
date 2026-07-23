@@ -52,7 +52,7 @@ from .config import (
     load_yaml_config,
     resolve_behavior_flags,
 )
-from .iotools import console_out
+from .iotools import console_out, load_cover_metadata
 from .issues import Issue, IssueCollector, Level
 
 
@@ -166,13 +166,14 @@ def _stage4_validate(document_ir, issues: IssueCollector):
     return document_ir
 
 
-def _stage5_render(document_ir, options: RunOptions, flags: BehaviorFlags, issues: IssueCollector):
-    """阶段5：渲染（01 §2.0）。约定入口：render.document.render(document_ir, options, flags, issues)。"""
+def _stage5_render(document_ir, options: RunOptions, flags: BehaviorFlags, issues: IssueCollector,
+                   cover_metadata: dict | None = None):
+    """阶段5：渲染（01 §2.0）。约定入口：render.document.render(document_ir, options, flags, issues, cover_metadata)。"""
     try:
         module = importlib.import_module(".render.document", package=__package__)
     except ImportError as exc:
         raise _StageNotReady("5-渲染", exc) from exc
-    return module.render(document_ir, options, flags, issues)
+    return module.render(document_ir, options, flags, issues, cover_metadata=cover_metadata)
 
 
 def _emit_report(options: RunOptions, issues: IssueCollector, source_meta=None,
@@ -295,7 +296,32 @@ def run(options: RunOptions) -> int:
             _emit_report(options, issues, source_meta)
             return _determine_exit_code(issues)
 
-        _stage5_render(document_ir, options, flags, issues)
+        # 加载封面独立元数据（改进 14：--cover 参数）
+        cover_metadata = None
+        if options.cover_path:
+            cover_metadata = load_cover_metadata(options.cover_path)
+            if cover_metadata:
+                issues.append(
+                    Issue(
+                        level=Level.INFO,
+                        code="I-CVR-01",
+                        stage="pipeline",
+                        message=f"已加载封面独立元数据：{options.cover_path}",
+                        suggestion=None,
+                    )
+                )
+            else:
+                issues.append(
+                    Issue(
+                        level=Level.WARNING,
+                        code="W-CVR-01",
+                        stage="pipeline",
+                        message=f"封面文件解析失败或无有效 YAML，已回退正文元数据：{options.cover_path}",
+                        suggestion="请检查封面文件格式是否为纯 YAML frontmatter（--- 包裹）",
+                    )
+                )
+
+        _stage5_render(document_ir, options, flags, issues, cover_metadata=cover_metadata)
         # 阶段5 之后无需再检查——紧接着就是阶段6，has_fatal() 的判定结果只影响
         # exit code（_determine_exit_code 已覆盖），不影响是否调用 _emit_report
         # （阶段6 始终尝试产出，见模块 docstring）。

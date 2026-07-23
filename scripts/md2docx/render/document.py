@@ -188,6 +188,7 @@ def render_document(
     flags: BehaviorFlags,
     styles_map: dict | None = None,
     issues: IssueCollector | None = None,
+    cover_metadata: dict | None = None,
 ) -> str:
     """渲染管道的核心入口：将 DocumentIR 转换为 .docx 文件。
 
@@ -200,6 +201,7 @@ def render_document(
         flags: 行为开关
         styles_map: 预构建的样式字典；None 时自动调用 register_styles()
         issues: IssueCollector 实例；None 时静默略过
+        cover_metadata: 封面独立元数据（改进 14）；None 时仅使用 ir.metadata
 
     Returns:
         输出文件路径（即 output_path）
@@ -234,7 +236,7 @@ def render_document(
 
         if section_spec.kind == SectionKind.COVER:
             # 阶段 5.5：封面渲染（委托 cover.py）
-            render_cover(doc, ir.metadata, styles_map)
+            render_cover(doc, ir.metadata, styles_map, cover_metadata)
 
         elif section_spec.kind == SectionKind.ABSTRACT:
             # 阶段 5.6：摘要渲染（委托 headings.py + paragraphs.py）
@@ -285,6 +287,7 @@ def render(
     options,  # RunOptions
     flags: BehaviorFlags,
     issues: IssueCollector,
+    cover_metadata: dict | None = None,
 ) -> str:
     """pipeline.py 兼容入口（C-04 约定签名）。
 
@@ -295,4 +298,5 @@ def render(
         output_path=options.output_path,
         flags=flags,
         issues=issues,
+        cover_metadata=cover_metadata,
     )

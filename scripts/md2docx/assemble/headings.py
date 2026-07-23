@@ -420,6 +420,9 @@ def classify_and_number(
     # orig_num_info: int|None for CHAPTER, str|None for APPENDIX
     rows: list[dict] = []
     h1_seen = False
+    in_front_matter = False  # V2.1: FRONT_MATTER tracking after MAIN_TITLE
+    front_matter_h2_count = 0  # V2.1: count FRONT_MATTER H2s
+    FRONT_MATTER_MAX_H2 = 6  # V2.1: max H2s to auto-classify as FRONT_MATTER
 
     for h in heading_tokens:
         raw = h.raw_text
@@ -429,6 +432,9 @@ def classify_and_number(
         if h.level == 1:
             if not h1_seen:
                 h1_seen = True
+                # V2.1: if H1 text is a front/back word, enable FRONT_MATTER mode
+                if _is_front_back(raw):
+                    in_front_matter = True
                 rows.append({
                     "kind": HeadingKind.MAIN_TITLE,
                     "raw_text": raw,
@@ -488,6 +494,21 @@ def classify_and_number(
                 })
                 continue
 
+            # V2.1: FRONT_MATTER detection — H2s after 前言/导论 H1,
+            # before the first real chapter, are front matter
+            if in_front_matter and front_matter_h2_count < FRONT_MATTER_MAX_H2:
+                front_matter_h2_count += 1
+                rows.append({
+                    "kind": HeadingKind.FRONT_MATTER,
+                    "raw_text": raw,
+                    "text": raw,
+                    "source_line": line,
+                    "orig_num": None,
+                    "orig_letter": None,
+                })
+                continue
+            in_front_matter = False  # exit front matter mode
+
             # 优先2：附录匹配
             if _RE_N07.match(raw):
                 stripped, orig_letter = _strip_appendix(raw, line, issues)
@@ -515,6 +536,18 @@ def classify_and_number(
 
         # -- H3 --
         if h.level == 3:
+            # V2.1: H3s inside FRONT_MATTER stay as FRONT_MATTER
+            if in_front_matter:
+                stripped = _strip_section(raw, line, issues)
+                rows.append({
+                    "kind": HeadingKind.FRONT_MATTER,
+                    "raw_text": raw,
+                    "text": stripped,
+                    "source_line": line,
+                    "orig_num": None,
+                    "orig_letter": None,
+                })
+                continue
             stripped = _strip_section(raw, line, issues)
             rows.append({
                 "kind": HeadingKind.SECTION,
@@ -605,6 +638,9 @@ def classify_and_number(
             pass  # number=None, display_number=""
 
         elif kind == HeadingKind.ABSTRACT:
+            pass  # number=None, display_number=""
+
+        elif kind == HeadingKind.FRONT_MATTER:
             pass  # number=None, display_number=""
 
         elif kind == HeadingKind.PLAIN:

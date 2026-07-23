@@ -23,6 +23,7 @@ import re
 
 from ..iotools import write_text
 from ..issues import Issue, IssueCollector, Level
+from ..config import SECRECY_FALSE_POSITIVE_PATTERNS
 
 # ---------------------------------------------------------------------------
 # 正则规则表（02-algorithms.md §D.2）
@@ -66,7 +67,7 @@ _RX_SECRECY_INLINE = re.compile(r"密级\s*[：:]\s*\S{1,12}")
 
 # R-09弱：密级弱信号关键词（纯检测，不改文本）
 _SECRECY_WEAK_WORDS = re.compile(
-    r"绝密|机密|内部资料|内部参考|限内部使用|仅供内部|密级"
+    r"绝密|(?<!高度)机密|内部资料|内部参考|限内部使用|仅供内部|(?<!跨)密级"
 )
 
 # R-10："全文完"
@@ -302,6 +303,82 @@ def _apply_inline_deletions(
 
 
 # ---------------------------------------------------------------------------
+# YAML 前导元数据块剥离（V2.1，修复门3 分页规划不一致）
+# ---------------------------------------------------------------------------
+
+# YAML 前导元数据块格式：
+#   ---\n
+#   key: value\n
+#   ...\n
+#   ---\n
+# 位于文档最开头，--- 为定界符（非水平分隔线），不应产生 HrToken。
+_RX_YAML_FM_OPEN = re.compile(r"^---\s*$")
+
+
+def _strip_yaml_frontmatter(
+    lines: list[str], issues: IssueCollector
+) -> list[str]:
+    """检测并剥离 YAML 前导元数据块。
+
+    若文档以 --- 开头且第二个 --- 在后续行中出现，则将该区块整体剥离，
+    返回剩余行列表。不匹配时原样返回。
+
+    Args:
+        lines: 待处理行列表（已 splitlines，LF 行尾）。
+        issues: IssueCollector，用于记录剥离动作。
+
+    Returns:
+        剥离 YAML 前导元数据块后的行列表。
+    """
+    if not lines:
+        return lines
+
+    # 跳过前导空行后检查首行是否为 ---
+    first_content_idx = 0
+    for i, ln in enumerate(lines):
+        if ln.strip():
+            first_content_idx = i
+            break
+
+    if not _RX_YAML_FM_OPEN.match(lines[first_content_idx].strip()):
+        return lines  # 首行不是 ---，非 YAML 前导块
+
+    # 从下一行起查找匹配的关闭 ---
+    close_idx: int | None = None
+    for i in range(first_content_idx + 1, len(lines)):
+        if _RX_YAML_FM_OPEN.match(lines[i].strip()):
+            close_idx = i
+            break
+
+    if close_idx is None:
+        return lines  # 未找到关闭 ---，不剥离（视为普通水平分隔线）
+
+    # 剥离 YAML 前导块（含两端的 --- 定界符）
+    # 保留关闭 --- 之后的行（含空行），丢弃 YAML 块内的行
+    yaml_block_lines = lines[first_content_idx : close_idx + 1]
+    stripped_line_count = len(yaml_block_lines)
+
+    issues.append(
+        Issue(
+            level=Level.INFO,
+            code="I-CLN-05",
+            stage="clean",
+            message=(
+                f"剥离 YAML 前导元数据块：行 {first_content_idx + 1}–"
+                f"{close_idx + 1}（共 {stripped_line_count} 行），"
+                f"YAML 定界符不作为水平分隔线"
+            ),
+            source_line=first_content_idx + 1,
+            element_ref=None,
+            suggestion=None,
+        )
+    )
+
+    result = lines[:first_content_idx] + lines[close_idx + 1:]
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 阶段1 主函数
 # ---------------------------------------------------------------------------
 
@@ -331,6 +408,12 @@ def clean(
         清理后的文本（str，LF 行尾）
     """
     lines = text.split("\n")
+
+    # ---- 步骤0（V2.1）：YAML 前导元数据块剥离 ----
+    #   必须在任何规则之前执行，避免 YAML 定界符（---）被后续
+    #   解析阶段误识别为水平分隔线，产生多余 PageBreakIR。
+    lines = _strip_yaml_frontmatter(lines, issues)
+
     fenced_ranges = _find_fenced_ranges(lines)
     result_lines: list[str] = []
 
@@ -528,6 +611,15 @@ def clean(
         for m_weak in _SECRECY_WEAK_WORDS.finditer(line):
             # 跳过行内代码 span 内的命中
             if _has_inline_code_span(line, m_weak.start()):
+                continue
+            # V2.1: 跳过已知误报模式（技术术语/军事描述，非密级标注）
+            false_positive = False
+            for fp_pattern in SECRECY_FALSE_POSITIVE_PATTERNS:
+                fp_start = line.find(fp_pattern)
+                if fp_start >= 0 and fp_start <= m_weak.start() < fp_start + len(fp_pattern):
+                    false_positive = True
+                    break
+            if false_positive:
                 continue
             # 提取上下文（匹配位置前后各约20字符）
             ctx_start = max(0, m_weak.start() - 20)

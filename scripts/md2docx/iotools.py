@@ -1,4 +1,4 @@
-"""二进制安全 I/O 唯一进出口 + 控制台输出安全包装。
+"""二进制安全 I/O 唯一进出口 + 控制台输出安全包装 + 封面元数据加载。
 
 G-01 硬约束：全项目 `open(` 只允许出现在本文件。任何其他模块需要读写文件，
 一律经由本模块提供的函数。
@@ -10,6 +10,8 @@ G-01 硬约束：全项目 `open(` 只允许出现在本文件。任何其他模
 R17 裁决：PNG IHDR 头（前 33 字节）解析所需的读取动作也必须经本模块的
 `read_bytes(path, limit=...)` 完成；IHDR 字节结构的*解析*仍在 assemble/figures.py
 （未来任务），本文件只提供"读前 N 字节"的通用能力，不含任何 PNG 格式知识。
+
+新增 cover：`load_cover_metadata()` 读取封面 MD 的 YAML frontmatter，返回 dict。
 """
 from __future__ import annotations
 
@@ -103,3 +105,60 @@ def console_out(msg: str, stream: IO[str] | None = None) -> None:
             # 极端兜底：既无 reconfigure 也无 buffer 属性的流，退化为忽略
             # 无法编码的字符，仍然不抛异常。
             target.write(msg.encode(encoding, errors="replace").decode(encoding))
+
+
+# ---------------------------------------------------------------------------
+# 封面元数据加载（改进 14：封面独立 MD 文档）
+# ---------------------------------------------------------------------------
+
+
+def load_cover_metadata(cover_path: str) -> dict:
+    """读取封面 MD 文件的 YAML frontmatter，返回 dict 或空 dict。
+
+    封面文件格式为纯 YAML frontmatter（``---`` 包裹）：
+        ---
+        title: 报告题名
+        title_en: English Title
+        report_type: 立项建议书
+        org: 申报单位
+        date: 2026年7月
+        version: V1.0
+        header_short: 页眉简称
+        ---
+
+    Args:
+        cover_path: 封面 MD 文件的绝对路径。
+
+    Returns:
+        YAML frontmatter 解析结果 dict；文件不存在/解析失败/无有效 YAML 时返回空 dict。
+        绝不抛异常——封面是可选增强，不应因其缺失而阻断转换流程。
+    """
+    import os
+
+    if not cover_path or not os.path.isfile(cover_path):
+        return {}
+
+    try:
+        raw = read_bytes(cover_path).decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+
+    # 提取 YAML frontmatter（--- 定界符之间）
+    parts = raw.split("---")
+    if len(parts) < 2:
+        return {}
+
+    yaml_text = parts[1].strip()
+    if not yaml_text:
+        return {}
+
+    try:
+        import yaml  # noqa: PLC0415  延迟 import（与 config.py 一致）
+    except ImportError:
+        return {}
+
+    try:
+        data = yaml.safe_load(yaml_text)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001  YAML 解析异常种类繁多，统一回退空 dict
+        return {}
