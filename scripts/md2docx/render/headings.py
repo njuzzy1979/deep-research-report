@@ -32,6 +32,10 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.MAIN_TITLE: 1,
     HeadingKind.SECTION: 2,
     HeadingKind.ABSTRACT: 2,
+    # FRONT_MATTER（前言/导论区的无编号 H2/H3，§C.3 R-FM）：与 ABSTRACT 一致
+    # 按 Heading 2 渲染——同属无编号前置件，display_number 恒为空，仅输出 text。
+    # 显式登记以杜绝走 .get(kind, 4) 兜底导致的字号偏小/语义漂移。
+    HeadingKind.FRONT_MATTER: 2,
     HeadingKind.SUBSECTION: 3,
     HeadingKind.PLAIN: 4,
 }

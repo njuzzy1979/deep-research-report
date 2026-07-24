@@ -125,6 +125,25 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
         "“目录→图表目录”换页：breaks.py 规划 origin=AUTO_TOC 的 PageBreakIR",
         "M1（00-master §4.1）",
     ),
+    "W-SEC-02": IssueCodeInfo(
+        Level.WARNING,
+        "检测到 N 个位于首个内容节之前的前导元素（标题/段落），已并入首个内容节"
+        "渲染，请确认其位置符合预期（四节方案下并入 ABSTRACT 节，用罗马页码/"
+        "摘要页眉）",
+        "P-007（07-p3-fixes-design.md §3.3(c)）",
+    ),
+    "I-HDR-06": IssueCodeInfo(
+        Level.INFO,
+        "识别到标题后的前置件 H1（如“前言/导论”），已作为前置件区起点，"
+        "未按多余 H1 降级（不发 W-HDR-03）",
+        "P-006（07-p3-fixes-design.md §2.4 P006-1）",
+    ),
+    "W-FM-01": IssueCodeInfo(
+        Level.WARNING,
+        "前置件区内累计 N 个无编号 H2；若含正文章请为正文首章补显式编号"
+        "（第X章 / 一、）以标示正文起点",
+        "P-006（07-p3-fixes-design.md §2.4 P006-3 候选 C1）",
+    ),
     "E-YML-01": IssueCodeInfo(
         Level.ERROR,
         "配置文件包含 metadata_defaults/behavior/report 三块之外的顶层键、块内白名单外"

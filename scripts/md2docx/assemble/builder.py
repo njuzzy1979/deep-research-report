@@ -14,6 +14,7 @@ from ..ir import (
     DocumentIR,
     FigureIR,
     HeadingIR,
+    HeadingKind,
     ListBlockIR,
     MetadataIR,
     PageBreakIR,
@@ -47,30 +48,24 @@ from .tables import resolve_tables
 
 def _build_heading_index(
     heading_irs: list[HeadingIR],
-) -> dict[tuple[int, int], HeadingIR]:
-    """构建 (source_line, level) → HeadingIR 的索引。
+) -> dict[int, HeadingIR]:
+    """构建 source_line → HeadingIR 的索引。
 
-    同一 source_line 上的标题理应唯一（每个行号最多对应一个标题 Token），
-    但为安全起见用 (source_line, level) 联合键。
+    索引键仅用 source_line：每个源码行至多对应一个标题 Token（parse 阶段
+    保证），故 source_line 全局唯一，足以无歧义定位 HeadingIR。
+
+    历史缺陷（P0-1 根因B）修复说明：
+    旧实现用 (source_line, level) 联合键，其中 level 由 kind 经 kind_to_level
+    字典反推。但该字典**缺少 FRONT_MATTER 映射**，走 .get(kind, 5) 默认值 5；
+    而 FRONT_MATTER 实际来自 H2/H3（level=2 或 3），导致 builder 步骤6 以
+    (source_line, 2) 查找时命中键为 (source_line, 5)，get 返回 None → 该
+    FRONT_MATTER 标题**从未被加入 elements 流**（内容在最终 docx 中静默丢失，
+    仅留一条 W-HDR-01）。改用 source_line 单键后，kind→level 反推被彻底移除，
+    这类"新增 kind 忘记登记 level 映射即静默丢内容"的失配从索引层根除。
     """
-    index: dict[tuple[int, int], HeadingIR] = {}
+    index: dict[int, HeadingIR] = {}
     for hir in heading_irs:
-        # level 无法直接从 HeadingIR 获取，通过 kind 反推：
-        #   MAIN_TITLE → 1, ABSTRACT/CHAPTER/APPENDIX → 2,
-        #   SECTION → 3, SUBSECTION → 4, PLAIN → 5+
-        from ..ir import HeadingKind
-
-        kind_to_level = {
-            HeadingKind.MAIN_TITLE: 1,
-            HeadingKind.ABSTRACT: 2,
-            HeadingKind.CHAPTER: 2,
-            HeadingKind.APPENDIX: 2,
-            HeadingKind.SECTION: 3,
-            HeadingKind.SUBSECTION: 4,
-            HeadingKind.PLAIN: 5,
-        }
-        level = kind_to_level.get(hir.kind, 5)
-        index[(hir.source_line, level)] = hir
+        index[hir.source_line] = hir
     return index
 
 
@@ -240,13 +235,19 @@ def build(
             _flush_list_buffer()
             in_table_span = False
 
-            if t.level == 1:
-                # H1 (MAIN_TITLE) 不进入 elements（封面上单独渲染）
+            # P006-2：H1 是否入 elements 由重编 kind 决定（不由 md level 决定）。
+            # 先按 source_line 查重编后的 HeadingIR，当且仅当 kind==MAIN_TITLE 时
+            # 跳过（主标题由 cover.py 单独渲染）。原 `if t.level == 1: continue`
+            # 会把任何 md H1 排除，导致：(1) P006-1 归为 FRONT_MATTER 的前言 H1
+            # 被静默丢失；(2) W-HDR-03 降级为 CHAPTER 的第二个 H1 标题文本静默丢失
+            # （既有缺陷，一并闭环）。改为看 kind 后，被重编为 CHAPTER/FRONT_MATTER
+            # 的 H1 照常入 elements 渲染。
+            key = t.source_line
+            hir = heading_index.get(key)
+            if hir is not None and hir.kind == HeadingKind.MAIN_TITLE:
+                # 仅主标题不入正文流（cover.py 渲染）
                 continue
 
-            # 查找已分类的 HeadingIR
-            key = (t.source_line, t.level)
-            hir = heading_index.get(key)
             if hir is not None:
                 token_to_element_map[token_idx] = len(elements)
                 elements.append(hir)
@@ -398,6 +399,42 @@ def build(
         section_plan.sections, token_to_element_map
     )
 
+    # ------------------------------------------------------------------
+    # 步骤6 后处理（P007-3）：非空非分页前导区检测 → W-SEC-02
+    # ------------------------------------------------------------------
+    # 渲染层 P007-2 会把首个内容节起点扩展到 0，吞并所有 index < 其原 start 的
+    # 前导元素。为避免"前导标题/段落被移动到摘要/正文区起始处渲染却毫无提示"，
+    # 此处（assemble 阶段，Issue 时序更早，且能同时看到 elements 与 section
+    # start）检测：首个 consuming 节（ABSTRACT/BODY）原 start 之前是否存在
+    # **非 PageBreakIR** 前导元素。存在则产 W-SEC-02，逐条明示归属版式。
+    # 注意：缺口内的 PageBreakIR 已由 breaks.py PB-E 移除，此处只统计非分页元素。
+    _first_consuming_start: int | None = None
+    for sec in remapped_sections:
+        if sec.kind in (SectionKind.ABSTRACT, SectionKind.BODY):
+            _first_consuming_start = sec.start_element_index
+            break
+    if _first_consuming_start is not None and _first_consuming_start > 0:
+        _leading_nonpb = [
+            e
+            for e in elements[:_first_consuming_start]
+            if not isinstance(e, PageBreakIR)
+        ]
+        if _leading_nonpb:
+            issues.append(
+                Issue(
+                    level=Level.WARNING,
+                    code="W-SEC-02",
+                    stage="assemble",
+                    message=(
+                        f"检测到 {len(_leading_nonpb)} 个位于首个内容节之前的"
+                        f"前导元素（标题/段落），已并入首个内容节渲染"
+                        f"（四节方案下并入摘要节，用罗马页码/摘要页眉），"
+                        f"请确认其位置符合预期"
+                    ),
+                    source_line=getattr(_leading_nonpb[0], "source_line", None),
+                )
+            )
+
     # ==================================================================
     # 步骤7：组装 DocumentIR
     # ==================================================================
@@ -518,12 +555,14 @@ if __name__ == "__main__":
             source_line=33,
         ),
         # 表1-1 题注 + 表格 + 来源
-        # 注意：resolve_tables 的 RE_TBL_CAPTION 要求段落文本含 **...** 字面量；
-        # 实际 parse 阶段产出的 ParagraphToken 中 ** 为字面量文本（未转为 bold 布尔
-        # 属性），此处模拟该行为。
+        # mock 数据必须遵循 inline parser（阶段2）产物形状约定：Markdown 的 **...**
+        # 语法已被消耗为 InlineRun.bold=True，纯文本不再含 ** 字面量。题注检测
+        # （tables.resolve_tables）依赖 _is_all_bold + 不含 ** 的 RE_TBL_CAPTION_TEXT，
+        # 故加粗题注须写为 InlineRun(text="表X-Y 标题", bold=True)（参见 tables.py
+        # __main__ 测试4 / 顶部注释 19-27 行 / 02-algorithms.md §B.2）。
         ParagraphToken(
             runs=[
-                InlineRun(text="**表1-1 产业链上中下游环节对比表**"),
+                InlineRun(text="表1-1 产业链上中下游环节对比表", bold=True),
             ],
             source_line=35,
         ),
@@ -716,6 +755,9 @@ if __name__ == "__main__":
     # 6. figure_registry / table_registry
     check("figure_registry 含 3 项", len(doc.figure_registry) >= 1,
           f"实际 {len(doc.figure_registry)}")
+    # 若此断言 FAIL，首查 mock 题注段是否遵循 inline parser 产物形状约定
+    # （InlineRun(text="表X-Y 标题", bold=True)，无 ** 字面量）——mock 与真实 parse
+    # 产物脱节会使 resolve_tables 题注检测失败、表被误判 APPENDIX 而不注册（P-004）。
     check("table_registry 含正文表", len(doc.table_registry) >= 1,
           f"实际 {len(doc.table_registry)}")
 

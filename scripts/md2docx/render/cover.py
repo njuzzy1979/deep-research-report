@@ -166,34 +166,40 @@ def render_cover(doc: Document, metadata: MetadataIR, styles: dict,
             sub_spec.space_after_pt,
         )
 
-    # 4. 报告类型（16pt，默认文案"深度研究报告"）
+    # 4. 报告类型（16pt）。默认兜底不硬编码具体报告类型（§F.1 V9）——
+    #    报告类型应来自 md 元数据或 YAML metadata_defaults.report_type_default / CLI。
+    #    无任何来源时跳过该段（不渲染空行），而非填充写死的示例文案。
     type_spec = COVER_ELEMENTS["report_type"]
-    report_type_text = _cv("report_type", metadata.report_type, "深度研究报告")
-    _add_cover_paragraph(
-        doc,
-        report_type_text,
-        type_spec.size_pt,
-        type_spec.bold,
-        type_spec.color_hex,
-        type_spec.space_before_pt,
-        type_spec.space_after_pt,
-    )
+    report_type_text = _cv("report_type", metadata.report_type, "")
+    if report_type_text:
+        _add_cover_paragraph(
+            doc,
+            report_type_text,
+            type_spec.size_pt,
+            type_spec.bold,
+            type_spec.color_hex,
+            type_spec.space_before_pt,
+            type_spec.space_after_pt,
+        )
 
     # 5. 分隔线（1pt 黑色，约 5cm 宽，居中）
     _add_separator(doc)
 
-    # 6. 机构名（14pt Bold，默认"遨天科技"）
+    # 6. 机构名（14pt Bold）。默认兜底不硬编码具体机构名（§F.1 V9：封面机构名
+    #    必须来自文档元数据或 CLI/YAML metadata_defaults.organization，不得写死）。
+    #    无任何来源时跳过该段（不渲染空行）。
     org_spec = COVER_ELEMENTS["organization"]
-    org_text = _cv("org", metadata.organization, "遨天科技")
-    _add_cover_paragraph(
-        doc,
-        org_text,
-        org_spec.size_pt,
-        org_spec.bold,
-        org_spec.color_hex,
-        org_spec.space_before_pt,
-        org_spec.space_after_pt,
-    )
+    org_text = _cv("org", metadata.organization, "")
+    if org_text:
+        _add_cover_paragraph(
+            doc,
+            org_text,
+            org_spec.size_pt,
+            org_spec.bold,
+            org_spec.color_hex,
+            org_spec.space_before_pt,
+            org_spec.space_after_pt,
+        )
 
     # 7. 版本 + 日期（11pt，格式 V{version} | {date}）
     vd_spec = COVER_ELEMENTS["version_date"]

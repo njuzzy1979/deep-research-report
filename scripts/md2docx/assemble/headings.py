@@ -13,6 +13,7 @@ import re
 
 from ..config import (
     CJK_NUMERAL_LIANG,
+    CJK_NUMERALS,
     FRONT_BACK_WORDS,
     M6_H3_SINGLE_LEVEL,
     M6_H4_TWO_LEVEL,
@@ -72,7 +73,9 @@ def int_to_cn(n: int) -> str:
     if n <= 0 or n > 999:
         return str(n)
 
-    digits = "零一二三四五六七八九"
+    # 数字字符表来自 config.CJK_NUMERALS（单一事实来源，§C.4；出处：02 §C.4）——
+    # 取前 10 位即"零..九"，避免在业务模块内重复硬编码数字串。
+    digits = CJK_NUMERALS[:10]
 
     if n == 10:
         return "十"
@@ -198,12 +201,51 @@ def cn_to_int(s: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 def _is_front_back(text: str) -> bool:
-    """判断标题文本是否匹配前后置件关键词白名单（02 §F.2）。
+    """判断标题文本是否匹配前后置件关键词白名单（02 §F.2 / §C.3 R-FM）。
 
-    精确匹配，允许尾随全/半角冒号（：或:）。
+    两级判定（后者仅在前者失败时启用，保证纯净标题的行为与旧版逐字一致）：
+
+    1. 整体精确匹配（原语义）：剥离首尾空白与尾随全/半角冒号后，
+       整串落在 FRONT_BACK_WORDS 白名单内即为前置件。
+    2. 复合前置件标题：形如「前言/导论」「绪论、引言」这类以分隔符
+       （/ 、 ， 及空白）连接的复合标题——按分隔符切分后，**每一个**
+       非空段都必须精确命中白名单，才判为前置件。
+
+    误伤边界（§C.3 R-FM 论证）：采用"全部段命中"而非"任一段命中"，
+    且要求段与白名单词**整段相等**（非子串包含）。因此：
+      - 「前言/导论」→ ["前言","导论"] 全命中 → True（目标场景）
+      - 「研究方法目录结构」→ 无分隔符、整串不在白名单 → False（不因含"目录"二字误判）
+      - 「背景/导论对比」→ ["背景","导论对比"] 有段未命中 → False（不因含"导论"误判）
+    这样既修复复合前置件标题识别，又不放大对正文章节标题的误伤面。
     """
-    clean = text.rstrip("：:")
-    return clean in FRONT_BACK_WORDS
+    clean = text.strip().rstrip("：:").strip()
+    # 第1级：整体精确匹配（与旧实现等价，零行为漂移）
+    if clean in FRONT_BACK_WORDS:
+        return True
+    # 第2级：复合前置件标题——分隔符切分后逐段精确匹配，要求全部命中
+    segments = [
+        seg.strip().rstrip("：:").strip()
+        for seg in re.split(r"[/、，,\s]+", clean)
+    ]
+    segments = [s for s in segments if s]
+    if len(segments) >= 2 and all(s in FRONT_BACK_WORDS for s in segments):
+        return True
+    return False
+
+
+def _has_explicit_chapter_number(raw_text: str) -> bool:
+    """探测 H2 标题是否携带显式章编号（N-01/N-02/N-05/N-06 任一命中）。
+
+    仅做只读探测、不产生 Issue、不改写文本——供前言区（FRONT_MATTER）
+    边界判定使用：前言区内一旦出现显式编号章标题，即视为正文开始的
+    可靠信号，据此终止前言区（§C.3 R-FM）。
+    """
+    return bool(
+        _RE_N01.match(raw_text)
+        or _RE_N02.match(raw_text)
+        or _RE_N05.match(raw_text)
+        or _RE_N06.match(raw_text)
+    )
 
 
 def _strip_chapter(raw_text: str, source_line: int, issues: IssueCollector) -> tuple[str, int | None]:
@@ -420,9 +462,21 @@ def classify_and_number(
     # orig_num_info: int|None for CHAPTER, str|None for APPENDIX
     rows: list[dict] = []
     h1_seen = False
-    in_front_matter = False  # V2.1: FRONT_MATTER tracking after MAIN_TITLE
-    front_matter_h2_count = 0  # V2.1: count FRONT_MATTER H2s
-    FRONT_MATTER_MAX_H2 = 6  # V2.1: max H2s to auto-classify as FRONT_MATTER
+    # R-FM（§C.3）：前置件区（FRONT_MATTER）跟踪。
+    # 区间起点 = 首个 H1 文本命中前后置件词表（如「前言/导论」）；
+    # 区间终点 = 首个"正文信号"H2（携带显式章编号，或附录前缀）。
+    # 不再使用魔法数量上限——区间边界由结构信号驱动，可容纳任意数量前言 H2。
+    in_front_matter = False
+    # R-FM 起点扩展（P006-1，§2.4）：支持"标题 H1 + 紧邻前言 H1"双 H1 结构。
+    #   title_h1_pending：首个 H1 是报告标题（未命中前置词）时置 True，开启一次性
+    #     窗口，允许紧随其后、正文尚未开始时出现的第二个前置词 H1 作为前置件起点。
+    #   body_started：一旦处理到任何 H2/H3/H4/H5/H6（进入内容层）置 True——窗口
+    #     随即关闭，确保只有"标题 H1 紧邻前言 H1"这一结构能激活，中间已插入 H2
+    #     后再出现的 H1、或第三个及以后的 H1 都走常规 W-HDR-03。
+    title_h1_pending = False
+    body_started = False
+    # W-FM-01 累计告警（P006-3 候选 C1）：统计前置件区内无编号 H2 数量。
+    front_matter_h2_count = 0
 
     for h in heading_tokens:
         raw = h.raw_text
@@ -432,9 +486,13 @@ def classify_and_number(
         if h.level == 1:
             if not h1_seen:
                 h1_seen = True
-                # V2.1: if H1 text is a front/back word, enable FRONT_MATTER mode
+                # R-FM（§C.3）：H1 文本命中前后置件词表（含「前言/导论」复合
+                # 形式）时，开启前置件区，其后的无编号 H2 归为 FRONT_MATTER。
                 if _is_front_back(raw):
                     in_front_matter = True
+                else:
+                    # 首个 H1 是报告标题 → 开启一次性窗口，允许紧邻前言 H1 起点。
+                    title_h1_pending = True
                 rows.append({
                     "kind": HeadingKind.MAIN_TITLE,
                     "raw_text": raw,
@@ -443,8 +501,34 @@ def classify_and_number(
                     "orig_num": None,
                     "orig_letter": None,
                 })
+            elif title_h1_pending and not body_started and _is_front_back(raw):
+                # P006-1：标题 H1 紧邻的前置词 H1（如「前言/导论」）→ 前置件区起点。
+                # 归 FRONT_MATTER（不编号、不占章序，渲染为 Heading 2，见 §2.4 裁决a）；
+                # 不发 W-HDR-03（它不是"重复的正文章"，是被识别的前置件起点），
+                # 改发 INFO 级 I-HDR-06 留痕。窗口一次性消费。
+                in_front_matter = True
+                title_h1_pending = False
+                issues.append(
+                    Issue(
+                        level=Level.INFO,
+                        code="I-HDR-06",
+                        stage="assemble",
+                        message=f"识别到标题后的前置件 H1「{raw}」，"
+                        f"已作为前置件区起点，未按多余 H1 降级",
+                        source_line=line,
+                    )
+                )
+                rows.append({
+                    "kind": HeadingKind.FRONT_MATTER,
+                    "raw_text": raw,
+                    "text": raw,
+                    "source_line": line,
+                    "orig_num": None,
+                    "orig_letter": None,
+                })
             else:
-                # 多余 H1 → 降级为 CHAPTER
+                # 多余 H1（非前置词、或正文已开始、或窗口已消费）→ 降级为 CHAPTER。
+                title_h1_pending = False  # 第二个 H1 已处理，窗口失效
                 issues.append(
                     Issue(
                         level=Level.WARNING,
@@ -465,6 +549,9 @@ def classify_and_number(
                     "orig_letter": None,
                 })
             continue
+
+        # 进入内容层（任何 H2~H6）：正文已开始，关闭前言 H1 起点窗口（P006-1）。
+        body_started = True
 
         # -- H2 --
         if h.level == 2:
@@ -494,20 +581,28 @@ def classify_and_number(
                 })
                 continue
 
-            # V2.1: FRONT_MATTER detection — H2s after 前言/导论 H1,
-            # before the first real chapter, are front matter
-            if in_front_matter and front_matter_h2_count < FRONT_MATTER_MAX_H2:
-                front_matter_h2_count += 1
-                rows.append({
-                    "kind": HeadingKind.FRONT_MATTER,
-                    "raw_text": raw,
-                    "text": raw,
-                    "source_line": line,
-                    "orig_num": None,
-                    "orig_letter": None,
-                })
-                continue
-            in_front_matter = False  # exit front matter mode
+            # R-FM（§C.3）：前置件区内的 H2。
+            # 边界终止条件（任一即退出前置件区，本 H2 按正文/附录处理）：
+            #   (a) 携带显式章编号（第X章 / N、 等）→ 可靠的正文开始信号；
+            #   (b) 附录前缀（N-07）→ 附录属后置件，走 APPENDIX 分支。
+            # 未命中终止条件的无编号 H2 → 归为 FRONT_MATTER（不编号、不占章计数）。
+            if in_front_matter:
+                if _has_explicit_chapter_number(raw) or _RE_N07.match(raw):
+                    in_front_matter = False  # 命中正文信号，退出前置件区
+                else:
+                    # 候选 C1（§2.4，U-1 裁定）：终止条件维持"显式章编号 / 附录前缀"
+                    # 两项不变，不做启发式自动分层；仅累计无编号 H2 数量，收尾发
+                    # W-FM-01 告警，把"是否含未编号正文章"的判断权交回作者。
+                    front_matter_h2_count += 1
+                    rows.append({
+                        "kind": HeadingKind.FRONT_MATTER,
+                        "raw_text": raw,
+                        "text": raw,
+                        "source_line": line,
+                        "orig_num": None,
+                        "orig_letter": None,
+                    })
+                    continue
 
             # 优先2：附录匹配
             if _RE_N07.match(raw):
@@ -536,7 +631,7 @@ def classify_and_number(
 
         # -- H3 --
         if h.level == 3:
-            # V2.1: H3s inside FRONT_MATTER stay as FRONT_MATTER
+            # R-FM（§C.3）：前置件区内的 H3 保持 FRONT_MATTER（不编号渲染）。
             if in_front_matter:
                 stripped = _strip_section(raw, line, issues)
                 rows.append({
@@ -581,6 +676,23 @@ def classify_and_number(
             "orig_num": None,
             "orig_letter": None,
         })
+
+    # --------------------------------------------------------------
+    # 第一遍收尾：W-FM-01 前置件区无编号 H2 累计告警（P006-3 候选 C1）
+    # --------------------------------------------------------------
+    # 前置件区内出现过无编号 H2 → 提示作者：若其中包含正文章，请为正文首章补显式
+    # 编号以标示正文起点。此为"只告警不猜测"——无编号正文章与前言 H2 在信息论上
+    # 不可判定，转换器不做启发式分层（U-1 裁定用 C1，不引入候选 C2）。
+    if front_matter_h2_count >= 1:
+        issues.append(
+            Issue(
+                level=Level.WARNING,
+                code="W-FM-01",
+                stage="assemble",
+                message=f"前置件区内累计 {front_matter_h2_count} 个无编号 H2；"
+                f"若含正文章请为正文首章补显式编号（第X章 / 一、）以标示正文起点",
+            )
+        )
 
     # --------------------------------------------------------------
     # 第二遍：结构化重编
@@ -837,9 +949,11 @@ if __name__ == "__main__":
     # --- 场景5：「### 1.1 背景」 → SECTION ---
     print("\n=== 场景5：H3 节 ===")
     c5 = IssueCollector()
-    # 需要先有一个 CHAPTER 才能有正确的节编号
+    # 需要先有一个 CHAPTER 才能有正确的节编号。
+    # 注意：父章标题须用非前后置件词（避免命中 FRONT_BACK_WORDS 被判为不编号），
+    # 故用「研究方法」而非「导论」——后者作为裸 H2 属前置件，不占章计数。
     tokens5 = [
-        HeadingToken(level=2, raw_text="导论", source_line=5),
+        HeadingToken(level=2, raw_text="研究方法", source_line=5),
         HeadingToken(level=3, raw_text="1.1 背景", source_line=10),
     ]
     r5 = classify_and_number(tokens5, c5)
@@ -878,8 +992,9 @@ if __name__ == "__main__":
     # --- 场景8：H4 小节 ---
     print("\n=== 场景8：H4 小节 ===")
     c8 = IssueCollector()
+    # 父章标题同场景5，用非前后置件词以确保占章计数。
     tokens8 = [
-        HeadingToken(level=2, raw_text="导论", source_line=5),
+        HeadingToken(level=2, raw_text="研究方法", source_line=5),
         HeadingToken(level=3, raw_text="1.1 节标题", source_line=10),
         HeadingToken(level=4, raw_text="1.1.1 小节标题", source_line=15),
     ]
@@ -910,6 +1025,53 @@ if __name__ == "__main__":
           r10[1].display_number)
     check("有 W-HDR-02", any(i.code == "W-HDR-02" for i in c10),
           "附录原字母与重编不一致应产生 W-HDR-02")
+
+    # --- 场景11：FRONT_MATTER 复合前置件标题（§C.3 R-FM）---
+    print("\n=== 场景11：前言/导论 复合前置件 ===")
+    # _is_front_back 复合词判定单元测试
+    check("_is_front_back('前言/导论')", _is_front_back("前言/导论"))
+    check("_is_front_back('绪论、引言')", _is_front_back("绪论、引言"))
+    check("_is_front_back('前言')", _is_front_back("前言"))
+    check("not _is_front_back('研究方法目录结构')",
+          not _is_front_back("研究方法目录结构"),
+          "含'目录'子串但整串非白名单，不应误判")
+    check("not _is_front_back('背景/导论对比')",
+          not _is_front_back("背景/导论对比"),
+          "复合中有段未命中白名单，不应误判")
+    c11 = IssueCollector()
+    tokens11 = [
+        HeadingToken(level=1, raw_text="前言/导论", source_line=1),
+        HeadingToken(level=2, raw_text="问题提出", source_line=5),
+        HeadingToken(level=2, raw_text="研究目标", source_line=9),
+    ]
+    r11 = classify_and_number(tokens11, c11)
+    fm11 = [r for r in r11 if r.kind == HeadingKind.FRONT_MATTER]
+    check("2 个 FRONT_MATTER H2", len(fm11) == 2,
+          f"实际 {len(fm11)}：{[r.kind.name for r in r11]}")
+    check("FRONT_MATTER 无编号", all(r.display_number == "" for r in fm11),
+          str([r.display_number for r in fm11]))
+    check("FRONT_MATTER 未被编为第一章",
+          not any(r.display_number.startswith("第") for r in fm11))
+
+    # --- 场景12：FRONT_MATTER 区遇显式章编号即终止（边界，§C.3 R-FM）---
+    print("\n=== 场景12：前言区边界终止 ===")
+    c12 = IssueCollector()
+    tokens12 = [
+        HeadingToken(level=1, raw_text="前言/导论", source_line=1),
+        HeadingToken(level=2, raw_text="研究背景", source_line=5),      # FRONT_MATTER
+        HeadingToken(level=2, raw_text="第一章 正文", source_line=9),   # 显式编号→退出前言区
+        HeadingToken(level=2, raw_text="市场分析", source_line=13),      # CHAPTER（正文续）
+    ]
+    r12 = classify_and_number(tokens12, c12)
+    kinds12 = {r.source_line: r for r in r12}
+    check("行5=FRONT_MATTER", kinds12[5].kind == HeadingKind.FRONT_MATTER,
+          kinds12[5].kind.name)
+    check("行9=CHAPTER 第一章", kinds12[9].kind == HeadingKind.CHAPTER
+          and kinds12[9].display_number == "第一章",
+          f"{kinds12[9].kind.name}/{kinds12[9].display_number}")
+    check("行13=CHAPTER 第二章", kinds12[13].kind == HeadingKind.CHAPTER
+          and kinds12[13].display_number == "第二章",
+          f"{kinds12[13].kind.name}/{kinds12[13].display_number}")
 
     # --- 汇总 ---
     print(f"\n{'='*50}")

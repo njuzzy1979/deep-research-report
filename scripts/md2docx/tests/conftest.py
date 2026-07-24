@@ -125,3 +125,55 @@ def count_fatal_in_stderr(stderr: str) -> int:
 def count_pattern_in_output(output: str, pattern: str) -> int:
     """统计 output 中 pattern 出现次数。"""
     return output.count(pattern)
+
+
+# ---------------------------------------------------------------------------
+# 结构化断言支持：在进程内驱动 阶段0→3（normalize→clean→parse→assemble），
+# 直接返回 DocumentIR，供测试对 HeadingIR.kind / number / display_number 等
+# **结构化字段**做断言（而非对转换报告文本做脆弱的字符串包含检测）。
+# ---------------------------------------------------------------------------
+
+
+class _MinimalBuildOptions:
+    """assemble.builder.build() 所需的最小 options 蒙皮。
+
+    builder 仅消费 options.input_path 与 options.metadata_cli_overrides()，
+    故无需构造完整 RunOptions（其字段众多且面向 CLI）。
+    """
+
+    def __init__(self, input_path: str):
+        self.input_path = input_path
+
+    def metadata_cli_overrides(self) -> dict:
+        return {}
+
+
+def assemble_document_ir(md_path: Path, *, figures_dir: Path | None = None):
+    """在进程内跑 阶段0→3，返回 (DocumentIR, IssueCollector)。
+
+    用于对装配后的结构化 IR 做断言。图片存在性问题不影响标题分类，
+    默认不传 figures_dir（缺图仅产 E-IMG，不阻断 IR 装配）。
+    """
+    # 确保 md2docx 包可导入（scripts/ 在 sys.path 上）
+    if str(_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+
+    from md2docx.issues import IssueCollector
+    from md2docx.textstage.normalize import normalize
+    from md2docx.textstage.clean import clean
+    from md2docx.textstage.parse import parse
+    from md2docx.assemble.builder import build
+    from md2docx.config import BehaviorFlags
+
+    issues = IssueCollector()
+    text, _source_meta = normalize(str(md_path), issues)
+    cleaned = clean(text, issues, None)
+    tokens = parse(cleaned, issues)
+
+    flags = BehaviorFlags()
+    if figures_dir is not None:
+        flags = BehaviorFlags(figures_dir=str(figures_dir))
+
+    options = _MinimalBuildOptions(str(md_path))
+    doc = build(tokens, options, flags, issues)
+    return doc, issues

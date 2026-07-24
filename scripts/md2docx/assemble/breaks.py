@@ -186,6 +186,65 @@ def plan_breaks_and_sections(
             break
 
     # ------------------------------------------------------------------
+    # PB-E：缺口清理（02 §D.4 第五步，P-007）
+    # ------------------------------------------------------------------
+    # 定位首个 consuming 节（四节=首个 ABSTRACT H2；无摘要三节=首个 CHAPTER H2）
+    # 在 deduped 中的 token 索引，移除其之前的全部 PageBreakIR，每个记 I-PB-03。
+    #
+    # 动机：位于首个内容节 start_element_index 之前的 PageBreakIR 会落入渲染缺口
+    # （render/document.py _compute_section_ranges 的首个 consuming 节 start 之前
+    # 区间不属任何 range），既不换页也无留痕；而其换页需求本已由 COVER→首个内容节
+    # 的分节符（R4 NEW_PAGE）覆盖，属冗余分页。就地移除使"规划的 PageBreakIR 数"
+    # 与"渲染实际消费数"重新对齐——gate3 R15 期望值（len(PageBreakIR in elements)）
+    # 自动恢复诚实，无需改 gate3 计数逻辑（G-10 单一事实源）。
+    #
+    # 职责边界：PB-E 只清理 PageBreakIR。缺口内的非分页前导元素（普通段落、
+    # P-006 归为 FRONT_MATTER 的前言标题）不在此处理——它们由渲染层
+    # _compute_section_ranges 把首个 consuming 节起点扩展到 0 来挽救（P007-2），
+    # 二者职责严格互补、不重叠。
+    #
+    # 恒等保护：若首个 consuming 节 start 本就是 0（官方 front-matter.md /
+    # multi-chapter.md 等），gap_boundary_idx 为 0 或无 PageBreakIR 前导 → 不移除，
+    # 零回归。
+    _gap_target_line = (
+        first_abstract_line
+        if first_abstract_line is not None
+        else first_chapter_line
+    )
+    gap_boundary_idx: int | None = None
+    if _gap_target_line is not None:
+        for i, t in enumerate(deduped):
+            if (
+                isinstance(t, HeadingToken)
+                and t.level == 2
+                and t.source_line == _gap_target_line
+            ):
+                gap_boundary_idx = i
+                break
+
+    if gap_boundary_idx is not None and gap_boundary_idx > 0:
+        cleaned: list = []
+        for i, t in enumerate(deduped):
+            if i < gap_boundary_idx and isinstance(t, PageBreakIR):
+                # 落入首个内容节之前的缺口 → 移除并留痕（I-PB-03，复用现有码）
+                if issues is not None:
+                    issues.append(
+                        Issue(
+                            level=Level.INFO,
+                            code="I-PB-03",
+                            stage="assemble",
+                            message=(
+                                "位于首个内容节之前的显式分页被分节符换页吸收，"
+                                "未重复触发分页（PB-E 缺口清理）"
+                            ),
+                            source_line=t.source_line,
+                        )
+                    )
+                continue
+            cleaned.append(t)
+        deduped = cleaned
+
+    # ------------------------------------------------------------------
     # SectionPlan 生成（四节/三节方案，04 §2.4 I1 + M9 降级）
     # ------------------------------------------------------------------
 

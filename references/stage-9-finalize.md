@@ -53,7 +53,7 @@ python scripts/contract_check.py research/drafts/final-report.md --merged
 
 **研究报告的最终交付物必须是格式规范的 Word 文档。本阶段自动执行，不需要用户单独要求。**
 
-> **⚠️ 转换器重建中（2026-07-20起）**：原 `scripts/markdown_to_docx.py`（及 `scripts/md2docx/` 包）因存在 FIGURE_MAP 硬编码缺陷（换报告后图表静默丢失嵌入）已被删除。新版转换器（v2）的完整设计方案见 [`design/md-to-docx-design-v2/00-master-design.md`](../design/md-to-docx-design-v2/00-master-design.md)，已通过用户审批，实现阶段完成前，本节下方的 CLI 调用示例与"脚本自动完成的全部处理"表格暂保留作为**目标行为规格**参考，具体参数名/入口文件路径以实现完成后的实际代码为准，届时本节将同步更新为准确的调用方式。
+> **✅ 转换器 v2 已完成实现与验证（2026-07-24）**：新版转换器（`scripts/md2docx/` 包，六阶段管道：规范化→清理→解析→IR 装配→渲染前校验→渲染→门3 输出校验→转换报告）已按 [`design/md-to-docx-design-v2/00-master-design.md`](../design/md-to-docx-design-v2/00-master-design.md) 完成 C-01~C-16 全部改动并通过测试套件（`scripts/md2docx/tests/`）。原 `scripts/markdown_to_docx.py` 的 FIGURE_MAP 硬编码缺陷已被"图/表三元组 100% 动态解析 + 反硬编码红线（`check_no_hardcode.py` AST 扫描 + 换样本金标准测试）"根治。下方 CLI 调用示例与"脚本自动完成的全部处理"表格均已同步为实际实现的准确参数名与行为。
 
 **格式标准**：严格遵循 [`references/研究报告格式规范.md`](研究报告格式规范.md)（V3.1，遨天科技编制），该规范涵盖了文档全生命周期的格式要求：
 - 文档结构（封面/摘要/目录/正文/参考文献/附录）
@@ -66,14 +66,14 @@ python scripts/contract_check.py research/drafts/final-report.md --merged
 - Word 技术实现规范（TOC 域、多级列表、交叉引用、样式继承）
 - 输出检查清单（12 项，§10.3）
 
-使用本 skill 内置的一体化转换脚本（整合了 Markdown 清理、Word 生成、图片嵌入、表题注匹配；**参数名为目标规格，实现完成后以实际代码为准**）：
+使用本 skill 内置的一体化转换脚本（整合了 Markdown 清理、Word 生成、图片嵌入、表题注匹配）：
 
 ```bash
 python -m md2docx \
   research/drafts/final-report.md \
   output/报告题名_v1.0.docx \
   --title "报告题名" \
-  --images research/figures \
+  --figures-dir research/figures \
   --cover research/cover.md
 ```
 

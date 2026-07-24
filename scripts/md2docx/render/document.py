@@ -105,6 +105,25 @@ def _compute_section_ranges(
         if sec.kind in (SectionKind.ABSTRACT, SectionKind.BODY):
             consuming.append((i, sec.start_element_index))
 
+    # P-007：堵渲染缺口——将第一个 consuming 节的起点强制扩展到 0，使所有
+    # index < 其原 start 的前导元素（手动 --- 残留、H1 后游离段、P-006 归为
+    # FRONT_MATTER 的前言标题/段落）并入首个内容节渲染，而非落入无人消费的
+    # [0, start) 缺口被静默丢弃。
+    #
+    # 归属语义：前导元素并入"第一个有内容的节"——四节方案进 ABSTRACT 节（在
+    # 摘要标题之前渲染，落入罗马页码/摘要页眉体系，见 W-SEC-02 告警明示，U-2
+    # 已认可此版式归属）；三节方案进 BODY 节。
+    #
+    # 与 breaks.py PB-E 的分工：PB-E 已在规划期移除缺口内的 PageBreakIR（消除
+    # 冗余分页），故此处扩大 range 后缺口位置只剩非分页前导元素待渲染，二者
+    # 职责互补、不重叠。
+    #
+    # 恒等保护：若首个 consuming 节 start 本就是 0（官方 front-matter.md /
+    # multi-chapter.md），置 0 是恒等变换，零回归。无 consuming 节时（理论不出现，
+    # SectionPlan 至少含 BODY）consuming 为空，下方循环不执行，维持现状。
+    if consuming:
+        consuming[0] = (consuming[0][0], 0)
+
     ranges: dict[int, tuple[int, int]] = {}
     for idx, (plan_idx, start) in enumerate(consuming):
         end = consuming[idx + 1][1] if idx + 1 < len(consuming) else total_elements
