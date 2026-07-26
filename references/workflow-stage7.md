@@ -86,4 +86,4 @@ orchestrator.checkpoint("CP4", aggregate("research/chapter-reports/*"));  // 末
 
 ## 与 stage-7-writing.md 的关系
 
-`stage-7-writing.md` 定义"检查什么"（12 条标准、10 项自查、写作禁区）——本文件不重复，而是把这些作为 `chapter_auditor_agent` 的评分 rubric。单 Agent 极速档不走本 pipeline，回退 stage-7-writing.md 的 V3 单 Agent 自查清单。
+`stage-7-writing.md` 定义"检查什么"（12 条标准、13 项自查、写作禁区）——本文件不重复，而是把这些作为 `chapter_auditor_agent` 的评分 rubric。单 Agent 极速档不走本 pipeline，回退 stage-7-writing.md 的 V3 单 Agent 自查清单。

@@ -101,7 +101,7 @@ description: >
 总览图/架构图/流程图在分章写作前完成。出图工具：drawio（复杂架构）、fireworks-tech-graph（技术架构）、Mermaid（简单流程）。PNG 统一 300dpi+，配色限灰度色板 + 暗红 #D62728。
 
 ### [阶段 7：分章写作与数据图表](references/stage-7-writing.md)
-卡片→正文叙事化转写（三条铁律：禁逐条翻译字段、禁字段标签、强制主张→证据→推理三角），12 条内容质量标准，10 项逐章即时自查清单。标题只写纯文字，编号交给转换器。数据图表随写作出。
+卡片→正文叙事化转写（四条铁律：禁逐条翻译字段、禁字段标签、强制主张→证据→推理三角、禁把后台过程当正文），12 条内容质量标准，13 项逐章即时自查清单。标题只写纯文字，编号交给转换器。数据图表随写作出。
 > **多 Agent 档（默认/完整）**：改为 `chapter_writer_agent` + `chapter_auditor_agent` **写审对抗 pipeline**——逐章 loop-until-pass，审计采用盲态预承诺（先锁标准再看稿），量化维度由审计 Agent 调 `contract_check.py` 真跑。写审物理分离解开 R3 死结。逐章审计报告汇总走 CP4。详见 [`references/workflow-stage7.md`](references/workflow-stage7.md)。单 Agent 极速档回退本文件的 V3 自查清单。
 
 ### [阶段 8：红队审查](references/stage-8-review.md)

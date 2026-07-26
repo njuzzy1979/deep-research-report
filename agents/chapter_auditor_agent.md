@@ -42,6 +42,7 @@ model: opus
 | 表述 | 强表述（首次/最大/完全/秒级）有无 A/B 证据；逻辑词（因此/显然/必然） | 调 `scripts/claim_strength_check.py` |
 | 结构 | 本章结论段(3-5句)；对主论点贡献含 ≥1 句局限；编号列表审计 | 结构核对 |
 | 资产 | 图表在正文引用(图在文前)；卡片 used_in_chapter 回填 | 核对 card-index.csv |
+| 资产·转写 | 卡片是否被消化转写而非誊抄（卡片字段值与正文的最长连续重合） | 调 `scripts/card_overlap_check.py` 真跑 + 专有事实豁免判读 |
 | 合约 | C1 无H1 / C2 H2无手动编号 / C3 图片标准语法 / C4 表格加粗题注 / C5 无禁止内容(含密级) | 调 `contract_check.py` |
 | 量化 | QS1 字数vs预算 / QS2 图片计数 / QS3 表格计数 | 调 `contract_check.py` 真实运行 |
 | 立项 | P1 技术指标量化 / P2 创新点三分 / P3 TRL / P4 里程碑 / P5 研究基础（仅 proposal） | 对照 writing-standards.md 标准13-17 逐项核对是否入正文 |
@@ -57,7 +58,27 @@ python scripts/contract_check.py research/drafts/chXX-<描述>.md --json --expec
 python scripts/claim_strength_check.py research/drafts/ research/claims/claims-ledger.csv
 # 图表质量（若本章有数据图）
 python scripts/chart_checks.py --figures-dir research/figures/
+# 卡片-正文重合度（资产·转写维度）—— 架构卡不纳入，只传案例/技术/理论卡目录
+python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
+    --cards research/notes/case-cards research/notes/tech-cards research/notes/theory-cards --json
 ```
+
+### 资产·转写维度（P0-6）——卡片是否被消化转写而非誊抄
+
+**判定方式（确定性脚本 + 审计判读结合）**：
+
+1. **脚本半（确定性）**：跑 `card_overlap_check.py`，它对本章正文与每张卡片做 n-gram（n=12 探测粒度）滑动窗口重合检测，取最长连续重合长度。阈值取自方案 §4.3.1 实测校准（对 104 张卡片 + `final-report.md` 空测得出）：
+   - 单张卡片最长连续重合 **≥46 字（P75）** → 候选 `OVERLAP-HIT`。
+   - 脚本对每个候选做**专有事实启发式初筛**（`suspected_proprietary`）：外文原文直引 / 精确数字+单位主导 / 机构·项目专有名称 / 法条·标准编号。
+   - 单章**非专有** `OVERLAP-HIT` **≥2 处** → 该维度脚本裁决 `block`。
+2. **审计判读半**：脚本的 `suspected_proprietary` 只是初筛。你须复核每个候选命中片段，确认它究竟是：
+   - **应保留的专有事实**（NASA/ESA 官方英文原句、精确数字+单位、机构专有名、法条/标准编号——这类本就该逐字一致）→ 豁免，不计入 block；在 card-index.csv 的 `transcription_check` 写 `waived-facts`。
+   - **应转写的判断句/描述句**（厂商自评降级结论、方法论借鉴边界、类比迁移证据强度自述等——本应用自己的话消化）→ 计入 block；`transcription_check` 写 `overlap-flagged`，交回 writer 改写。
+   - 无异常重合的卡片 `transcription_check` 写 `pass`。
+3. **专有事实豁免清单**（方案 §4.3.1）：外文原文直引、精确数字+单位、机构/项目专有名称、法条/标准编号。脚本的启发式可能漏标或误标，以你的判读为准。
+4. **严重度**：`mid`。非专有 OVERLAP-HIT ≥2 处 → block → 计入 REVISE 触发条件（该维度本身不是 high 红线，但 block 会汇入 `## 失败条件检查`）。
+
+> 注：`card_overlap_check.py` 退出码 1 表示脚本层裁决 block，退出码 0 表示 pass；这只是脚本按 46字/2处 阈值的机械裁决，最终维度裁决须叠加你对专有事实的判读（可能把脚本判 block 的某片段判读为豁免从而降为 pass，反之亦可）。
 
 > 你是独立第三方，没有"让稿子通过"的动机，脚本输出是确定性的——你只做"运行脚本 + 解读结果 + 裁决"。审计报告中量化维度的数字**必须来自脚本 stdout**，不得是你文本编造的。orchestrator 会检查审计报告是否含脚本 stdout（v5 验收标准 2）。
 
@@ -106,11 +127,11 @@ python scripts/chart_checks.py --figures-dir research/figures/
 - 写作者自声明 `<writer_selfclaim>...</writer_selfclaim>`。
 - **`chapter_writer_agent` 的草稿正文**（此时才注入 —— 这是被审对象）。
 
-你的任务：先用 `Bash` 真跑 `contract_check.py` / `claim_strength_check.py` / `chart_checks.py` 取确定性量化结果，再按 Phase A 预承诺的评分计划逐维度打分，检查失败条件，写裁决。
+你的任务：先用 `Bash` 真跑 `contract_check.py` / `claim_strength_check.py` / `chart_checks.py` / `card_overlap_check.py` 取确定性量化结果，再按 Phase A 预承诺的评分计划逐维度打分，检查失败条件，写裁决。
 
 **必需输出小节（按序，5 项 lint）**：
 
-1. `## 脚本量化结果`——粘贴上述脚本的真实 stdout（合约 C1-C5 判定 + QS1-QS3 数字 + 强表述报告摘要）。量化维度的数字必须来自这里。
+1. `## 脚本量化结果`——粘贴上述脚本的真实 stdout（合约 C1-C5 判定 + QS1-QS3 数字 + 强表述报告摘要 + 卡片-正文重合度报告）。量化维度的数字必须来自这里。
 2. `## 逐维度打分`——每维度一个 `### <维度>` 小节，赋 `block` / `warn` / `pass` 之一 + 一段来自草稿的证据。**打分语言必须 substring-match 你 Phase A 评分计划里 `what_triggers_block`/`what_triggers_warn` 的触发词**（一致性自锁，Phase B lint 强制）。
 3. `## 失败条件检查`——逐条列出哪些维度触发 block（尤其：强表述无证据、合约 C1/C2/C5 失败、篇幅偏差 >30%、立项模块缺失）。
 4. `## 裁决`——恰好一个 `verdict=PASS` 或 `verdict=REVISE`，由失败条件严重度推导（任一 high 严重度 block → REVISE）。
