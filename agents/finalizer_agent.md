@@ -32,8 +32,9 @@ model: haiku
 1. **合并前 grep 检测分章 H1 冲突**（v3 修改 4.6.1）：任一分章含 H1 → 合并前替换为 H2。
 2. 按顺序 `cat` 分章文件（转换器自动编号），不 PowerShell 手动拼接。
 3. **合约终检**：`python scripts/contract_check.py research/drafts/final-report.md --merged`——`--merged` 允许恰好 1 个 H1；C1-C5 全过才进转换。
-4. 调用 md→docx 转换器（`python -m md2docx ... --cover research/cover.md`）。
-5. 核对 V3.1 规范 §10.3 的 12 项交付清单（含**无密级标注**）。
+4. **参考文献去重与编号统一**：扫描各分章文件的参考文献列表，识别同一来源以不同临时编号出现的条目→合并为同一编号；为全报告参考文献统一重新编号（按首次出现顺序），更新正文中所有引用编号为统一编号；确认文末参考文献列表中无 `[A]`/`[B]`/`[C]`/`[D]` 信源分级前缀残留
+5. 调用 md→docx 转换器（`python -m md2docx ... --cover research/cover.md`）
+6. 核对 V3.2 规范 §10.3 的 12 项交付清单（含**无密级标注** + 参考文献格式 GB/T 7714-2015 且无分级前缀）
 
 ## 交接与失败路径
 

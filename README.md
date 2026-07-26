@@ -1,16 +1,30 @@
 # deep-research-report
 
-面向支持 Agent Skills 标准的运行时（Claude Code、Codex、Cursor、OpenClaw 等）的**深度研究报告编写全流程方法论**。将"写一份研究报告"拆解为 9 个顺序阶段，用证据驱动 + 架构分析的方式，产出有事实核验、有架构图、经过红队审查的正式研究报告（Markdown + 标准格式 Word .docx）。
+面向支持 Agent Skills 标准的运行时（Claude Code、Codex、Cursor 等）的**深度研究报告编写全流程方法论**。将"写一份研究报告"拆解为 9 个顺序阶段，用证据驱动 + 架构分析的方式，产出有事实核验台账、有架构图、经过写审对抗 + 红队审查的正式研究报告（Markdown + 标准格式 Word .docx）。
 
 ## 这个 skill 解决什么问题
 
 直接让 LLM"写一份关于 XX 的报告"，容易出现：
+
 - 论点没有证据支撑，或引用来源真假不分
+- 证据分级/来源取舍/核验过程被当成正文叙事（"后台过程外泄"）
+- 卡片字段被逐字誊抄进正文，而非消化转写为判断
 - 图表和正文数据对不上、临时拼凑
 - 长报告写到后面结构塌方，前后论证不咬合
 - 排版随意，不符合正式交付的格式要求
 
 本 skill 用**阶段化质量门槛**约束这个过程：前一阶段的产物不达标，不允许进入下一阶段。核心理念是"先打地基，再盖房子"——资料没抽完不写大纲，事实没核验不写正文，架构图没画不分章写作。
+
+## 方法论特色
+
+| 层级 | 机制 | 解决的问题 |
+|------|------|-----------|
+| **前台/后台分离** | 标准 0（总纲）：正文只呈现成品判断，证据分级/来源取舍/核验过程下沉脚注或台账 | 编辑部过程外泄进正文——"该来源为 A 级，证据强度较高"这类自证严谨的元评论成为正文叙事对象 |
+| **卡片→正文消化转写** | 四铁律 + 卡片重合度检测（`card_overlap_check.py`）+ 论点骨架先行 | 卡片字段被逐字誊抄——写作者把精炼的卡片判断句原样搬进正文，而非消化后重新表达 |
+| **写审对抗** | 阶段 7 `chapter_writer_agent`（生成）+ `chapter_auditor_agent`（独立审计）物理分离，盲态预承诺 | V3 R3 死结——写作者自评不可信（看了稿再把标准调松到刚好通过） |
+| **红队并行** | 阶段 8 四人格（2×Opus+2×Sonnet）并行审查，独立综合去重 | 单视角审查遗漏；同质化风险 |
+| **SSOT 治理** | Agent prompt 强制 Read 外部规范文件，`linkage-constants.json` + `check_linkage_constants.py` 跨文件常量联动校验 | 规范文档腐烂——Agent 内嵌摘要与源文件脱节；关键数值（阈值/限额）在多文件间漂移 |
+| **Word 原生动态编号** | `w:numPr` 多级列表 + SEQ 域 + `w:updateFields` 双保险 | 硬编码编号在文档编辑后失序——章节增删后需全篇人工重新核对编号 |
 
 ## 9 阶段流程
 
@@ -21,97 +35,116 @@
   → 阶段4 详细大纲
   → 阶段5 专题研究（卡片 + 证据包）
   → 阶段6 核心架构图（先于写作）
-  → 阶段7 分章写作 + 数据图表（随写作产出）
-  → 阶段8 红队审查
+  → 阶段7 分章写作 + 数据图表（随写作产出）+ 写审对抗
+  → 阶段8 红队审查（4 人格并行）
   → 阶段9 定稿整合
 ```
 
 | 阶段 | 产出 | 质量门槛 | 关键特性 |
 | ---- | ---- | ---- | ---- |
-| 1 项目初始化 | 工作目录、分析框架、题名参数 | 用户确认关键参数 | 智能推断 7 参数；工具路径配置 `tool-paths.json` |
-| 2 资料搜集与抽取 | 来源索引表 + MinerU 解析结果 | 每条来源分级 A/B/C/D 并登记 | 三工具协作：web-search + paper-search + MinerU |
-| 3 事实核验 | 事实核验台账 | 高风险主张全部核验，强表述降级 | 5 类优先核验主张，6 级核验状态 |
-| 4 详细大纲 | 三级标题 + 篇幅建议 + 图表规划 | 用户确认大纲结构 | 必选骨架 + 可选模块池（按研究方法触发） |
-| 5 专题研究 | 案例卡片 + 证据包 + card-index | 每个核心论点有卡片支撑 | 4 类卡片（案例/技术/理论/架构），card-index.csv 可追溯 |
-| 6 核心架构图 | 架构图/流程图（.drawio + .svg + .png） | 图号、图名、核心要素齐全 + 颜色注册表 | drawio MCP + 桌面版 + fireworks-tech-graph + Mermaid |
-| 7 分章写作 | 正文 Markdown + 随写作产出的数据图表 | 6 条内容质量标准（A-F）+ 图表类型合规检查 | matplotlib 全局样式模板 + 自动颜色校验 |
-| 8 红队审查 | 红队风险清单 → 逐项处理后更新为最终版 | 高风险 100% 处理，中风险 ≥80% | 逐条过→直接改正文→记录结果→标记 `[红队 R00X]` |
-| 9 定稿整合 | 终稿 Markdown + 标准格式 `.docx` | 通过 V3.1 格式规范 12 项输出检查 | md→docx 转换器 v2：38 模块 / ~15,000 行 / 6 阶段管道 + 反硬编码 AST 扫描 |
+| 1 项目初始化 | 工作目录、分析框架、题名参数 | 用户确认关键参数 | 智能推断 7 参数；5 种报告类型自动识别；三档协同模式选定 |
+| 2 资料搜集与抽取 | 来源索引表 + MinerU 解析结果 | 每条来源分级 A/B/C/D 并登记 | 三工具协作：web-search + paper-search + MinerU；P0 政府/法规 → P1 学术 → P2 媒体 |
+| 3 事实核验 | 事实核验台账 | 高风险主张全部核验，强表述降级 | 5 类优先核验主张，6 级核验状态；整个方法论的"地基" |
+| 4 详细大纲 | 三级标题 + 篇幅建议 + 图表规划 | 用户确认大纲结构 | 必选骨架 + 可选模块池（按报告类型 + 研究方法触发）；叙事框架格式 |
+| 5 专题研究 | 结构化卡片 + 证据包 + card-index.csv | 核心章 ≥3 张卡片；叙事化判断字段必填 | 4 类卡片（案例/技术/架构/理论）；3 类必填"叙事化判断"锚点字段；card_file_path 列登记 |
+| 6 核心架构图 | 架构图/流程图（.drawio + .svg + .png） | 图号、图名、核心要素齐全 + 颜色注册表 | 先于写作完成——架构图是报告的骨架；统一灰度色板 + 暗红强调 |
+| 7 分章写作 | 正文 Markdown + 随写作产出的数据图表 | 6 条内容质量 + 13 项逐章自查 + 写审对抗通过 | 多 Agent 档：writer+auditor 盲态预承诺 pipeline；论点骨架先行→回填证据→查后台外泄 |
+| 8 红队审查 | 红队风险清单 → 逐项处理后更新为最终版 | 高风险 100% 处理，中风险 ≥80% | 8 维度 / 4 人格并行（异构模型）；极速档压缩为 3 维度 |
+| 9 定稿整合 | 终稿 Markdown + 标准格式 `.docx` | 12 项交付清单逐项确认 | md→docx 转换器：41 模块 / ~10K 行 / 6 阶段管道 + Word 原生动态编号 + SEQ 域 + 反硬编码 AST 扫描 |
 
 > **🚫 严禁标密**：本 skill 产出的所有研究报告均基于互联网公开资料。报告的任何位置（封面、页眉、页脚、正文、附录）禁止标注密级。
 
-## 目录结构
+## 多 Agent 协同执行体系（v5）
 
-```
-deep-research-report/
-├── SKILL.md                             # 核心方法论（本 skill 的主体）
-├── README.md                            # 本文件
-├── dashboard.md                         # Darwin 2.0 评估优化记录
-├── .gitignore                           # 排除 research/ output/ tests/
-├── scripts/
-│   ├── md2docx.py                       # md→docx 转换器入口 shim
-│   ├── md2docx/                         # 转换器 v2 主包（37 模块）
-│   │   ├── cli.py / config.py           # CLI 参数 + YAML 配置
-│   │   ├── iotools.py / ir.py / issues.py  # I/O 唯一入口 + IR + Issue 跟踪
-│   │   ├── pipeline.py                  # 6 阶段管道编排
-│   │   ├── textstage/                   # 规范化 / 清理 / 解析 / 行内
-│   │   ├── assemble/                    # 元数据 / 标题 / 图表 / 分页
-│   │   ├── render/                      # 渲染（封面/目录/标题/正文/图表/页眉页脚）
-│   │   ├── validate.py / report.py / gate3.py  # 校验 + 报告 + 门禁
-│   │   └── ...
-│   └── chart_checks.py                  # 图表质量自动检查（DPI/颜色/注册表）
-├── design/
-│   ├── md-to-docx-design-v2/            # 转换器 v2 完整设计（7 份文档）
-│   └── chart-quality-constraints/       # 图表质量约束方案（9 份文档 + .mplstyle）
-├── references/                          # 阶段执行时按需读取的参考文件
-│   ├── tool-paths.json                  # 外部工具路径集中配置
-│   ├── 研究报告格式规范.md               # 【权威】Word 格式规范 V3.1
-│   ├── claims-ledger-template.csv       # 事实核验台账模板
-│   ├── source-index-template.csv        # 来源索引模板
-│   ├── card-index-template.csv          # 卡片索引模板
-│   ├── color-mapping-rules.yaml         # 项目级颜色映射规则
-│   ├── red-team-checklist.md            # 红队审查详细清单
-│   ├── writing-standards.md             # 写作标准详细说明（12 条标准）
-│   ├── architecture-analysis-guide.md   # 架构分析方法论指南
-│   └── md-to-docx-pitfalls.md           # Markdown→Word 转换踩坑记录
-├── assets/                              # 静态资源
-├── evals/                               # 评估用例
-├── research/                            # 运行时工作区（gitignored）
-└── output/                              # 运行时产物（gitignored）
-```
+详见 [`references/multiagent-orchestration.md`](references/multiagent-orchestration.md)。
 
-## 使用方式
+### 10 个角色
 
-当用户提出"研究报告、深度分析、白皮书、政策研究、行业分析、技术评估、可行性研究"等相关请求时，skill 会自动触发。也可以直接输入：
+| 角色 | 族 | 模型 | 阶段 | 简介 |
+|------|------|------|------|------|
+| `report_orchestrator`（主对话剧本） | 编排 | Opus | 1-9 | 分派/门禁/CHECKPOINT/裁决/降级，6 个阻塞点用户确认 |
+| `source_collector_agent` | 研究 | Haiku | 2 | 搜集→下载→抽取→来源索引 |
+| `fact_verifier_agent` | 研究 | Opus | 3 | 事实核验台账，强表述降级 |
+| `outline_architect_agent` | 设计 | Opus | 4 | 产出 outline.md 叙事框架契约 |
+| `card_synthesizer_agent` | 设计 | Sonnet | 5 | 台账→结构化卡片 + 证据包 |
+| `diagram_agent` | 制图 | Haiku | 6+7 | 核心架构图 + 数据图表 |
+| `chapter_writer_agent` | 写作 | Sonnet | 7 | 逐章写作，卡片→叙事化转写 |
+| `chapter_auditor_agent` | 审计 | Opus | 7 | 逐章独立审计（R3 的解），真跑 4 个检查脚本 |
+| `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
+| `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份报告→统一风险清单 |
+| `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
 
-> 帮我写一份关于 XX 行业的深度研究报告
+> **模型选型原则**：按认知负荷类型分级——强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；机械/模板化（搜集、制图、定稿）用 Haiku。
 
-依次执行阶段 1–9，在每个质量门槛处与用户确认，最终产出：
-- Markdown 终稿
-- 符合 V3.1 规范的标准格式 `.docx`（封面 + TOC 域 + 图表题注 + 页眉页脚 + 全框线表格）
-- `research/figures/` 下的全部架构图与数据图表（PNG 300dpi + SVG 源文件）
+### 三档协同模式
 
-### 极速模式
+| 档位 | 触发条件 | 阶段 7 写作 | 阶段 8 红队 | Agent 调用量级 |
+|------|---------|-----------|-----------|--------------|
+| **完整多 Agent** | 立项报告(proposal) / ≥40 页 / 核心章 ≥3 | 全部章 writer+auditor 对抗 + loop-until-pass | 4 人格并行 + 综合 | 完整（10+ 角色） |
+| **分层多 Agent**（默认） | 深度研究 30-50 页 / 核心章 2-3 | 仅核心章走对抗，其余 orchestrator 直接写 | 4 人格并行 + 综合 | 标准（6-8 角色） |
+| **单 Agent 极速** | 快速简报(brief) / <15 页 / ≤2 章 | orchestrator 单 Agent + V3 自查兜底 | 3 维度自审 | 最小（回退 V3） |
 
-时间 < 3 天或篇幅 < 20 页时自动触发：阶段 2-3 合并（边收集边核验）→ 大纲降为二级标题 → 只出 1 张总览图 → 写作只强制执行标准 7（证据密度）+ 标准 10（量化优先）→ 红队压缩为 3 项 → 交付 Markdown 终稿。**阶段 3（事实核验）和阶段 8（红队审查）仍不可跳过**。
+## 写作标准体系（17 条）
+
+| 编号 | 标准 | 作用域 |
+|------|------|--------|
+| **标准 0** | 前台/后台分离（总纲）——正文只呈现成品判断，编辑部过程（证据分级/来源取舍/核验状态）下沉脚注 | 全报告类型 |
+| 标准 1 | 证据驱动——每个关键判断对应至少一个具体来源 | 全类型 |
+| 标准 2 | 不确定性标注——未核验事实必须加限定词 | 全类型 |
+| 标准 3 | 机制导向——分析"为什么"而非"是什么" | 全类型 |
+| 标准 4 | 架构先行——核心架构图在正文写作前完成 | 全类型 |
+| 标准 5 | 反碎片化——禁止无逻辑关系的要点堆砌 | 全类型 |
+| 标准 6 | 禁止位置性指代——用"如图 3-2"而非"下图""上表" | 全类型 |
+| 标准 7 | 证据密度——每自然段 ≥1 个来源引用 | 全类型 |
+| 标准 8 | 主张→证据→推理三角——每个关键判断呈完整论证链 | 全类型 |
+| 标准 9 | 建议可操作性——谁/做什么/资源/效果指标 | 全类型 |
+| 标准 10 | 量化优先——能用数字不用形容词 | 全类型 |
+| 标准 11 | 承认边界——每章至少 1 句分析局限 | 全类型 |
+| 标准 12 | 摘要自足性——摘要不是目录散文版 | 全类型 |
+| 标准 13-17 | 立项报告专属（P1 技术指标量化 / P2 创新点三分 / P3 TRL / P4 里程碑 / P5 研究基础） | proposal 专用 |
+
+> 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
+
+## 自动化检查脚本（6 个）
+
+| 脚本 | 触发阶段 | 功能 | 调用方 |
+|------|---------|------|--------|
+| `contract_check.py` | 阶段 7 审计 | 合约 C1-C5（标题/图片/表格/禁止内容）+ 量化 QS1-QS3（字数/图数/表数） | `chapter_auditor_agent` |
+| `claim_strength_check.py` | 阶段 7 审计 | 扫描强表述词（首次/最大/完全等），交叉核对 claims-ledger.csv | `chapter_auditor_agent` |
+| `card_overlap_check.py` | 阶段 7 审计 | n-gram 滑动窗口检测卡片-正文重合度（≥46 字候选，专有事实豁免），防逐卡誊抄 | `chapter_auditor_agent` |
+| `chart_checks.py` | 阶段 6/7 | 图表 DPI/颜色/注册表自动检查 | `diagram_agent` |
+| `check_linkage_constants.py` | CI/维护 | 扫描 `linkage-const` 标记，与 `linkage-constants.json` SSOT 比对 | 开发者 |
+| `check_no_hardcode.py` | CI | AST 扫描内容硬编码 + 结构违规 + schema 漂移 | 开发者 |
+
+## 转换器卡片-正文重合度检测
+
+阶段 7 审计的"资产·转写维度"（P0-6）检测写作者是否将卡片字段逐字誊抄进正文：
+
+- **机制**：`card_overlap_check.py` 对正文与每张卡片做 n-gram（探测粒度 12 字）滑动窗口重合检测
+- **阈值**：单张卡片最长连续重合 ≥46 字（P75，据 104 张卡片 + `final-report.md` 实测校准）→ 候选 OVERLAP-HIT
+- **豁免**：外文原文直引 / 精确数字+单位 / 机构专有名 / 法条标准编号（逐字一致是正当的）
+- **判罚**：单章非专有 OVERLAP-HIT ≥2 处 → 审计维度 block → 触发 REVISE
 
 ## md→docx 转换器 v2
 
-阶段 9 使用自研转换器（`scripts/md2docx/`）将 Markdown 转换为符合 V3.1 格式规范的 .docx：
+阶段 9 使用自研转换器（`scripts/md2docx/`，41 模块 / ~10K 行 Python）将 Markdown 转换为符合 V3.2 格式规范的 .docx：
 
 | 特性 | 实现 |
 | ---- | ---- |
 | 封面 | 标题 + 副标题 + 机构 + 日期 + 版本，无密级字段 |
-| 目录 | Word 原生 TOC 域（`begin→instrText→separate→end` 四态），按 F9 更新 |
-| 图表目录 | PAGEREF 域混合方案（图表 ≥10 时自动生成） |
-| 编号 | 文本显式编号（第一章 / 1.1 / 1.1.1），100% 动态解析 |
-| 图片 | PNG 嵌入，`![图X-Y 标题](路径)` 动态解析，零硬编码映射 |
-| 表格 | 全框线（含竖线）、交替行灰底、表头重复、垂直居中 |
+| 目录 | Word 原生 TOC 域（四态 `begin→instrText→separate→end`），按 F9 更新 |
+| 章节编号 | Word 原生多级列表（`w:numPr`）：章/节/小节三级共享计数器，"第1章"/"1.1"/"1.1.1"自动联动；附录独立字母编号 |
+| 图表编号 | SEQ 域自动编号（`SEQ 图 \* ARABIC` / `SEQ 表 \* ARABIC`），`placeholder_text` 避免 F9 前空白 |
+| 图片 | PNG 嵌入，`![图X-Y 标题](路径)` 动态解析，图号可选（`图(?:1-1)? 标题` 均合法） |
+| 表格 | 全框线（含竖线）、交替行灰底、表头重复、垂直居中；表号可选同图 |
 | 页码 | 摘要罗马数字 + 正文阿拉伯数字，四节方案 |
-| 门禁 | 14 项输出校验（密级复检、分页一致性、域三态等） |
-| 反硬编码 | `check_no_hardcode.py`（AST 扫描内容硬编码 + 结构违规 + M7 schema 漂移）+ 换样本金标准测试（CI 必跑） |
+| 域更新 | `w:updateFields` 文档级设置，Word 打开时自动更新所有域（SEQ/PAGEREF/TOC 双保险） |
+| 引号 | R-13 有状态全角化（`"`→`"`/`"`）+ R-20 引号字体修正（`add_run_segments` 宋体覆盖） |
+| 清理 | R-12 写作者自声明块删除兜底 + R-14 红队批注块删除兜底 |
+| 门禁 | 14 项 gate3 输出校验（密级复检、编号连续性、分页一致性、域三态等） |
+| 反硬编码 | `check_no_hardcode.py` AST 扫描 + 换样本金标准测试（CI 必跑） |
 
-转换器设计文档位于 `design/md-to-docx-design-v2/`（7 份，含架构/算法/工作流/接口/裁决/审计）。
+> 转换器设计文档位于 `design/md-to-docx-design-v2/`（7 份）。踩坑记录见 [`references/md-to-docx-pitfalls.md`](references/md-to-docx-pitfalls.md)（代码层）和 [`references/writing-process-pitfalls.md`](references/writing-process-pitfalls.md)（流程层），两者互补。
 
 ## 图表绘制质量约束
 
@@ -123,6 +156,86 @@ deep-research-report/
 - **matplotlib**：全局样式模板（`matplotlib-report-style.mplstyle`），`plt.style.use()` 一键加载
 - **检查**：`scripts/chart_checks.py` 自动检查 DPI / 颜色 / 注册表
 - **反模式**：禁止 3D 图表、>5 扇区饼图、双 Y 轴滥用等 12 项
+
+## 目录结构
+
+```
+deep-research-report/
+├── SKILL.md                              # 核心方法论（skill 主体，模块化入口）
+├── README.md                             # 本文件
+├── dashboard.md                          # Darwin 2.0 评估优化记录
+├── linkage-constants.json                # SSOT 跨文件数值常量（7 个阈值/限额）
+├── .gitignore                            # 排除 research/ output/ tests/
+├── agents/                               # 10 个 Agent 定义（prompt + 契约）
+│   ├── chapter_writer_agent.md           # 写作者（Sonnet）
+│   ├── chapter_auditor_agent.md          # 审计者（Opus，R3 的解）
+│   ├── redteam_agent.md                  # 红队 4 人格（异构 2×Opus+2×Sonnet）
+│   ├── redteam_synthesizer_agent.md      # 红队综合去重（Sonnet）
+│   ├── outline_architect_agent.md        # 大纲设计（Opus）
+│   ├── card_synthesizer_agent.md         # 卡片合成（Sonnet）
+│   ├── source_collector_agent.md         # 资料搜集（Haiku）
+│   ├── fact_verifier_agent.md            # 事实核验（Opus）
+│   ├── diagram_agent.md                  # 制图（Haiku）
+│   ├── finalizer_agent.md                # 定稿整合（Haiku）
+│   └── contracts/                        # writer_contract.json + auditor_contract.json
+├── scripts/
+│   ├── contract_check.py                 # 合约 + 量化检查（审计 Agent 确定性工具）
+│   ├── claim_strength_check.py           # 强表述扫描
+│   ├── card_overlap_check.py             # 卡片-正文重合度检测
+│   ├── chart_checks.py                   # 图表 DPI/颜色/注册表检查
+│   ├── check_linkage_constants.py        # SSOT 数值一致性校验
+│   ├── md2docx.py                        # md→docx 转换器入口 shim
+│   └── md2docx/                          # 转换器 v2 主包（41 模块）
+│       ├── cli.py / config.py            # CLI + 配置
+│       ├── iotools.py / ir.py / issues.py # I/O 入口 + IR 定义 + Issue 跟踪
+│       ├── pipeline.py                   # 6 阶段管道编排
+│       ├── textstage/                    # normalize / clean / parse / inline / tokens
+│       ├── assemble/                     # metadata / headings / figures / tables / builder / breaks
+│       ├── render/                       # cover / toc / headings / numbering / paragraphs / lists /
+│       │                                 # tables / figures / special / document / styles / oxml_helpers /
+│       │                                 # headerfooter
+│       ├── validate.py / report.py / gate3.py  # 校验 + 报告 + 门禁
+│       └── check_no_hardcode.py          # AST 反硬编码扫描
+├── design/
+│   ├── md-to-docx-design-v2/             # 转换器 v2 完整设计（7 份文档）
+│   └── chart-quality-constraints/        # 图表质量约束方案（9 份文档 + .mplstyle）
+├── references/                           # 阶段/Agent 执行时按需读取的参考文件
+│   ├── stage-1-init.md through stage-9-finalize.md  # 9 阶段独立 spec
+│   ├── appendix-report-types.md          # 报告类型适配 + 分报告类型行文要点
+│   ├── appendix-converter-contract.md    # 转换器合约 C1-C5
+│   ├── writing-standards.md              # 写作标准详细说明（标准 0-17）
+│   ├── writing-process-pitfalls.md       # 写作/协同流程踩坑记录（流程层根因分析）
+│   ├── md-to-docx-pitfalls.md            # 转换器踩坑记录（代码层修复方案）
+│   ├── multiagent-orchestration.md       # 多 Agent 编排总纲
+│   ├── workflow-stage7.md / workflow-stage8.md  # 阶段 7/8 编排脚本规格
+│   ├── red-team-checklist.md             # 红队审查 8 维度详细清单（含极速档 3 维度）
+│   ├── architecture-analysis-guide.md    # 架构分析方法论指南
+│   ├── 研究报告格式规范.md               # 【权威】Word 格式规范 V3.1
+│   ├── claims-ledger-template.csv        # 事实核验台账模板
+│   ├── source-index-template.csv         # 来源索引模板
+│   ├── card-index-template.csv           # 卡片索引模板（含 transcription_check + card_file_path）
+│   ├── color-mapping-rules.yaml          # 项目级颜色映射规则
+│   └── tool-paths.json                   # 外部工具路径集中配置
+├── assets/                               # 静态资源
+├── evals/                                # 评估用例
+├── research/                             # 运行时工作区（gitignored）
+└── output/                               # 运行时产物（gitignored）
+```
+
+## 使用方式
+
+当用户提出"研究报告、深度分析、白皮书、政策研究、行业分析、技术评估、可行性研究"等相关请求时，skill 会自动触发。也可以直接输入：
+
+> 帮我写一份关于 XX 行业的深度研究报告
+
+依次执行阶段 1–9，在每个质量门槛处与用户确认，最终产出：
+- Markdown 终稿
+- 符合 V3.2 规范的标准格式 `.docx`（封面 + TOC 域 + 动态多级列表编号 + SEQ 图/表域 + 页眉页脚 + 全框线表格）
+- `research/figures/` 下的全部架构图与数据图表（PNG 300dpi + SVG 源文件）
+
+### 极速模式
+
+时间 < 3 天或篇幅 < 20 页时自动触发：阶段 2-3 合并（边收集边核验）→ 大纲降为二级标题 → 只出 1 张总览图 → 写作只强制执行标准 7（证据密度）+ 标准 10（量化优先）→ 红队压缩为 3 项 → 交付 Markdown 终稿。**阶段 3（事实核验）和阶段 8（红队审查）仍不可跳过**。
 
 ## 外部依赖
 

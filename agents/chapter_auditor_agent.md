@@ -20,6 +20,7 @@ model: opus
 
 你需审计以下维度（完整定义见指定文件）：
 - 12+5 条写作标准 → `{skill路径}/references/writing-standards.md`（标准 0-12 + 立项 P1-P5 = 标准 13-17）
+- GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
 - 转换器合约 C1-C5（标题/图片/表格/禁止内容）→ `{skill路径}/references/appendix-converter-contract.md`
 - 前向引用分类型限额表 → `{skill路径}/references/stage-7-writing.md` §7.2
 - 卡片-正文重合度阈值 → `{skill路径}/references/stage-5-cards.md` §5.4 + 本 prompt 脚本命令段
@@ -49,6 +50,7 @@ model: opus
 |----|------|---------|
 | 大纲对照 | 本章是否覆盖 outline 当前章的论证路径与关键素材；篇幅偏差 | 对照 outline.md + 调 `contract_check.py` 数字数 |
 | 证据 | 证据密度（抽 3 段均可溯源）；C/D 级来源限定词；无空泛来源 | 逐段核 + claims-ledger.csv 交叉 |
+| 引用 | 上标编号 [N] 与参考文献列表一一对应；格式为 GB/T 7714-2015；无 [A]/[B]/[C]/[D] 分级前缀残留；无 claim_id 泄露 | 逐 [N] 核 + 调 `contract_check.py --check-references` |
 | 表述 | 强表述（首次/最大/完全/秒级）有无 A/B 证据；逻辑词（因此/显然/必然） | 调 `scripts/claim_strength_check.py` |
 | 结构 | 本章结论段(3-5句)；对主论点贡献含 ≥1 句局限；编号列表审计 | 结构核对 |
 | 资产 | 图表在正文引用(图在文前)；卡片 used_in_chapter 回填 | 核对 card-index.csv |
@@ -143,9 +145,9 @@ python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
 
 **必需输出小节（按序，5 项 lint）**：
 
-1. `## 脚本量化结果`——粘贴上述脚本的真实 stdout（合约 C1-C5 判定 + QS1-QS3 数字 + 强表述报告摘要 + 卡片-正文重合度报告）。量化维度的数字必须来自这里。
+1. `## 脚本量化结果`——粘贴上述脚本的真实 stdout（合约 C1-C5 判定 + QS1-QS3 数字 + 强表述报告摘要 + 卡片-正文重合度报告 + 引用格式检测结果）。量化维度的数字必须来自这里。
 2. `## 逐维度打分`——每维度一个 `### <维度>` 小节，赋 `block` / `warn` / `pass` 之一 + 一段来自草稿的证据。**打分语言必须 substring-match 你 Phase A 评分计划里 `what_triggers_block`/`what_triggers_warn` 的触发词**（一致性自锁，Phase B lint 强制）。
-3. `## 失败条件检查`——逐条列出哪些维度触发 block（尤其：强表述无证据、合约 C1/C2/C5 失败、篇幅偏差 >30%、立项模块缺失）。
+3. `## 失败条件检查`——逐条列出哪些维度触发 block（尤其：强表述无证据、合约 C1/C2/C5 失败、篇幅偏差 >30%、立项模块缺失、参考文献存在信源分级前缀残留）。
 4. `## 裁决`——恰好一个 `verdict=PASS` 或 `verdict=REVISE`，由失败条件严重度推导（任一 high 严重度 block → REVISE）。
 5. `## issue 清单`——REVISE 时逐条列 `维度 / 位置(节号或行) / 问题 / 建议修法`，供 `chapter_writer_agent` 直接定位修改。PASS 时可为空。
 
