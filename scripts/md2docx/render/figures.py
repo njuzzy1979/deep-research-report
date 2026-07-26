@@ -30,6 +30,10 @@ from ..issues import Issue, IssueCollector, Level
 # ---------------------------------------------------------------------------
 _next_bookmark_id = 1
 
+# SEQ 域指令模板常量：caption_field_mode="field" 时，图题注编号由 Word SEQ
+# 域自动计算，而非 assemble 层誊抄的 figure_id（本次 plan §6.3 图编号方案）
+_FIGURE_SEQ_INSTR = "SEQ 图 \\* ARABIC"
+
 
 # ---------------------------------------------------------------------------
 # 内部辅助函数
@@ -274,9 +278,23 @@ def render_figure(
     # bookmarkStart（在段落中插入书签起始标记）
     oxml_helpers.make_bookmark_start(caption_p, bookmark_id, figure.bookmark_name)
 
-    # 题注文字
-    caption_text = f"图{figure.figure_id} {figure.caption_text}"
-    caption_p.add_run(caption_text)
+    # 题注文字（Phase 6.3：caption_field_mode 开关控制编号是静态文本还是
+    # Word SEQ 域。"text" 模式向后兼容，保留 figure.figure_id 字面拼接；
+    # "field" 模式改为 Word 原生自动编号，图片增删/重排后编号自动更新，
+    # 不再依赖 assemble 层从作者手写 alt 文本誊抄的编号值）。
+    if flags.caption_field_mode == "field":
+        caption_p.add_run("图")
+        # 占位符必须是"全篇第几个 SEQ 图 域"（Word SEQ 域按序列名全局递增计数），
+        # 不是 figure.seq_no（章节内序号）——bookmark_id 恰好就是按渲染顺序
+        # 全局自增的值，与 SEQ 域的求值结果语义一致，可直接复用。
+        oxml_helpers.make_field(
+            caption_p, _FIGURE_SEQ_INSTR, field_type="SEQ",
+            placeholder_text=str(bookmark_id),
+        )
+        oxml_helpers.add_run_segments(caption_p, f" {figure.caption_text}")
+    else:
+        caption_text = f"图{figure.figure_id} {figure.caption_text}"
+        oxml_helpers.add_run_segments(caption_p, caption_text)
 
     # bookmarkEnd（在段落中插入书签结束标记）
     oxml_helpers.make_bookmark_end(caption_p, bookmark_id, figure.bookmark_name)
@@ -288,7 +306,7 @@ def render_figure(
     if source_note:
         source_p = doc.add_paragraph()
         source_p.style = styles["Table Source"]
-        source_p.add_run(f"数据来源：{source_note}")
+        oxml_helpers.add_run_segments(source_p, f"数据来源：{source_note}")
 
 
 # ===========================================================================
@@ -466,6 +484,57 @@ if __name__ == "__main__":
     # 验证两个书签 ID 不同
     bm_starts = doc4.element.findall(".//" + qn("w:bookmarkStart"))
     _check("两张图产生 2 个书签", len(bm_starts) == 2)
+
+    # ---- 6. caption_field_mode="field" 模式：SEQ 域占位符（本次修复覆盖） ----
+    doc5 = Document()
+    style_map5 = register_styles(doc5)
+    collector5 = IssueCollector()
+
+    render_figure(
+        doc5, fig_a, style_map5, oxml_mod, collector5,
+        BehaviorFlags(caption_field_mode="field", allow_missing_figures=True),
+    )
+    render_figure(
+        doc5, fig_b, style_map5, oxml_mod, collector5,
+        BehaviorFlags(caption_field_mode="field", allow_missing_figures=True),
+    )
+
+    instr_texts = doc5.element.findall(".//" + qn("w:instrText"))
+    seq_instrs = [t.text for t in instr_texts if t.text and "SEQ" in t.text]
+    _check("field 模式产生 2 个 SEQ 图 域", len(seq_instrs) == 2)
+
+    # 提取每个域 separate 与 end 之间的 w:t 文本，验证占位符非空
+    fld_chars = doc5.element.findall(".//" + qn("w:fldChar"))
+    placeholder_values = []
+    for fc in fld_chars:
+        if fc.get(qn("w:fldCharType")) == "separate":
+            # 找到该 run 之后、下一个 end fldChar 之前的 w:t
+            sep_run = fc.getparent()
+            sibling = sep_run.getnext()
+            val = None
+            while sibling is not None:
+                fld = sibling.find(qn("w:fldChar"))
+                if fld is not None and fld.get(qn("w:fldCharType")) == "end":
+                    break
+                t = sibling.find(qn("w:t"))
+                if t is not None:
+                    val = t.text
+                sibling = sibling.getnext()
+            placeholder_values.append(val)
+
+    _check(
+        "SEQ 域占位符均非空",
+        len(placeholder_values) == 2 and all(v not in (None, "") for v in placeholder_values),
+    )
+    # 注：_next_bookmark_id 为模块全局计数器，前面测试用例已消耗过若干 ID，
+    # 此处不假设具体起始值，只验证"连续递增的两个整数"这一语义
+    _check(
+        "SEQ 域占位符为连续递增的两个整数（bookmark_id 全局递增语义）",
+        len(placeholder_values) == 2
+        and placeholder_values[0].isdigit()
+        and placeholder_values[1].isdigit()
+        and int(placeholder_values[1]) == int(placeholder_values[0]) + 1,
+    )
 
     # ---- 汇总 ----
     _passed, _failed = _counts

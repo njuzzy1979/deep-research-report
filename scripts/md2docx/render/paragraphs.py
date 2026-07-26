@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from ..config import INLINE_CODE_ASCII_FONT
 from ..ir import InlineRun, ParagraphIR, QuoteIR
-from .oxml_helpers import add_hyperlink
+from .oxml_helpers import add_hyperlink, add_run_segments
 
 
 # ---------------------------------------------------------------------------
@@ -26,9 +26,11 @@ def _add_runs_to_paragraph(p, runs: list[InlineRun]) -> None:
 
     对每个 InlineRun：
     - 若含 ``link_url``，通过 oxml_helpers.add_hyperlink 创建可点击超链接 run
-    - 否则创建普通 run，按 InlineRun 的格式开关设置字体属性
+    - 否则通过 oxml_helpers.add_run_segments 按全角双引号拆分为多个 run，
+      逐段应用格式（引号字符额外修正字体插槽为宋体，问题20）
 
-    中文字体由段落样式控制，本函数不在 run 级额外设置 eastAsia 字体。
+    中文字体由段落样式控制，本函数不在 run 级额外设置 eastAsia 字体
+    （引号字符除外，见 add_run_segments）。
 
     Args:
         p: python-docx Paragraph 对象
@@ -39,16 +41,18 @@ def _add_runs_to_paragraph(p, runs: list[InlineRun]) -> None:
             # 超链接：委托给 oxml_helpers，生成蓝色下划线可点击文本
             add_hyperlink(p, irun.link_url, irun.text)
         else:
-            run = p.add_run(irun.text)
-            if irun.bold:
-                run.font.bold = True
-            if irun.italic:
-                run.font.italic = True
-            if irun.code:
-                # 行内代码：西文字体切换为 Consolas（等宽），中文维持样式默认
-                run.font.name = INLINE_CODE_ASCII_FONT
-            if irun.superscript:
-                run.font.superscript = True
+            def _apply_format(run, _is_quote, irun=irun):
+                if irun.bold:
+                    run.font.bold = True
+                if irun.italic:
+                    run.font.italic = True
+                if irun.code:
+                    # 行内代码：西文字体切换为 Consolas（等宽），中文维持样式默认
+                    run.font.name = INLINE_CODE_ASCII_FONT
+                if irun.superscript:
+                    run.font.superscript = True
+
+            add_run_segments(p, irun.text, _apply_format)
 
 
 # ---------------------------------------------------------------------------

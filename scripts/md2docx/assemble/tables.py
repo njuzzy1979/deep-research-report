@@ -27,9 +27,12 @@ from ..textstage.tokens import ParagraphToken, TableRowToken
 #   2. 使用不包含 ** 的简化正则 RE_TBL_CAPTION_TEXT 匹配纯文本内容
 _RE_TBL_CAPTION = re.compile(RE_TBL_CAPTION)
 
-# 纯文本版（不含 ** 标记）：inline parser 消费 ** 后，段落文本只剩内容
+# 纯文本版（不含 ** 标记）：inline parser 消费 ** 后，段落文本只剩内容。
+# Phase 6.3：数字捕获组改为可选——表号不再从作者手写文本"誊抄"，而是由
+# 本模块依据文档结构（所在章 + 章内出现顺序）计算得出，数字组仅用于向后
+# 兼容与交叉核对。group(3) 固定为题注文字。
 _RE_TBL_CAPTION_TEXT = re.compile(
-    r'^表(\d{1,2})-(\d{1,2})(?:[ 　]+|[：:][ 　]*)(.+)$'
+    r'^表(?:(\d{1,2})-(\d{1,2}))?(?:[ 　]+|[：:][ 　]*)(.+)$'
 )
 _RE_TBL_SOURCE_WRAPPER = re.compile(RE_TBL_SOURCE_WRAPPER)
 _RE_TBL_SOURCE_PREFIX = re.compile(RE_TBL_SOURCE_PREFIX)
@@ -141,6 +144,28 @@ def _detect_orphan_captions(
 
 
 # ---------------------------------------------------------------------------
+# 章号结构计算辅助（Phase 6.3，与 assemble/figures.py 对称实现）
+# ---------------------------------------------------------------------------
+
+
+def _lookup_chapter_no(
+    source_line: int, chapter_map: list[tuple[int, int]]
+) -> int:
+    """按 source_line 在 chapter_map 中定位所属章号（结构计算，非誊抄）。
+
+    取"小于等于 source_line 的最后一个章标题"的 chapter_no。若表格出现在
+    所有章标题之前，返回 0（沿用原有降级语义）。
+    """
+    result = 0
+    for heading_line, chapter_no in chapter_map:
+        if heading_line <= source_line:
+            result = chapter_no
+        else:
+            break
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
 
@@ -148,6 +173,7 @@ def _detect_orphan_captions(
 def resolve_tables(
     tokens: list,
     issues: IssueCollector,
+    chapter_map: list[tuple[int, int]] | None = None,
 ) -> list[TableIR]:
     """从 Token 流中识别表格序列并关联题注与来源行（D1 核心，02 §B）。
 
@@ -161,16 +187,28 @@ def resolve_tables(
         5. 孤立题注检测：扫描完成后，仍在正文流中的、匹配 RE_TBL_CAPTION 的
            ParagraphToken → W-TBL-01
 
+    Phase 6.3：table_id 的 chapter_no/seq_no 改为结构计算——chapter_no 由
+    题注段落 source_line 落在哪个章区间决定（查 chapter_map），seq_no 为
+    该章内正文表按出现顺序的自增计数，不再从作者手写题注文本"誊抄"。若
+    作者仍手写了表号（题注含"表X-Y"），会与结构计算值交叉核对，不一致时
+    产 W-TBL-03 警告。
+
     Args:
         tokens: Token 流片段（由 builder 提供上下文窗口，含 TableRowToken 序列
             及前后邻接的 ParagraphToken）。
         issues: IssueCollector 实例。
+        chapter_map: (章标题 source_line, chapter_no) 升序列表，由
+            assemble/builder.py 依据 classify_and_number() 的输出构建；
+            为 None 时按空表处理（全部正文表降级为 chapter_no=0）。
 
     Returns:
         按文档序排列的 TableIR 列表。
     """
     if not tokens:
         return []
+
+    _chapter_map = chapter_map or []
+    seq_counters: dict[int, int] = {}
 
     n = len(tokens)
 
@@ -239,12 +277,46 @@ def resolve_tables(
         # ---- 确定 TableKind 与题注信息 ----
         if caption_match is not None and caption_token is not None:
             kind = TableKind.BODY
-            chapter_no = int(caption_match.group(1))
-            seq_no = int(caption_match.group(2))
-            table_id = f"{chapter_no}-{seq_no}"
             caption_text = caption_match.group(3)
-            bookmark_name = f"tbl_{chapter_no}_{seq_no}"
+            author_chapter_no = (
+                int(caption_match.group(1))
+                if caption_match.group(1) is not None
+                else None
+            )
+            author_seq_no = (
+                int(caption_match.group(2))
+                if caption_match.group(2) is not None
+                else None
+            )
             source_line = caption_token.source_line
+
+            # ---- 结构计算 chapter_no/seq_no（Phase 6.3 核心） ----
+            chapter_no = _lookup_chapter_no(source_line, _chapter_map)
+            seq_counters[chapter_no] = seq_counters.get(chapter_no, 0) + 1
+            seq_no = seq_counters[chapter_no]
+            table_id = f"{chapter_no}-{seq_no}"
+            bookmark_name = f"tbl_{chapter_no}_{seq_no}"
+
+            # 作者手写表号与结构计算值交叉核对：不一致则告警但以结构计算值为准
+            if author_chapter_no is not None and author_seq_no is not None:
+                if (author_chapter_no, author_seq_no) != (chapter_no, seq_no):
+                    issues.append(
+                        Issue(
+                            level=Level.WARNING,
+                            code="W-TBL-03",
+                            stage="assemble",
+                            message=(
+                                f"表号手写值与结构计算值不一致：作者手写"
+                                f"表{author_chapter_no}-{author_seq_no}，"
+                                f"实际所处章序 + 出现顺序计算为表{table_id}，"
+                                f"已按结构计算值自动更正"
+                            ),
+                            source_line=source_line,
+                            element_ref=f"tbl:{table_id}",
+                            suggestion="建议直接删除手写表号（写作「表 标题」即可），"
+                            "编号由工具按章节位置自动计算，避免人工誊抄错漏",
+                        )
+                    )
         else:
             kind = TableKind.APPENDIX
             chapter_no = 0
@@ -317,7 +389,7 @@ if __name__ == "__main__":
     c1 = IssueCollector()
     tokens1 = [
         ParagraphToken(
-            runs=[InlineRun(text="**"), InlineRun(text="表1-1 产业链上中下游环节对比表"), InlineRun(text="**")],
+            runs=[InlineRun(text="表1-1 产业链上中下游环节对比表", bold=True)],
             source_line=35,
         ),
         TableRowToken(
@@ -353,11 +425,11 @@ if __name__ == "__main__":
             source_line=40,
         ),
         ParagraphToken(
-            runs=[InlineRun(text="*数据来源：行业协会年度统计公报及公开招标数据整理。*")],
+            runs=[InlineRun(text="数据来源：行业协会年度统计公报及公开招标数据整理。", italic=True)],
             source_line=42,
         ),
     ]
-    r1 = resolve_tables(tokens1, c1)
+    r1 = resolve_tables(tokens1, c1, [(1, 1)])
     check("返回 1 个 TableIR", len(r1) == 1, f"实际 {len(r1)}")
     if r1:
         t = r1[0]
@@ -408,7 +480,7 @@ if __name__ == "__main__":
             source_line=71,
         ),
     ]
-    r2 = resolve_tables(tokens2, c2)
+    r2 = resolve_tables(tokens2, c2, [])
     check("返回 1 个 TableIR", len(r2) == 1, f"实际 {len(r2)}")
     if r2:
         t = r2[0]
@@ -425,7 +497,7 @@ if __name__ == "__main__":
     c3 = IssueCollector()
     tokens3 = [
         ParagraphToken(
-            runs=[InlineRun(text="**表9-9 不存在的表**")],
+            runs=[InlineRun(text="表9-9 不存在的表", bold=True)],
             source_line=100,
         ),
         ParagraphToken(
@@ -433,7 +505,7 @@ if __name__ == "__main__":
             source_line=101,
         ),
     ]
-    r3 = resolve_tables(tokens3, c3)
+    r3 = resolve_tables(tokens3, c3, [])
     check("返回空列表（无表格）", len(r3) == 0, f"实际 {len(r3)}")
     check("有 W-TBL-01", any(i.code == "W-TBL-01" for i in c3),
           f"实际: {[(i.code,) for i in c3]}")
@@ -453,7 +525,7 @@ if __name__ == "__main__":
             source_line=37,
         ),
     ]
-    r4 = resolve_tables(tokens4, c4)
+    r4 = resolve_tables(tokens4, c4, [(1, 1)])
     check("返回 1 个 TableIR", len(r4) == 1, f"实际 {len(r4)}")
     if r4:
         # 注意：实际解析后的 ParagraphToken 可能不含 ** 标记，
@@ -471,7 +543,7 @@ if __name__ == "__main__":
     # --- 测试5：空列表 ---
     print("\n=== 测试5：空列表 ===")
     c5 = IssueCollector()
-    r5 = resolve_tables([], c5)
+    r5 = resolve_tables([], c5, [])
     check("返回空列表", len(r5) == 0, f"实际 {len(r5)}")
     check("无 issues", len(list(c5)) == 0, f"实际 {len(list(c5))}")
 
@@ -481,7 +553,7 @@ if __name__ == "__main__":
     # 简化版来源行（省略"数据"二字）
     tokens6 = [
         ParagraphToken(
-            runs=[InlineRun(text="**表2-1 测试表**")],
+            runs=[InlineRun(text="表2-1 测试表", bold=True)],
             source_line=10,
         ),
         TableRowToken(
@@ -489,11 +561,11 @@ if __name__ == "__main__":
             source_line=12,
         ),
         ParagraphToken(
-            runs=[InlineRun(text="*来源：公开资料整理。*")],
+            runs=[InlineRun(text="来源：公开资料整理。", italic=True)],
             source_line=13,
         ),
     ]
-    r6 = resolve_tables(tokens6, c6)
+    r6 = resolve_tables(tokens6, c6, [(2, 1)])
     check("返回 1 个 TableIR", len(r6) == 1, f"实际 {len(r6)}")
     if r6 and r6[0].source_note:
         check(
@@ -507,7 +579,7 @@ if __name__ == "__main__":
     c7 = IssueCollector()
     tokens7 = [
         ParagraphToken(
-            runs=[InlineRun(text="**表3-1 测试表**")],
+            runs=[InlineRun(text="表3-1 测试表", bold=True)],
             source_line=10,
         ),
         TableRowToken(
@@ -519,7 +591,7 @@ if __name__ == "__main__":
             source_line=13,
         ),
     ]
-    r7 = resolve_tables(tokens7, c7)
+    r7 = resolve_tables(tokens7, c7, [(3, 1)])
     check("返回 1 个 TableIR", len(r7) == 1, f"实际 {len(r7)}")
     if r7:
         check(
@@ -533,7 +605,7 @@ if __name__ == "__main__":
     c8 = IssueCollector()
     tokens8 = [
         ParagraphToken(
-            runs=[InlineRun(text="**表1-1 第一个正文表**")],
+            runs=[InlineRun(text="表1-1 第一个正文表", bold=True)],
             source_line=10,
         ),
         TableRowToken(
@@ -558,13 +630,40 @@ if __name__ == "__main__":
             source_line=21,
         ),
     ]
-    r8 = resolve_tables(tokens8, c8)
+    r8 = resolve_tables(tokens8, c8, [(1, 1)])
     check("返回 2 个 TableIR", len(r8) == 2, f"实际 {len(r8)}")
     if len(r8) >= 2:
         check("第1个=BODY", r8[0].kind == TableKind.BODY, str(r8[0].kind))
         check("第1个 table_id='1-1'", r8[0].table_id == "1-1", str(r8[0].table_id))
         check("第2个=APPENDIX", r8[1].kind == TableKind.APPENDIX, str(r8[1].kind))
         check("第2个 table_id=None", r8[1].table_id is None, str(r8[1].table_id))
+
+    # --- 测试9：作者手写表号与结构计算值不一致 → W-TBL-03 ---
+    print("\n=== 测试9：表号手写值与结构计算值不一致 → W-TBL-03 ===")
+    c9 = IssueCollector()
+    tokens9 = [
+        ParagraphToken(
+            runs=[InlineRun(text="表9-9 手写表号错误", bold=True)],
+            source_line=35,
+        ),
+        TableRowToken(
+            cells=[[InlineRun(text="列A")], [InlineRun(text="列B")]],
+            source_line=37,
+        ),
+    ]
+    r9 = resolve_tables(tokens9, c9, [(1, 1)])
+    check("返回 1 个 TableIR", len(r9) == 1, f"实际 {len(r9)}")
+    if r9:
+        check(
+            "table_id 以结构计算值为准（'1-1'）",
+            r9[0].table_id == "1-1",
+            str(r9[0].table_id),
+        )
+    check(
+        "有 W-TBL-03",
+        any(i.code == "W-TBL-03" for i in c9),
+        f"实际: {[(i.code,) for i in c9]}",
+    )
 
     # --- 汇总 ---
     print(f"\n{'='*50}")

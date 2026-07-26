@@ -13,7 +13,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
-from .oxml_helpers import make_field, make_pBdr_bottom
+from .oxml_helpers import add_run_segments, make_field, make_pBdr_bottom
 from ..config import HEADER_FOOTER_FONT_SIZE_PT
 
 # ===========================================================================
@@ -162,8 +162,10 @@ def setup_section_headers_footers(
     hp = body_header.paragraphs[0]
     hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     _clear_paragraph_runs(hp)
-    run = hp.add_run(report_short_title)
-    run.font.size = Pt(HEADER_FOOTER_FONT_SIZE_PT)
+    def _apply_header_format(run, _is_quote):
+        run.font.size = Pt(HEADER_FOOTER_FONT_SIZE_PT)
+
+    add_run_segments(hp, report_short_title, _apply_header_format)
 
     pPr = _get_or_create_pPr(hp)
     make_pBdr_bottom(pPr, sz=8, color="000000", space=1)

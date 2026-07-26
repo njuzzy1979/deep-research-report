@@ -32,6 +32,7 @@ from ..config import (
     StyleSpec,
     STYLE_SPECS,
 )
+from . import numbering as _numbering
 
 # ---------------------------------------------------------------------------
 # 对齐方式 / 行距 映射表
@@ -226,6 +227,12 @@ def register_styles(doc: Document) -> dict[str, BaseStyle]:
     flags = BehaviorFlags()  # 使用内置默认行为开关
     style_map: dict[str, BaseStyle] = {}
 
+    # ---- 0. Phase 6.2：写入章节/附录多级列表编号定义（numbering.xml） ----
+    # 必须先于样式构建执行——下面第 2 步要把 Heading 1~3 样式绑定到这里定义的
+    # numId，若晚于样式构建执行，绑定时 numId 尚不存在（虽然 OOXML 本身不校验
+    # 引用顺序，但保持"先定义后引用"的自然顺序，便于调试与阅读）。
+    _numbering.ensure_numbering_defs(doc)
+
     # ---- 1. 先构建 Normal（作为其他样式的基样式） ----
     normal_spec = STYLE_SPECS["Normal"]
     normal_style = doc.styles["Normal"]
@@ -266,6 +273,23 @@ def register_styles(doc: Document) -> dict[str, BaseStyle]:
     if ind_ni is not None and ind_ni.get(qn("w:firstLineChars")) is not None:
         del ind_ni.attrib[qn("w:firstLineChars")]
     style_map["Body Text No Indent"] = bt_ni
+
+    # ---- 4. Phase 6.2：将 Heading 1~3 样式绑定到章节多级列表 ----
+    # Heading 1=章(ilvl0)/Heading 2=节(ilvl1)/Heading 3=小节(ilvl2)，
+    # 均指向同一个 numId（三级共享同一计数器，见 numbering.py 模块 docstring
+    # 关于"为何不能用中文数字体系"的说明）。样式级绑定后，任何应用该样式的
+    # 段落默认即带编号；APPENDIX/ABSTRACT/FRONT_MATTER/MAIN_TITLE/PLAIN 等
+    # 不应显示编号的标题类型，由 render/headings.py 在段落级显式覆盖
+    # （APPENDIX 覆盖为附录字母列表，其余覆盖为 numId=0 关闭编号）。
+    _numbering.bind_style_numPr(
+        style_map["Heading 1"], ilvl=0, num_id=_numbering.CHAPTER_NUM_ID
+    )
+    _numbering.bind_style_numPr(
+        style_map["Heading 2"], ilvl=1, num_id=_numbering.CHAPTER_NUM_ID
+    )
+    _numbering.bind_style_numPr(
+        style_map["Heading 3"], ilvl=2, num_id=_numbering.CHAPTER_NUM_ID
+    )
 
     return style_map
 
@@ -336,4 +360,19 @@ if __name__ == "__main__":
         f"样式总数期望 {expected_count}，实际 {n}"
     )
 
-    print(f"styles.py 自检通过：已构建 {n} 个样式（含 Body Text No Indent）")
+    # 9. Phase 6.2：验证 Heading 1~3 已绑定章节 numPr
+    from . import numbering as _numbering_check
+    for level, ilvl in ((1, 0), (2, 1), (3, 2)):
+        style_name = f"Heading {level}"
+        style_pPr = result[style_name].element.find(qn("w:pPr"))
+        assert style_pPr is not None, f"{style_name} 缺少 w:pPr"
+        style_numPr = style_pPr.find(qn("w:numPr"))
+        assert style_numPr is not None, f"{style_name} 缺少 w:numPr 绑定"
+        assert style_numPr.find(qn("w:ilvl")).get(qn("w:val")) == str(ilvl), (
+            f"{style_name} numPr ilvl 期望 {ilvl}"
+        )
+        assert style_numPr.find(qn("w:numId")).get(qn("w:val")) == str(
+            _numbering_check.CHAPTER_NUM_ID
+        ), f"{style_name} numPr numId 期望 {_numbering_check.CHAPTER_NUM_ID}"
+
+    print(f"styles.py 自检通过：已构建 {n} 个样式（含 Body Text No Indent），Heading 1~3 已绑定章节 numPr")

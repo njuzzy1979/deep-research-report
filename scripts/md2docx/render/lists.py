@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from ..ir import InlineRun, ListBlockIR
+from .oxml_helpers import add_run_segments
 
 
 def _render_inline_runs(paragraph, item_runs: list[InlineRun]) -> None:
@@ -16,13 +17,15 @@ def _render_inline_runs(paragraph, item_runs: list[InlineRun]) -> None:
         item_runs: 该列表项的行内文本片段列表。
     """
     for irun in item_runs:
-        run = paragraph.add_run(irun.text)
-        if irun.bold:
-            run.font.bold = True
-        if irun.italic:
-            run.font.italic = True
-        if irun.code:
-            run.font.name = 'Consolas'
+        def _apply_format(run, _is_quote, irun=irun):
+            if irun.bold:
+                run.font.bold = True
+            if irun.italic:
+                run.font.italic = True
+            if irun.code:
+                run.font.name = 'Consolas'
+
+        add_run_segments(paragraph, irun.text, _apply_format)
 
 
 def render_bullet_list(doc, token: ListBlockIR, styles: dict) -> None:

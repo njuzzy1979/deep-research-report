@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 
+from ..config import RE_META
 from ..issues import Issue, IssueCollector, Level
 from .inline import parse_inline
 from .tokens import (
@@ -63,8 +64,11 @@ _RX_UNORDERED = re.compile(r'^(\s*)[-*+]\s+(.+)$')
 # 有序列表项：数字. 或 数字．（中文句号）
 _RX_ORDERED = re.compile(r'^(\s*)\d+[.．]\s+(.+)$')
 
-# 元数据行：**key**：value（仅 H1 之后、首个 --- 之前）
-_RX_META = re.compile(r'^\*\*([^*：:]+)\*\*\s*[：:]\s*(.+)$')
+# 元数据行：**key**：value（仅 H1 之后、正文尚未开始前的连续窗口内）
+# 单一事实来源改为 config.py::RE_META（key 长度上限 10，防止把"**证据**：""
+# **推理**："等正文加粗标签段落误判为元数据——真实文档中的元数据键名如
+# "副标题/报告类型/编制机构/版本"均 ≤4 字，10 字上限留有余量但排除长句标签）。
+_RX_META = re.compile(RE_META)
 
 # 图片路径中的可选 title 剥离：(path "title") → 只保留 path
 _RX_IMAGE_TITLE = re.compile(r'^(.+?)\s+"[^"]*"$')
@@ -177,13 +181,29 @@ def parse(text: str, issues: IssueCollector) -> list:
     table_data_rows: int = 0              # 当前表格的数据行计数
     table_start_line: int = 0             # 当前表格起始行号
     seen_h1: bool = False                 # 是否已遇到 H1 标题
-    past_first_hr: bool = False           # 是否已越过首个水平分隔线
+    # 元数据窗口关闭标志：H1 之后，一旦出现非空白、非"**key**：value"形状
+    # 的行（标题/HR/图片/表格/列表/引用/段落/围栏代码……任何真实内容），
+    # 立即永久关闭，不再等到第一个 ---。
+    # （P0 修复：原实现仅靠首个 HR 关窗，真实文档中 H1 到首个 --- 间可能
+    # 跨越上千行正文，导致"**证据**：""**推理**："等写作惯用的加粗标签
+    # 段落被误判为元数据行而静默丢弃，见 md-to-docx-pitfalls 问题4）。
+    meta_window_closed: bool = False
 
     i = 0
     while i < len(lines):
         raw_line = lines[i]
         lineno = i + 1
         line = raw_line.lstrip()
+
+        # ================================================================
+        # 0. 元数据窗口关闭判定（先于本行的具体类型判断执行；仅更新状态，
+        #    不产出 Token）：H1 之后，一旦出现不形似"**key**：value"的
+        #    非空白行（标题/HR/围栏代码块起始行/图片/表格/列表/引用/普通
+        #    段落等任何真实内容），立即永久关闭元数据窗口，不再等到第一个
+        #    ---。（P0 修复核心：见上方 meta_window_closed 声明处说明）
+        # ================================================================
+        if seen_h1 and not meta_window_closed and line != '' and not _RX_META.match(line):
+            meta_window_closed = True
 
         # ================================================================
         # 1. 围栏代码块处理（``` 配对）
@@ -262,9 +282,8 @@ def parse(text: str, issues: IssueCollector) -> list:
             _finish_table(in_table, table_data_rows, table_start_line, issues)
             in_table = False
             tokens.append(HrToken(source_line=lineno))
-            # 首个 HR 关闭元数据检测窗口
-            if seen_h1 and not past_first_hr:
-                past_first_hr = True
+            # 元数据窗口关闭已由步骤0统一处理（HR 本身不形似 MetaLine，
+            # 到达此处时 meta_window_closed 必已为 True）
             i += 1
             continue
 
@@ -420,10 +439,11 @@ def parse(text: str, issues: IssueCollector) -> list:
 
         # ================================================================
         # 10. 元数据行：**key**：value
-        #     仅当出现在 H1 标题之后、第一个 --- 之前才识别
+        #     仅当出现在 H1 标题之后、元数据窗口尚未关闭时才识别
+        #     （窗口关闭判定见步骤0：遇任何非空白非元数据形状的行即永久关闭）
         # ================================================================
         m_meta = _RX_META.match(line)
-        if m_meta and seen_h1 and not past_first_hr:
+        if m_meta and seen_h1 and not meta_window_closed:
             _flush_para(para_buf, tokens, issues)
             key = m_meta.group(1).strip()
             value = m_meta.group(2).strip()

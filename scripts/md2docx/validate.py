@@ -133,6 +133,13 @@ def _check_figure_numbering(document_ir: DocumentIR, issues: IssueCollector) -> 
     - 章内 seq_no 跳号/乱序 → W-IMG-06
     - 同 figure_id 出现两次 → W-IMG-05（理论上 dict key 唯一，此检查防御性保留）
     - 图号章号与所在章序不一致 → W-IMG-04
+
+    Phase 6.3 后的定位说明：chapter_no/seq_no 已在 assemble/figures.py 改为
+    按文档结构（所属章 + 章内出现顺序）动态计算，不再誊抄作者手写编号，因此
+    经正常流程（assemble → validate）产出的 IR 在结构上天然满足本函数校验的
+    全部不变量，以下三项检查在正常路径下预期不会触发。保留本函数作为最后一道
+    防线——防御 IR 被绕过 assemble 层直接构造、或 builder.py 装配逻辑未来出现
+    回归缺陷等非正常路径。
     """
     if not document_ir.figure_registry:
         return
@@ -213,6 +220,10 @@ def _check_table_numbering(document_ir: DocumentIR, issues: IssueCollector) -> N
 
     仅检查 kind=BODY 的表（附录表无编号，不参与校验）。
     逻辑同图编号：跳号/乱序/重复/章号不一致。
+
+    Phase 6.3 后的定位说明：同 _check_figure_numbering，table_id 已在
+    assemble/tables.py 改为结构计算而非誊抄，正常路径下本函数预期不会触发，
+    保留作为防御 IR 被绕过 assemble 层直接构造等非正常路径的最后一道防线。
     """
     if not document_ir.table_registry:
         return

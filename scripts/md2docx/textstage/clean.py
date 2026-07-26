@@ -5,9 +5,12 @@
 本模块是 pipeline 的第二个阶段，负责：
   - 围栏代码块识别与保护（``` 配对区间内跳过所有规则）
   - 行级删除规则（R-03 div/span、R-04 占位符、R-05 印刷页数、
-    R-09强① 密级元数据、R-09强② 独立密级、R-10 全文完）
+    R-09强① 密级元数据、R-09强② 独立密级、R-10 全文完、R-14 红队/阶段9批注块）
   - 行内改写规则（R-06a 红队标记、R-06b 修正标记、R-07 列表图引用前缀、
     R-09强③ 行内密级片段）
+  - 块级删除规则（R-12 写作者自声明整块——兜底防线，主防线是
+    finalizer_agent 合并阶段的结构化剥离）
+  - 全文改写规则（R-13 引号全角化——有状态开合配对算法）
   - 纯检测规则（R-03 行内 HTML 残留、R-09弱 密级弱信号、R-11 文末斜体段）
 
 设计原则：
@@ -72,6 +75,14 @@ _SECRECY_WEAK_WORDS = re.compile(
 
 # R-10："全文完"
 _RX_FULL_END = re.compile(r"^\s*[（(]?\s*全文完\s*[)）]?\s*$")
+
+# R-12：写作者自声明块起始标题（chapter_writer_agent.md 契约产出的审计中间
+# 数据，finalizer_agent 合并阶段的主防线未剥离时本规则兜底删除整块）
+_RX_HEADING = re.compile(r"^(#{1,6})\s+(.*\S)?\s*$")
+_RX_WRITER_SELFCLAIM_TEXT = re.compile(r"^(写作者自声明|作者自声明)$")
+
+# R-14：红队/阶段9审校批注块（整行引用块，形如 "> [红队 R004 已改写：...]"）
+_RX_REDTEAM_BLOCKQUOTE = re.compile(r"^\s*>\s*\[(?:红队|阶段9)[^\]]*\].*$")
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +390,163 @@ def _strip_yaml_frontmatter(
 
 
 # ---------------------------------------------------------------------------
+# R-12：写作者自声明整块删除（兜底防线）
+# ---------------------------------------------------------------------------
+
+
+def _strip_writer_selfclaim_blocks(
+    lines: list[str],
+    fenced_ranges: list[tuple[int, int]],
+    issues: IssueCollector,
+) -> list[str]:
+    """R-12：整块删除写作者自声明区块（finalizer_agent 主防线未剥离时兜底）。
+
+    从匹配 `_RX_WRITER_SELFCLAIM_TEXT` 的标题行开始，删除至下一个同级或
+    更高级标题（# 数 ≤ 起始标题）为止（不含该标题），或文件末尾。
+    围栏代码块内的标题行不参与匹配（保护代码示例中出现的同名文字）。
+
+    Args:
+        lines: 待处理行列表
+        fenced_ranges: 围栏代码块区间（_find_fenced_ranges 产出）
+        issues: IssueCollector
+
+    Returns:
+        剔除写作者自声明区块后的行列表
+    """
+    result: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        m = None
+        if not _is_in_fenced(lines, i, fenced_ranges):
+            m = _RX_HEADING.match(line)
+
+        if m is not None and _RX_WRITER_SELFCLAIM_TEXT.match(
+            (m.group(2) or "").strip()
+        ):
+            level = len(m.group(1))
+            start = i
+            j = i + 1
+            while j < n:
+                if not _is_in_fenced(lines, j, fenced_ranges):
+                    m_j = _RX_HEADING.match(lines[j])
+                    if m_j is not None and len(m_j.group(1)) <= level:
+                        break
+                j += 1
+
+            issues.append(
+                Issue(
+                    level=Level.INFO,
+                    code="I-CLN-05",
+                    stage="clean",
+                    message=(
+                        f"R-12 删除写作者自声明块：行 {start + 1}–{j}"
+                        f"（共 {j - start} 行）"
+                    ),
+                    source_line=start + 1,
+                    element_ref=None,
+                    suggestion=None,
+                )
+            )
+            i = j
+            continue
+
+        result.append(line)
+        i += 1
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# R-13：引号全角化（有状态开合配对）
+# ---------------------------------------------------------------------------
+
+
+def _convert_quotes_stateful(
+    lines: list[str],
+    fenced_ranges: list[tuple[int, int]],
+    issues: IssueCollector,
+) -> list[str]:
+    """R-13：将直引号(U+0022)按开合配对状态转换为全角弯引号。
+
+    逐字符扫描全文（跳过围栏代码块与行内代码 span），维护"当前是否处于
+    引号内"布尔状态：状态为"外"时命中直引号 → 替换为全角左引号
+    （U+201C），状态转为"内"；状态为"内"时命中 → 替换为全角右引号
+    （U+201D），状态转为"外"。全文扫描结束仍处于"内"状态视为异常
+    （如跨段落未闭合），记录 W-CLN-05 供人工复核，不回退已完成的替换。
+
+    Args:
+        lines: 待处理行列表
+        fenced_ranges: 围栏代码块区间（_find_fenced_ranges 产出）
+        issues: IssueCollector
+
+    Returns:
+        引号全角化后的行列表
+    """
+    in_quote = False
+    last_open_line: int | None = None
+    result: list[str] = []
+
+    for line_idx, line in enumerate(lines):
+        line_num = line_idx + 1
+
+        if _is_in_fenced(lines, line_idx, fenced_ranges):
+            result.append(line)
+            continue
+
+        chars = list(line)
+        for pos, ch in enumerate(chars):
+            if ch != '"':
+                continue
+            if _has_inline_code_span(line, pos):
+                continue
+
+            if not in_quote:
+                chars[pos] = "“"
+                in_quote = True
+                last_open_line = line_num
+                symbol = "开"
+            else:
+                chars[pos] = "”"
+                in_quote = False
+                symbol = "闭"
+
+            issues.append(
+                Issue(
+                    level=Level.INFO,
+                    code="I-CLN-05",
+                    stage="clean",
+                    message=f"R-13 引号全角化（{symbol}引号）：行 {line_num}",
+                    source_line=line_num,
+                    element_ref=None,
+                    suggestion=None,
+                )
+            )
+
+        result.append("".join(chars))
+
+    if in_quote:
+        issues.append(
+            Issue(
+                level=Level.WARNING,
+                code="W-CLN-05",
+                stage="clean",
+                message=(
+                    f"R-13 引号未闭合：全文扫描结束仍处于引号内状态"
+                    f"（最后一次开引号在行 {last_open_line}）"
+                ),
+                source_line=last_open_line,
+                element_ref=None,
+                suggestion="请人工复核该行附近引号是否缺少配对的右引号",
+                needs_review=True,
+            )
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 阶段1 主函数
 # ---------------------------------------------------------------------------
 
@@ -391,13 +559,16 @@ def clean(
     """阶段1：规则表驱动的文本清理。
 
     执行顺序（严格按此）：
+      0. YAML 前导元数据块剥离；R-12 写作者自声明整块删除（块级，
+         需在按行处理主循环之前完成，避免行号漂移影响主循环判断）
       1. 识别围栏代码块区间（``` 配对），标记为保护区
       2. 逐行执行行级删除规则（R-03 div/span、R-04、R-05、
-         R-09强①、R-09强②、R-10）
+         R-09强①、R-09强②、R-10、R-14 红队/阶段9批注块）
       3. 逐行执行行内改写规则（R-06a、R-06b、R-07）
       4. 行内密级删除（R-09强③，放在 R-09弱 之前以避免重复报警）
       5. 逐行执行纯检测规则（R-03 行内HTML、R-09弱）
       6. 全文扫描：R-11 文末孤立斜体段检测
+      7. 全文扫描：R-13 引号全角化（有状态开合配对）
 
     Args:
         text: 规范化后的完整 Markdown 文本（str，LF 行尾）
@@ -413,6 +584,13 @@ def clean(
     #   必须在任何规则之前执行，避免 YAML 定界符（---）被后续
     #   解析阶段误识别为水平分隔线，产生多余 PageBreakIR。
     lines = _strip_yaml_frontmatter(lines, issues)
+
+    # ---- 步骤0.5：R-12 写作者自声明整块删除 ----
+    #   块级删除会改变行数/行号，必须在按行独立处理的主循环之前完成，
+    #   并在删除后重新计算围栏区间供主循环使用。
+    lines = _strip_writer_selfclaim_blocks(
+        lines, _find_fenced_ranges(lines), issues
+    )
 
     fenced_ranges = _find_fenced_ranges(lines)
     result_lines: list[str] = []
@@ -515,6 +693,21 @@ def clean(
                     code="I-CLN-05",
                     stage="clean",
                     message=f'R-10 删除"全文完"：{line.strip()!r}',
+                    source_line=line_num,
+                    element_ref=None,
+                    suggestion=None,
+                )
+            )
+            deleted = True
+
+        # R-14：红队/阶段9审校批注块（整行引用块）
+        if not deleted and _RX_REDTEAM_BLOCKQUOTE.match(line):
+            issues.append(
+                Issue(
+                    level=Level.INFO,
+                    code="I-CLN-05",
+                    stage="clean",
+                    message=f"R-14 删除红队/阶段9批注块：{line.strip()!r}",
                     source_line=line_num,
                     element_ref=None,
                     suggestion=None,
@@ -647,6 +840,15 @@ def clean(
     # 步骤6：R-11 文末孤立斜体段检测（全文扫描）
     # ================================================================
     _check_trailing_italic(result_lines, issues)
+
+    # ================================================================
+    # 步骤7：R-13 引号全角化（全文有状态扫描）
+    #   行级删除规则（步骤2/R-14）会改变行数，故在此重新计算围栏区间，
+    #   不能复用步骤2使用的 fenced_ranges（其索引对应删除前的 lines）。
+    # ================================================================
+    result_lines = _convert_quotes_stateful(
+        result_lines, _find_fenced_ranges(result_lines), issues
+    )
 
     # ================================================================
     # 组装结果
@@ -871,4 +1073,85 @@ some <font color="red">text</font> here
     finally:
         os.unlink(tmp_path)
 
-    print(f"\n=== 全部 17 项自检通过 ===")
+    # ---- 检查18：R-12 写作者自声明整块删除（含文末场景） ----
+    ic8 = IssueCollector()
+    r8_input = """\
+## 第一章 军事需求
+
+正文内容第一段。
+
+### 写作者自声明
+
+字数：1000
+图表数：2
+引用card_id：C001
+
+## 第二章 关键技术
+
+正文内容第二段。
+
+### 作者自声明
+
+素材缺口：无"""
+    r8 = clean(r8_input, ic8)
+    assert "写作者自声明" not in r8, "FAIL: 写作者自声明标题未被删除"
+    assert "作者自声明" not in r8, "FAIL: 作者自声明标题未被删除"
+    assert "字数：1000" not in r8, "FAIL: 自声明块内容未被删除"
+    assert "素材缺口：无" not in r8, "FAIL: 文末自声明块未被删除"
+    assert "正文内容第一段" in r8, "FAIL: 自声明块误伤了前面的正文"
+    assert "正文内容第二段" in r8, "FAIL: 自声明块误伤了后面的正文"
+    assert "## 第二章 关键技术" in r8, "FAIL: 同级标题被误删"
+    print("  PASS: R-12 写作者自声明整块删除")
+
+    # ---- 检查19：R-12 围栏代码块内同名标题不触发删除 ----
+    ic9 = IssueCollector()
+    r9_input = "```\n### 写作者自声明\n示例代码内容\n```\n正文保留"
+    r9 = clean(r9_input, ic9)
+    assert "### 写作者自声明" in r9, "FAIL: 围栏内自声明标题被误删"
+    assert "示例代码内容" in r9, "FAIL: 围栏内自声明块内容被误删"
+    print("  PASS: R-12 围栏代码块内不触发删除")
+
+    # ---- 检查20：R-14 红队/阶段9批注块删除 ----
+    ic10 = IssueCollector()
+    r10_input = "> [红队 R004 已改写：某处内容]\n正文保留\n> [阶段9 审校说明]"
+    r10 = clean(r10_input, ic10)
+    assert "[红队" not in r10, "FAIL: 红队批注块未被删除"
+    assert "[阶段9" not in r10, "FAIL: 阶段9批注块未被删除"
+    assert "正文保留" in r10, "FAIL: R-14 误伤了正文"
+    print("  PASS: R-14 红队/阶段9批注块删除")
+
+    # ---- 检查21：R-13 引号有状态开合配对全角化 ----
+    ic11 = IssueCollector()
+    r11 = clean('他说："你好"，然后离开。', ic11)
+    assert r11 == "他说：“你好”，然后离开。", (
+        f"FAIL: 引号配对转换预期'他说：“你好”，然后离开。'，实际{r11!r}"
+    )
+    print("  PASS: R-13 引号有状态开合配对全角化")
+
+    # ---- 检查22：R-13 跨行配对 + 未闭合警告 ----
+    ic12 = IssueCollector()
+    r12 = clean('第一行含"开始\n第二行含结束"。', ic12)
+    assert r12 == "第一行含“开始\n第二行含结束”。", (
+        f"FAIL: 跨行引号配对预期跨行转换，实际{r12!r}"
+    )
+    print("  PASS: R-13 跨行引号配对")
+
+    ic13 = IssueCollector()
+    r13 = clean('未闭合的"引号示例', ic13)
+    assert r13 == "未闭合的“引号示例", (
+        f"FAIL: 未闭合引号仍应转换开引号，实际{r13!r}"
+    )
+    assert any(i.code == "W-CLN-05" for i in ic13.issues), (
+        "FAIL: 未闭合引号应产生 W-CLN-05 警告"
+    )
+    print("  PASS: R-13 未闭合引号警告")
+
+    # ---- 检查23：R-13 围栏代码块内引号不转换 ----
+    ic14 = IssueCollector()
+    r14_input = '```\nprint("hello")\n```\n他说："你好"。'
+    r14 = clean(r14_input, ic14)
+    assert 'print("hello")' in r14, "FAIL: 围栏内引号被误转换"
+    assert "他说：“你好”。" in r14, "FAIL: 围栏外引号未被转换"
+    print("  PASS: R-13 围栏代码块内引号不转换")
+
+    print(f"\n=== 全部 23 项自检通过 ===")

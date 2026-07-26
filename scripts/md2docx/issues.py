@@ -179,6 +179,14 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
         "语义有误——ConfigError 是 04-interface-spec.md §3.3 定义的参数错误"
         "（“找不到文件即报参数错误”），不是阶段模块缺失，故新增专用代码",
     ),
+    "W-META-01": IssueCodeInfo(
+        Level.WARNING,
+        "MetaLine 键名不在文档头元数据白名单内（副标题/报告类型/编制机构/版本），"
+        "已降级为正文段落保留渲染，不再静默丢弃",
+        "P0（md-to-docx-pitfalls 问题4/缺陷5）：parse.py 元数据窗口收窄后仍可能"
+        "在窗口内出现非白名单加粗标签行（如真实元数据块内混入其他键），"
+        "此码用于在转换报告中留痕，便于人工核对是否存在遗漏的白名单键",
+    ),
 }
 
 

@@ -230,6 +230,9 @@ def render_document(
 
     doc = Document()
 
+    # ---- 阶段 5.0：文档级设置——打开时自动更新所有域（双保险，见 make_field 说明）----
+    _oxml.set_update_fields_on_open(doc)
+
     # ---- 阶段 5.1：注册样式 ----
     if styles_map is None:
         styles_map = register_styles(doc)

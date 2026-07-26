@@ -35,8 +35,11 @@ def render_definition_box(doc, token, styles: dict, oxml_helpers) -> None:
     # 术语名段落：10.5pt Bold + 浅灰底 + 左边框
     p_term = doc.add_paragraph()
     p_term.style = styles.get('Body Text', doc.styles['Normal'])
-    run_term = p_term.add_run(term)
-    run_term.font.bold = True
+
+    def _apply_term_format(run, _is_quote):
+        run.font.bold = True
+
+    oxml_helpers.add_run_segments(p_term, term, _apply_term_format)
 
     _apply_paragraph_shading(p_term, '#F2F2F2', oxml_helpers)
     oxml_helpers.set_paragraph_borders(
@@ -48,11 +51,13 @@ def render_definition_box(doc, token, styles: dict, oxml_helpers) -> None:
     p_def = doc.add_paragraph()
     p_def.style = styles.get('Body Text', doc.styles['Normal'])
     for irun in definition_runs:
-        run = p_def.add_run(irun.text)
-        if irun.bold:
-            run.font.bold = True
-        if irun.italic:
-            run.font.italic = True
+        def _apply_def_format(run, _is_quote, irun=irun):
+            if irun.bold:
+                run.font.bold = True
+            if irun.italic:
+                run.font.italic = True
+
+        oxml_helpers.add_run_segments(p_def, irun.text, _apply_def_format)
 
     _apply_paragraph_shading(p_def, '#F2F2F2', oxml_helpers)
     oxml_helpers.set_paragraph_borders(
@@ -93,8 +98,11 @@ def render_case_box(doc, token, styles: dict, oxml_helpers) -> None:
     # 底部黑边框兼作"标题-细节"视觉分隔线
     p_title = doc.add_paragraph()
     p_title.style = styles.get('Body Text', doc.styles['Normal'])
-    run_title = p_title.add_run(title)
-    run_title.font.bold = True
+
+    def _apply_title_format(run, _is_quote):
+        run.font.bold = True
+
+    oxml_helpers.add_run_segments(p_title, title, _apply_title_format)
     oxml_helpers.set_paragraph_borders(
         p_title,
         top=gray_top,
@@ -107,11 +115,13 @@ def render_case_box(doc, token, styles: dict, oxml_helpers) -> None:
     p_body = doc.add_paragraph()
     p_body.style = styles.get('Body Text', doc.styles['Normal'])
     for irun in body_runs:
-        run = p_body.add_run(irun.text)
-        if irun.bold:
-            run.font.bold = True
-        if irun.italic:
-            run.font.italic = True
+        def _apply_body_format(run, _is_quote, irun=irun):
+            if irun.bold:
+                run.font.bold = True
+            if irun.italic:
+                run.font.italic = True
+
+        oxml_helpers.add_run_segments(p_body, irun.text, _apply_body_format)
 
     oxml_helpers.set_paragraph_borders(
         p_body,
@@ -165,11 +175,13 @@ def render_special_element(
         p = doc.add_paragraph()
         p.style = styles.get('Body Text', doc.styles['Normal'])
         for irun in getattr(token, 'runs', []):
-            run = p.add_run(irun.text)
-            if getattr(irun, 'bold', False):
-                run.font.bold = True
-            if getattr(irun, 'italic', False):
-                run.font.italic = True
+            def _apply_fallback_format(run, _is_quote, irun=irun):
+                if getattr(irun, 'bold', False):
+                    run.font.bold = True
+                if getattr(irun, 'italic', False):
+                    run.font.italic = True
+
+            oxml_helpers.add_run_segments(p, irun.text, _apply_fallback_format)
 
 
 # ---------------------------------------------------------------------------

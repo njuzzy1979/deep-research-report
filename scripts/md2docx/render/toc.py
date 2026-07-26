@@ -172,8 +172,10 @@ def render_toc(doc, ir: DocumentIR, styles: dict, oxml_helpers) -> None:
         "“更新域”或按 F9 键更新目录；"
         "WPS 用户：右键→更新域）"
     )
-    hint_run = p_hint.add_run(hint_text)
-    _set_run_font(hint_run, size_half_pt="18", color_hex="999999", cjk_font="宋体")
+    def _apply_hint_format(run, _is_quote):
+        _set_run_font(run, size_half_pt="18", color_hex="999999", cjk_font="宋体")
+
+    oxml_helpers.add_run_segments(p_hint, hint_text, _apply_hint_format)
 
     # ---- 4. 图表目录不在此渲染（由 document.py 在分页后调用 render_chart_directory） ----
     # G-02 约束：add_page_break 仅 document.py，故图表目录的分页由调用方控制。
@@ -207,7 +209,7 @@ def render_chart_directory(doc, figures: list, body_tables: list,
         # 图号 + 题注（左侧），制表符推到右边界后接 PAGEREF 域（页码）
         caption = f"  {fig.caption_text}" if fig.caption_text else ""
         label = f"图{fig.figure_id}{caption}\t"
-        p.add_run(label)
+        oxml_helpers.add_run_segments(p, label)
 
         # PAGEREF 域在右边界（占位空格，Word F9 更新后回填真实页码）
         instr = f"PAGEREF {fig.bookmark_name} \\h"
@@ -223,7 +225,7 @@ def render_chart_directory(doc, figures: list, body_tables: list,
         # 表号 + 题注（左侧），制表符推到右边界后接 PAGEREF 域（页码）
         caption = f"  {tbl.caption_text}" if tbl.caption_text else ""
         label = f"表{tbl.table_id}{caption}\t"
-        p.add_run(label)
+        oxml_helpers.add_run_segments(p, label)
 
         # PAGEREF 域在右边界
         instr = f"PAGEREF {tbl.bookmark_name} \\h"

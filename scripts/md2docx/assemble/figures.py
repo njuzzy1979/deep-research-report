@@ -144,6 +144,30 @@ def _read_png_pixel_size(path: str) -> tuple[int | None, int | None]:
 
 
 # ---------------------------------------------------------------------------
+# 章号结构计算辅助（Phase 6.3）
+# ---------------------------------------------------------------------------
+
+
+def _lookup_chapter_no(
+    source_line: int, chapter_map: list[tuple[int, int]]
+) -> int:
+    """按 source_line 在 chapter_map 中定位所属章号（结构计算，非誊抄）。
+
+    chapter_map 为按 source_line 升序排列的 (章标题 source_line, chapter_no)
+    列表。取"小于等于 source_line 的最后一个章标题"的 chapter_no，即该图
+    在文档中实际所处的章。若图出现在所有章标题之前（如摘要/前言区），
+    返回 0（沿用原有降级语义）。
+    """
+    result = 0
+    for heading_line, chapter_no in chapter_map:
+        if heading_line <= source_line:
+            result = chapter_no
+        else:
+            break
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
 
@@ -153,41 +177,85 @@ def resolve_figures(
     md_dir: str,
     cli_figures_dir: str | None,
     issues: IssueCollector,
+    chapter_map: list[tuple[int, int]] | None = None,
 ) -> list[FigureIR]:
     """从 ImageToken 列表装配 FigureIR 列表（D1 核心，02 §A）。
 
     对每个 ImageToken 执行五步流水线：
-        1. alt 正则捕获图号+题注（_RE_FIG_ALT）
+        1. alt 正则捕获题注（+ 可选的作者手写图号，仅用于交叉核对）
         2. 路径多候选解析（_resolve_image_path）
         3. PNG IHDR 像素读取（_read_png_pixel_size）
         4. 分辨率警告判定（W-IMG-02 / I-IMG-03）
         5. FigureIR 装配
+
+    Phase 6.3：chapter_no/seq_no 改为结构计算——chapter_no 由图片 source_line
+    落在哪个章区间决定（查 chapter_map），seq_no 为该章内按出现顺序的自增
+    计数，不再从作者手写 alt 文本"誊抄"。若作者仍手写了图号（alt 含
+    "图X-Y"），会与结构计算值交叉核对，不一致时产 W-IMG-07 警告。
 
     Args:
         image_tokens: parse 阶段产出的全部 ImageToken。
         md_dir: md 文件所在目录（用于路径解析基准）。
         cli_figures_dir: CLI --figures-dir 追加候选目录；为 None 时跳过。
         issues: IssueCollector 实例。
+        chapter_map: (章标题 source_line, chapter_no) 升序列表，由
+            assemble/builder.py 依据 classify_and_number() 的输出构建；
+            为 None 时按空表处理（全部图片降级为 chapter_no=0）。
 
     Returns:
         按文档序排列的 FigureIR 列表。
     """
     results: list[FigureIR] = []
+    _chapter_map = chapter_map or []
+    seq_counters: dict[int, int] = {}
 
     for token in image_tokens:
         alt_raw = token.alt_raw
         path_raw = token.path_raw
         source_line = token.source_line
 
-        # ---- 步骤1：alt 解析 → 图号+题注（02 §A.3） ----
+        # ---- 步骤1：alt 解析 → 题注（+ 可选的作者手写图号，02 §A.3） ----
         m = _RE_FIG_ALT.match(alt_raw)
         if m:
-            chapter_no = int(m.group(1))
-            seq_no = int(m.group(2))
             caption_text = m.group(3)
+            author_chapter_no = (
+                int(m.group(1)) if m.group(1) is not None else None
+            )
+            author_seq_no = (
+                int(m.group(2)) if m.group(2) is not None else None
+            )
+
+            # ---- 结构计算 chapter_no/seq_no（Phase 6.3 核心） ----
+            # 仅当 alt 命中"图[X-Y] 标题"模式时才纳入结构化编号序列；
+            # 完全不含"图"前缀的普通图片走下方 else 分支的占位符逻辑。
+            chapter_no = _lookup_chapter_no(source_line, _chapter_map)
+            seq_counters[chapter_no] = seq_counters.get(chapter_no, 0) + 1
+            seq_no = seq_counters[chapter_no]
             figure_id = f"{chapter_no}-{seq_no}"
+
+            # 作者手写图号与结构计算值交叉核对：不一致则告警但以结构计算值为准
+            if author_chapter_no is not None and author_seq_no is not None:
+                if (author_chapter_no, author_seq_no) != (chapter_no, seq_no):
+                    issues.append(
+                        Issue(
+                            level=Level.WARNING,
+                            code="W-IMG-07",
+                            stage="assemble",
+                            message=(
+                                f"图号手写值与结构计算值不一致：作者手写"
+                                f"图{author_chapter_no}-{author_seq_no}，"
+                                f"实际所处章序 + 出现顺序计算为图{figure_id}，"
+                                f"已按结构计算值自动更正"
+                            ),
+                            source_line=source_line,
+                            element_ref=f"img:{figure_id}",
+                            suggestion="建议直接删除手写图号（写作「图 标题」即可），"
+                            "编号由工具按章节位置自动计算，避免人工誊抄错漏",
+                        )
+                    )
         else:
-            # 不匹配"图X-Y"模式 → W-IMG-01，按无题注普通图处理
+            # 不匹配"图[X-Y] 标题"模式 → W-IMG-01，按无题注普通图处理，
+            # 不纳入结构化编号序列（保留 fig_{source_line} 占位符 ID）
             issues.append(
                 Issue(
                     level=Level.WARNING,
@@ -202,10 +270,10 @@ def resolve_figures(
                     suggestion="建议将图片 alt 改为「图X-Y 题注文字」格式",
                 )
             )
+            caption_text = alt_raw  # 原样做题注
             chapter_no = 0
             seq_no = 0
             figure_id = f"fig_{source_line}"
-            caption_text = alt_raw  # 原样做题注
 
         bookmark_name = figure_id.replace("-", "_")
         if not bookmark_name.startswith("fig_"):
@@ -415,7 +483,7 @@ if __name__ == "__main__":
         )
     ]
     r1 = resolve_figures(
-        tokens1, str(_FIXTURES_DIR), str(_FIGURES_DIR), c1
+        tokens1, str(_FIXTURES_DIR), str(_FIGURES_DIR), c1, [(1, 1)]
     )
     check("返回 1 个 FigureIR", len(r1) == 1, f"实际 {len(r1)}")
     if r1:
@@ -445,7 +513,7 @@ if __name__ == "__main__":
         )
     ]
     r2 = resolve_figures(
-        tokens2, str(_FIXTURES_DIR), str(_FIGURES_DIR), c2
+        tokens2, str(_FIXTURES_DIR), str(_FIGURES_DIR), c2, [(1, 1)]
     )
     check("返回 1 个 FigureIR", len(r2) == 1, f"实际 {len(r2)}")
     if r2:
@@ -466,7 +534,7 @@ if __name__ == "__main__":
             source_line=5,
         )
     ]
-    r3 = resolve_figures(tokens3, str(_FIXTURES_DIR), None, c3)
+    r3 = resolve_figures(tokens3, str(_FIXTURES_DIR), None, c3, [(1, 1)])
     check("返回 1 个 FigureIR", len(r3) == 1, f"实际 {len(r3)}")
     if r3:
         check("file_exists=False", not r3[0].file_exists, str(r3[0].file_exists))
@@ -484,7 +552,7 @@ if __name__ == "__main__":
             source_line=99,
         )
     ]
-    r4 = resolve_figures(tokens4, str(_FIXTURES_DIR), None, c4)
+    r4 = resolve_figures(tokens4, str(_FIXTURES_DIR), None, c4, [(1, 1)])
     check("返回 1 个 FigureIR", len(r4) == 1, f"实际 {len(r4)}")
     if r4:
         check("file_exists=False", not r4[0].file_exists, str(r4[0].file_exists))
@@ -512,7 +580,7 @@ if __name__ == "__main__":
         ),
     ]
     r5 = resolve_figures(
-        tokens5, str(_FIXTURES_DIR), str(_FIGURES_DIR), c5
+        tokens5, str(_FIXTURES_DIR), str(_FIGURES_DIR), c5, [(29, 1), (49, 2), (61, 3)]
     )
     check("返回 3 个 FigureIR", len(r5) == 3, f"实际 {len(r5)}")
     # 图3-1 像素 800×400 → 应触发 W-IMG-02（<1102px）
@@ -530,7 +598,7 @@ if __name__ == "__main__":
     # --- 测试6：空列表 ---
     print("\n=== 测试6：空列表 ===")
     c6 = IssueCollector()
-    r6 = resolve_figures([], str(_FIXTURES_DIR), None, c6)
+    r6 = resolve_figures([], str(_FIXTURES_DIR), None, c6, [])
     check("返回空列表", len(r6) == 0, f"实际 {len(r6)}")
     check("无 issues", len(list(c6)) == 0, f"实际 {len(list(c6))}")
 
@@ -545,7 +613,7 @@ if __name__ == "__main__":
         )
     ]
     r7 = resolve_figures(
-        tokens7, str(_FIXTURES_DIR), str(_FIGURES_DIR), c7
+        tokens7, str(_FIXTURES_DIR), str(_FIGURES_DIR), c7, [(1, 1)]
     )
     check("返回 1 个 FigureIR", len(r7) == 1, f"实际 {len(r7)}")
     if r7:
@@ -588,6 +656,32 @@ if __name__ == "__main__":
     # 不存在的文件
     w3, h3 = _read_png_pixel_size(str(_FIXTURES_DIR / "不存在.png"))
     check("不存在文件返回 None", w3 is None and h3 is None, f"({w3}, {h3})")
+
+    # --- 测试10：作者手写图号与结构计算值不一致 → W-IMG-07 ---
+    print("\n=== 测试10：图号手写值与结构计算值不一致 → W-IMG-07 ===")
+    c10 = IssueCollector()
+    tokens10 = [
+        ImageToken(
+            alt_raw="图9-9 手写图号错误",
+            path_raw="figures/1-1-城际动车组谱系.png",
+            source_line=29,
+        )
+    ]
+    r10 = resolve_figures(
+        tokens10, str(_FIXTURES_DIR), str(_FIGURES_DIR), c10, [(1, 1)]
+    )
+    check("返回 1 个 FigureIR", len(r10) == 1, f"实际 {len(r10)}")
+    if r10:
+        check(
+            "figure_id 以结构计算值为准（'1-1'）",
+            r10[0].figure_id == "1-1",
+            r10[0].figure_id,
+        )
+    check(
+        "有 W-IMG-07",
+        any(i.code == "W-IMG-07" for i in c10),
+        f"实际 issues: {[(i.code,) for i in c10]}",
+    )
 
     # --- 汇总 ---
     print(f"\n{'='*50}")

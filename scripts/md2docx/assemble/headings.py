@@ -791,7 +791,28 @@ def _check_chapter_continuity(
     issues: IssueCollector,
 ) -> None:
     """校验章原编号是否 1..n 连续（W-HDR-01）。"""
-    # 纯 None 序列（所有章均无原始编号）→ 跳过校验
+    # P0 修复（空真值陷阱）：区分两种"跳过"语义完全不同的情况——
+    #   (a) orig_nums 为空列表：说明本文档一章 CHAPTER 级标题都没有识别到，
+    #       这是上游标题分类环节的结构性异常（正常报告必有 ≥1 章），
+    #       `all(on is None for on in [])` 会因空列表真值陷阱而返回 True，
+    #       原实现据此直接 return，不产生任何 issue，属于假阴性。
+    #   (b) orig_nums 非空但全为 None：说明章标题确实存在，只是原始 md
+    #       文本中均未手写"第X章"式编号（完全依赖工具自动编号），这是
+    #       正常、常见的写作方式，不代表任何缺陷，应继续跳过而不告警。
+    if not orig_nums:
+        chapter_irs = [r for r in results if r.kind == HeadingKind.CHAPTER]
+        issues.append(
+            Issue(
+                level=Level.ERROR,
+                code="W-HDR-01",
+                stage="assemble",
+                message="章编号连续性校验：未发现任何 CHAPTER 级标题，"
+                "无法判定原始编号是否连续，判定为结构性异常而非'无需检查'",
+                element_ref=f"chapters_found={len(chapter_irs)}",
+                suggestion="检查标题分类环节是否正确识别出章级标题",
+            )
+        )
+        return
     if all(on is None for on in orig_nums):
         return
 

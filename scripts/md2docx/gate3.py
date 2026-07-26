@@ -467,6 +467,32 @@ def _check_heading_continuity(
 
     issues_found: list[str] = []
 
+    # P0 修复（空真值陷阱）：若连"章"级标题都一个没有，说明上游标题分类/
+    # 编号或 elements 组装环节已出现结构性故障（正常报告必有 ≥1 章），此时
+    # 不能让下方的 `if chapters:`/`if sections:`/`if subsections:` 因空列表
+    # 而被逐一跳过、issues_found 保持空、最终误判为"编号连续"的假阳性 PASS。
+    if not chapters:
+        checks.append({
+            "id": 5,
+            "name": "章节编号连续性",
+            "level": "auto",
+            "result": "fail",
+            "detail": "未在 elements 中检测到任何章级标题（HeadingKind.CHAPTER），"
+            "无法判定编号连续性，判定为结构性异常而非'无需检查'",
+            "needs_review": False,
+        })
+        issues.append(
+            Issue(
+                level=Level.ERROR,
+                code="W-HDR-01",
+                stage="gate3",
+                message="门3 章节编号连续性检查：elements 中未发现任何章级标题，"
+                "疑似上游标题分类/编号环节存在结构性缺陷",
+                gate="gate3",
+            )
+        )
+        return
+
     # 章编号：number 为 int，应连续 1,2,3,...
     if chapters:
         chapter_nums = sorted(
@@ -553,12 +579,23 @@ def _check_figure_table_continuity(
     """验证图/表编号无跳号。
 
     从 ir.figure_registry 和 ir.table_registry 中取编号，按章分组检查连续性。
+
+    Phase 6.3 结构计算改造后的边界说明：assemble/figures.py 对不匹配「图X-Y」
+    模式的无题注图（W-IMG-01）统一赋 chapter_no=0/seq_no=0 作为"未编号"哨兵值
+    （而非结构计算得到的真实章号），若同一文档中出现多张这样的图，chapter_no=0
+    分组会看到重复的 seq_no=0，被本函数误判为跳号/重复。这类图本就不参与正文
+    编号体系（题注不含"图X-Y"字样），故此处按 chapter_no==0 整组排除，仅对
+    真正参与编号的图表做连续性校验——是"结构存在性校验"而非"数值连续性校验"
+    的体现：校验对象从"编号字面量是否连续"收窄为"已进入编号体系的图表是否
+    连续"，未编号图不再被强行套入连续性假设。
     """
     issues_found: list[str] = []
 
-    # 图编号连续性
+    # 图编号连续性（chapter_no==0 为未编号图的哨兵值，不参与连续性假设）
     figs_by_chapter: dict[int, list[int]] = {}
     for fig_id, fig in ir.figure_registry.items():
+        if fig.chapter_no == 0:
+            continue
         figs_by_chapter.setdefault(fig.chapter_no, []).append(fig.seq_no)
     for ch, seqs in figs_by_chapter.items():
         seqs_sorted = sorted(seqs)

@@ -1,8 +1,12 @@
 """标题渲染模块（C-07a 配套）：将 HeadingIR 渲染为 Word 命名标题样式段落。
 
-编号文本已由 assemble 层写入 ``HeadingIR.display_number``，本模块只负责：
-1. 根据 heading.kind 确定 Word 样式名（Heading 1~5）
-2. 拼接 display_number + text 并写入段落
+Phase 6.2 起，编号不再由 assemble 层算好字符串、render 层拼接文本——而是
+通过 ``render/numbering.py`` 定义的 Word 原生多级列表（``w:numPr``）驱动，
+由 Word 在打开/打印/F9 更新域时自动计算编号值。段落本身只写入
+``heading.text`` 纯标题文字，不含任何编号前缀。
+
+``HeadingIR.display_number``（assemble/headings.py 计算）目前仍保留，供
+Gate3 的编号连续性校验（字面值比对）使用，但**不再用于渲染**。
 
 V-08 硬约束：本模块严禁设置 page_break_before —— 所有分页由 PageBreakIR 驱动。
 G-02 说明：add_page_break 的调用点仅在 render/document.py 的 _dispatch_element 中。
@@ -13,6 +17,8 @@ G-02 说明：add_page_break 的调用点仅在 render/document.py 的 _dispatch
 from __future__ import annotations
 
 from ..ir import HeadingIR, HeadingKind
+from . import numbering as _numbering
+from .oxml_helpers import add_run_segments
 
 
 # ---------------------------------------------------------------------------
@@ -20,11 +26,10 @@ from ..ir import HeadingIR, HeadingKind
 # ---------------------------------------------------------------------------
 # Word 命名样式  Heading 1       Heading 2       Heading 3       Heading 4       Heading 5
 # 中文语义       章（24pt 粗体） 节（16pt 粗体） 小节（14pt 粗体）段落小标题     斜体小标题
-# display_number 第一章 / 附录A  1.1 / 2.3       1.1.1 / 3.2.1   ""（无编号）    ""（无编号）
+# 编号来源       多级列表 ilvl0  多级列表 ilvl1  多级列表 ilvl2  无编号         无编号
 #
 # MAIN_TITLE 映射到 Heading 1 仅为防御性兜底 —— 封面标题由 cover.py 渲染，
 # 正常情况下 MAIN_TITLE 不会出现在正文元素流中（已被 assemble 过滤或重新归类）。
-# 若此处收到 MAIN_TITLE，按 Heading 1 样式渲染，display_number 为空时仅输出 text。
 
 _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.CHAPTER: 1,
@@ -33,11 +38,31 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.SECTION: 2,
     HeadingKind.ABSTRACT: 2,
     # FRONT_MATTER（前言/导论区的无编号 H2/H3，§C.3 R-FM）：与 ABSTRACT 一致
-    # 按 Heading 2 渲染——同属无编号前置件，display_number 恒为空，仅输出 text。
+    # 按 Heading 2 渲染——同属无编号前置件。
     # 显式登记以杜绝走 .get(kind, 4) 兜底导致的字号偏小/语义漂移。
     HeadingKind.FRONT_MATTER: 2,
     HeadingKind.SUBSECTION: 3,
     HeadingKind.PLAIN: 4,
+}
+
+# HeadingKind → 段落级 numPr 覆盖表。
+#
+# render/styles.py 已在样式级（Heading 1/2/3）绑定了章节多级列表的默认
+# ilvl/numId（ilvl 与 _KIND_TO_LEVEL 的 1/2/3 一一对应，见 numbering.py）。
+# 但同一 Word 样式会被多种 HeadingKind 复用，其中只有 CHAPTER/SECTION/
+# SUBSECTION 三类应当使用该默认绑定；其余复用同一样式的 kind 必须在段落级
+# 显式覆盖，否则会被样式级的默认编号"污染"：
+#   - APPENDIX 复用 Heading 1（与 CHAPTER 同级），须覆盖为独立的附录字母列表
+#   - MAIN_TITLE 复用 Heading 1，不应显示章节编号 → 覆盖为关闭编号（numId=0）
+#   - ABSTRACT / FRONT_MATTER 复用 Heading 2（与 SECTION 同级），不应显示
+#     "X.Y" 节编号 → 覆盖为关闭编号（numId=0）
+#
+# PLAIN 映射到 Heading 4，该样式未绑定任何 numPr，无需覆盖（自然无编号）。
+_NUMPR_OVERRIDE: dict[HeadingKind, tuple[int, int]] = {
+    HeadingKind.APPENDIX: (0, _numbering.APPENDIX_NUM_ID),
+    HeadingKind.MAIN_TITLE: (0, _numbering.NO_NUMBERING_ID),
+    HeadingKind.ABSTRACT: (1, _numbering.NO_NUMBERING_ID),
+    HeadingKind.FRONT_MATTER: (1, _numbering.NO_NUMBERING_ID),
 }
 
 
@@ -49,8 +74,10 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
 def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
     """渲染一个标题（H1~H5）。
 
-    编号文本已由 assemble 层写入 ``heading.display_number``，此处只拼接。
-    中文字体由样式控制，无需在 run 级单独设置。
+    编号由 Word 原生多级列表驱动（Phase 6.2）：CHAPTER/SECTION/SUBSECTION
+    三类直接继承 Heading 1/2/3 样式级绑定的默认 numPr；其余复用同一样式但
+    不应显示章节编号的 kind（APPENDIX/MAIN_TITLE/ABSTRACT/FRONT_MATTER）
+    在段落级显式覆盖 numPr。段落本身只写入纯标题文字。
 
     Args:
         doc: python-docx Document 对象
@@ -67,10 +94,9 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
         p = doc.add_paragraph()
         p.style = doc.styles[style_name]
 
-    # 拼接编号与标题文本
-    if heading.display_number:
-        display_text = heading.display_number + " " + heading.text
-    else:
-        display_text = heading.text
+    override = _NUMPR_OVERRIDE.get(heading.kind)
+    if override is not None:
+        ilvl, num_id = override
+        _numbering.set_heading_numPr(p, ilvl=ilvl, num_id=num_id)
 
-    p.add_run(display_text)
+    add_run_segments(p, heading.text)

@@ -17,6 +17,10 @@ from ..textstage.tokens import MetaLine
 # 编译版本拆分正则（来自 config.py 的单一事实来源）
 _VERSION_RE = re.compile(RE_VERSION_SPLIT)
 
+# 文档头元数据白名单键：builder.py 判定 MetaLine 是否降级为正文段落时复用
+# 同一常量，避免两处白名单各自维护而漂移。出处：04-interface-spec.md §1.2
+METADATA_WHITELIST_KEYS = frozenset({"副标题", "报告类型", "编制机构", "版本"})
+
 
 def _has_cjk(ch: str) -> bool:
     """判断字符是否属于 CJK 宽字符区（用于半角宽度估算）。"""
@@ -88,6 +92,24 @@ def extract_metadata(
             md_organization = value
         elif key == "版本":
             md_version_raw = value
+        else:
+            # 非白名单键：不进入 MetadataIR，留痕告知——真正的降级为正文
+            # 段落动作由 builder.py 主装配循环执行（此处仅负责诊断留痕，
+            # 避免 metadata.py 与 builder.py 各自重复判断白名单）
+            issues.append(
+                Issue(
+                    level=Level.WARNING,
+                    code="W-META-01",
+                    stage="assemble",
+                    message=(
+                        f"MetaLine 键名 {key!r} 不在文档头元数据白名单内，"
+                        f"已降级为正文段落保留（行 {ml.source_line}）"
+                    ),
+                    source_line=ml.source_line,
+                    suggestion="若确为文档头元数据，请检查键名是否与"
+                    "「副标题/报告类型/编制机构/版本」拼写一致",
+                )
+            )
 
     # ------------------------------------------------------------------
     # 第二步：版本字段二次拆分（正则 ^(V[\d.]+)\s*[|｜]\s*(.+)$）

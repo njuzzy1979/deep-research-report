@@ -22,8 +22,10 @@ from ..config import (
 from ..ir import InlineRun, TableIR, TableKind
 from ..issues import IssueCollector
 from .oxml_helpers import (
+    add_run_segments,
     make_bookmark_end,
     make_bookmark_start,
+    make_field,
     make_shd,
     make_tblBorders,
     make_tcBorders_bottom,
@@ -46,6 +48,10 @@ _TABLE_WIDTH_PCT50 = 4500
 
 # 书签名前缀（正文表 "TabX_Y"，04-interface-spec.md §6）
 _BOOKMARK_PREFIX = "Tab"
+
+# SEQ 域指令模板常量：caption_field_mode="field" 时，表题注编号由 Word SEQ
+# 域自动计算，而非 assemble 层誊抄的 table_id（本次 plan §6.3 表编号方案）
+_TABLE_SEQ_INSTR = "SEQ 表 \\* ARABIC"
 
 
 # ===========================================================================
@@ -78,29 +84,34 @@ def _render_cell_runs(
     p.clear()
 
     for run_data in runs:
-        r = p.add_run(run_data.text)
-        # 西文字体
-        r.font.name = latin_font
-        # 中文字体（必须 run 级显式设置，python-docx 不会从段落样式继承 eastAsia）
-        rPr = r._r.get_or_add_rPr()
-        set_eastAsia_font(rPr, cjk_font)
-        # 字号
-        r.font.size = Pt(size_pt)
-        # 字重：InlineRun.bold 为 True 则加粗，否则用默认
-        r.font.bold = run_data.bold or default_bold
-        # 斜体
-        if run_data.italic:
-            r.font.italic = True
-        # 行内代码：西文字体切换为 Consolas（V3.0 §10.3；eastAsia 仍用原字体）
-        if run_data.code:
-            r.font.name = "Consolas"
-        # 上标
-        if run_data.superscript:
-            r.font.superscript = True
-        # 超链接：通过 OXML 手写（python-docx 的段落级 add_hyperlink 无法
-        # 在已有段落的 run 序列中按位置插入）
+        def _apply_format(r, is_quote, run_data=run_data):
+            # 西文字体
+            r.font.name = latin_font
+            # 中文字体（必须 run 级显式设置，python-docx 不会从段落样式继承 eastAsia）
+            rPr = r._r.get_or_add_rPr()
+            set_eastAsia_font(rPr, cjk_font)
+            # 字号
+            r.font.size = Pt(size_pt)
+            # 字重：InlineRun.bold 为 True 则加粗，否则用默认
+            r.font.bold = run_data.bold or default_bold
+            # 斜体
+            if run_data.italic:
+                r.font.italic = True
+            # 行内代码：西文字体切换为 Consolas（V3.0 §10.3；eastAsia 仍用原字体）
+            if run_data.code:
+                r.font.name = "Consolas"
+            # 上标
+            if run_data.superscript:
+                r.font.superscript = True
+
         if run_data.link_url:
+            # 超链接：整段文本作为单个 run 处理（不按引号拆分），
+            # 与 _replace_run_with_hyperlink 依赖"最后一个 run"的实现保持一致
+            r = p.add_run(run_data.text)
+            _apply_format(r, False)
             _replace_run_with_hyperlink(p, r, run_data)
+        else:
+            add_run_segments(p, run_data.text, _apply_format)
 
 
 def _replace_run_with_hyperlink(
@@ -265,9 +276,21 @@ def render_table(
             make_bookmark_end(caption_para, bm_id, table_ir.bookmark_name)
             bookmark_consumed = 1
 
-        # 题注文本格式："表X-Y 题注内容"
-        full_caption = f"表{table_ir.table_id} {table_ir.caption_text}"
-        caption_para.add_run(full_caption)
+        # 题注文本格式："表X-Y 题注内容"（Phase 6.3：caption_field_mode 开关
+        # 控制编号是静态文本还是 Word SEQ 域，逻辑与 render/figures.py 对称）。
+        if flags.caption_field_mode == "field":
+            caption_para.add_run("表")
+            # 占位符必须是"全篇第几个 SEQ 表 域"（Word SEQ 域按序列名全局
+            # 递增计数）。bm_id 是本表格的书签 ID（0-based，仅正文表消费），
+            # 与"第几张正文表"的全局出现顺序一致，+1 转为 1-based 序号。
+            make_field(
+                caption_para, _TABLE_SEQ_INSTR, field_type="SEQ",
+                placeholder_text=str(bm_id + 1),
+            )
+            add_run_segments(caption_para, f" {table_ir.caption_text}")
+        else:
+            full_caption = f"表{table_ir.table_id} {table_ir.caption_text}"
+            add_run_segments(caption_para, full_caption)
 
     # ------------------------------------------------------------------
     # 2. 表格主体
@@ -369,12 +392,14 @@ def render_table(
             source_para.style = source_style
 
         # 前缀 "数据来源："（M4：Table Source 样式已定义 9pt italic #555555）
-        source_para.add_run(_SOURCE_PREFIX)
+        add_run_segments(source_para, _SOURCE_PREFIX)
 
         # 逐条渲染 source_note 中的 InlineRun（可能含超链接等格式）
         for run_data in table_ir.source_note:
-            r = source_para.add_run(run_data.text)
             if run_data.link_url:
+                r = source_para.add_run(run_data.text)
                 _replace_run_with_hyperlink(source_para, r, run_data)
+            else:
+                add_run_segments(source_para, run_data.text)
 
     return bookmark_consumed

@@ -26,7 +26,7 @@ from ..config import (
     PAGE_WIDTH_CM,
 )
 from ..ir import MetadataIR
-from .oxml_helpers import make_pBdr_bottom
+from .oxml_helpers import add_run_segments, make_pBdr_bottom
 
 
 def _add_cover_paragraph(
@@ -62,16 +62,18 @@ def _add_cover_paragraph(
     if line_spacing is not None:
         pf.line_spacing = line_spacing
 
-    run = p.add_run(text)
-    run.font.size = Pt(size_pt)
-    run.font.bold = bold
-    run.font.color.rgb = RGBColor.from_string(color_hex.lstrip("#"))
+    def _apply_format(run, _is_quote):
+        run.font.size = Pt(size_pt)
+        run.font.bold = bold
+        run.font.color.rgb = RGBColor.from_string(color_hex.lstrip("#"))
 
-    # 中文字体（封面元素统一使用微软雅黑）
-    rPr = run._r.get_or_add_rPr()
-    rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:eastAsia"), "微软雅黑")
-    rPr.insert(0, rFonts)
+        # 中文字体（封面元素统一使用微软雅黑）
+        rPr = run._r.get_or_add_rPr()
+        rFonts = OxmlElement("w:rFonts")
+        rFonts.set(qn("w:eastAsia"), "微软雅黑")
+        rPr.insert(0, rFonts)
+
+    add_run_segments(p, text, _apply_format)
 
 
 def _add_separator(doc: Document) -> None:

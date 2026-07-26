@@ -25,6 +25,7 @@ from ..ir import (
     TableIR,
 )
 from ..issues import Issue, IssueCollector, Level
+from ..textstage.inline import parse_inline
 from ..textstage.tokens import (
     BlankToken,
     FencedCodeToken,
@@ -42,7 +43,7 @@ from ..textstage.tokens import (
 from .breaks import plan_breaks_and_sections
 from .figures import resolve_figures
 from .headings import classify_and_number
-from .metadata import extract_metadata
+from .metadata import METADATA_WHITELIST_KEYS, extract_metadata
 from .tables import resolve_tables
 
 
@@ -67,6 +68,24 @@ def _build_heading_index(
     for hir in heading_irs:
         index[hir.source_line] = hir
     return index
+
+
+def _build_chapter_map(
+    heading_irs: list[HeadingIR],
+) -> list[tuple[int, int]]:
+    """构建 (source_line, chapter_no) 有序表，供图/表结构计算章号使用（Phase 6.3）。
+
+    仅取 CHAPTER 级标题（H1/HeadingKind.CHAPTER），按 source_line 升序排列。
+    resolve_figures/resolve_tables 据此为每个图/表定位"其 source_line 落在
+    哪个章区间"，从而得到结构计算的 chapter_no，而非誊抄作者手写编号。
+    """
+    pairs = [
+        (h.source_line, h.number)
+        for h in heading_irs
+        if h.kind == HeadingKind.CHAPTER and isinstance(h.number, int)
+    ]
+    pairs.sort(key=lambda p: p[0])
+    return pairs
 
 
 def _remap_section_indices(
@@ -138,6 +157,11 @@ def build(
     # 构建 heading 索引供步骤6 使用
     heading_index = _build_heading_index(heading_irs)
 
+    # 构建章号结构映射（Phase 6.3）：图/表的 chapter_no 不再从作者手写文本
+    # 誊抄，而是由 source_line 落在哪个章区间结构计算得出，见 resolve_figures/
+    # resolve_tables 内部实现。
+    chapter_map = _build_chapter_map(heading_irs)
+
     # ==================================================================
     # 步骤3：图解析（ImageToken → FigureIR）
     # ==================================================================
@@ -148,6 +172,7 @@ def build(
         md_dir,
         flags.figures_dir if flags.figures_dir else None,
         issues,
+        chapter_map,
     )
     figure_registry: dict[str, FigureIR] = {
         f.figure_id: f for f in figure_irs
@@ -156,7 +181,7 @@ def build(
     # ==================================================================
     # 步骤4：表解析（Token 流 → TableIR）
     # ==================================================================
-    table_irs = resolve_tables(tokens, issues)
+    table_irs = resolve_tables(tokens, issues, chapter_map)
     table_registry: dict[str, TableIR] = {
         t.table_id: t
         for t in table_irs
@@ -305,8 +330,19 @@ def build(
             # 不再重复插入。
             continue
 
-        # ---- MetaLine → 跳过（已被 metadata 消费） ----
+        # ---- MetaLine → 白名单键已被 metadata 消费，跳过；
+        #      非白名单键降级还原为正文段落，避免"识别为元数据但无处安放"
+        #      的内容被静默吞掉（P0 修复，见 metadata.py W-META-01 诊断） ----
         if isinstance(t, MetaLine):
+            _flush_list_buffer()
+            if t.key.strip() not in METADATA_WHITELIST_KEYS:
+                in_table_span = False
+                text = f'**{t.key}**：{t.value}'
+                runs = parse_inline(text, t.source_line, issues)
+                token_to_element_map[token_idx] = len(elements)
+                elements.append(
+                    ParagraphIR(runs=runs, source_line=t.source_line)
+                )
             continue
 
         # ---- BlankToken → 跳过（不进入 IR） ----

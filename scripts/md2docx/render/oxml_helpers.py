@@ -62,7 +62,8 @@ def _make_border_element(side_name: str, attrs: dict):
 # 1. 域代码生成（G-03：fldChar 字面量仅此文件出现）
 # =============================================================================
 
-def make_field(paragraph, instr_text: str, field_type: str = 'PAGE'):
+def make_field(paragraph, instr_text: str, field_type: str = 'PAGE',
+               placeholder_text: str | None = None):
     """生成 Word 域代码的四态结构，追加到指定段落。
 
     Word 域代码的四态结构（begin → instrText → separate → end）是 Word 识别
@@ -73,7 +74,14 @@ def make_field(paragraph, instr_text: str, field_type: str = 'PAGE'):
         <w:r><w:fldChar w:fldCharType="begin"/></w:r>
         <w:r><w:instrText xml:space="preserve"> INSTRUCTION </w:instrText></w:r>
         <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+        <w:r><w:t>PLACEHOLDER</w:t></w:r>          <!-- 仅当 placeholder_text 非空时生成 -->
         <w:r><w:fldChar w:fldCharType="end"/></w:r>
+
+    separate 与 end 之间的内容是域的"缓存计算结果"。Word/WPS 等阅读器在
+    未执行"更新域"（F9）前，直接显示这段缓存文本；留空则显示为空白
+    （历史缺陷：图表 SEQ 域编号在未按 F9 前显示为空）。因此只要调用方在
+    生成时已经能计算出域的预期值（如 SEQ 域对应的序号、PAGEREF 域对应的
+    页码估计值），都应通过 ``placeholder_text`` 传入，而不是留空。
 
     Args:
         paragraph: 要追加域的段落对象（python-docx Paragraph）。
@@ -82,9 +90,14 @@ def make_field(paragraph, instr_text: str, field_type: str = 'PAGE'):
             * TOC 目录: ``'TOC \\o "1-3" \\h \\z \\u'``
             * PAGE 页码: ``'PAGE'``
             * PAGEREF 书签页码: ``'PAGEREF BookmarkName \\h'``
+            * SEQ 图表编号: ``'SEQ 图 \\* ARABIC'``
 
-        field_type: 域类型标识（``'PAGE'`` / ``'TOC'`` / ``'PAGEREF'``），
-            当前仅用于文档说明与调用方可读性，不影响生成的 XML。
+        field_type: 域类型标识（``'PAGE'`` / ``'TOC'`` / ``'PAGEREF'`` /
+            ``'SEQ'``），当前仅用于文档说明与调用方可读性，不影响生成的 XML。
+        placeholder_text: 域的初始缓存文本（separate 与 end 之间），
+            在文档生成时若已知域的预期求值结果应传入（如 SEQ 域的序号
+            "1"、PAGEREF 域的页码占位 " "）。为 ``None`` 或空字符串时不
+            插入任何占位 run，保持与历史行为一致。
 
     Returns:
         begin run 的 fldChar 元素（OxmlElement），用于后续在 begin 和
@@ -108,6 +121,14 @@ def make_field(paragraph, instr_text: str, field_type: str = 'PAGE'):
     fldChar_sep = OxmlElement('w:fldChar')
     fldChar_sep.set(qn('w:fldCharType'), 'separate')
     sep_run._r.append(fldChar_sep)
+
+    # ③.5 占位文本（域缓存值，F9 更新前显示此内容；见函数说明）
+    if placeholder_text:
+        placeholder_run = paragraph.add_run()
+        t_elem = OxmlElement('w:t')
+        t_elem.set(qn('xml:space'), 'preserve')
+        t_elem.text = placeholder_text
+        placeholder_run._r.append(t_elem)
 
     # ④ end
     end_run = paragraph.add_run()
@@ -559,6 +580,107 @@ def set_eastAsia_font(rPr_element, font_name: str):
 
 
 # =============================================================================
+# 10b. 中文全角弯引号字体修正（问题20）
+# =============================================================================
+#
+# 根因：Word 按 Unicode 码点区间选择字体插槽——中文表意文字走 w:eastAsia，
+# 但全角弯双引号 “ ” （U+201C/U+201D）属于 General Punctuation 区块而非
+# CJK 表意文字区块，Word 实际使用 w:ascii/w:hAnsi 插槽渲染。本项目所有样式
+# （见 render/styles.py::_apply_style_spec）的 latin_font 均为
+# "Times New Roman"、cjk_font 多为 "宋体"，导致引号字符外观错误地跟随西文
+# 字体。此处仅修正引号字符本身的 ascii/hAnsi/cs 插槽，不改变任何其他字体
+# 定义（不动 eastAsia、不动非引号文字的 ascii/hAnsi）。
+
+_QUOTE_CHARS = ("“", "”")  # 全角左引号 " / 右引号 "
+_QUOTE_FONT = "宋体"
+
+
+def split_text_by_quotes(text: str) -> list[tuple[str, bool]]:
+    """将文本按全角弯双引号字符拆分为 (片段文本, 是否为引号字符) 列表。
+
+    非引号字符尽量合并为连续片段，引号字符单独成段，供调用方逐段创建
+    run 并只对引号段追加字体插槽覆盖。
+
+    Args:
+        text: 原始 run 文本。
+
+    Returns:
+        list[tuple[str, bool]]：按顺序排列的 (片段文本, 是否引号) 元组。
+        空字符串输入返回空列表。
+    """
+    segments: list[tuple[str, bool]] = []
+    buf: list[str] = []
+    for ch in text:
+        if ch in _QUOTE_CHARS:
+            if buf:
+                segments.append(("".join(buf), False))
+                buf = []
+            segments.append((ch, True))
+        else:
+            buf.append(ch)
+    if buf:
+        segments.append(("".join(buf), False))
+    return segments
+
+
+def force_quote_font(rPr_element, font_name: str = _QUOTE_FONT) -> None:
+    """强制将引号字符 run 的西文插槽（ascii/hAnsi/cs）设为指定字体。
+
+    必须在调用方对该 run 完成其余格式设置（字号/加粗/中文字体等）**之后**
+    调用，以确保本次覆盖不会被后续的 ``run.font.name = ...`` 等赋值覆盖掉
+    （python-docx 的 ``font.name`` 属性同时写入 w:ascii 与 w:hAnsi）。
+
+    Args:
+        rPr_element: 目标 run 的 w:rPr 元素。
+        font_name: 引号字符使用的字体名，默认 "宋体"。
+    """
+    rFonts = rPr_element.find(qn("w:rFonts"))
+    if rFonts is None:
+        rFonts = OxmlElement("w:rFonts")
+        rPr_element.insert(0, rFonts)
+    rFonts.set(qn("w:ascii"), font_name)
+    rFonts.set(qn("w:hAnsi"), font_name)
+    rFonts.set(qn("w:cs"), font_name)
+
+
+def add_run_segments(paragraph, text: str, format_fn=None) -> list:
+    """按全角引号拆分文本并逐段向段落添加 run，引号段自动修正字体插槽。
+
+    调用方原本"创建一个 run 并设置格式"的逻辑，通过 ``format_fn(run,
+    is_quote)`` 回调对每个片段 run 应用同样的格式（加粗/斜体/字号/中文
+    字体等，与不拆分时完全一致），本函数只额外负责在 format_fn 执行完毕
+    后，对引号片段追加 :func:`force_quote_font` 覆盖，确保覆盖顺序正确。
+
+    Args:
+        paragraph: python-docx Paragraph 对象（可以是表格单元格的段落）。
+        text: 原始文本（可能包含 0 个或多个引号字符）。
+        format_fn: 可选回调 ``(run, is_quote) -> None``，对每个新建 run
+            应用调用方的格式逻辑；未提供时仅创建 run，不设置任何格式。
+
+    Returns:
+        list：本次创建的所有 run（按原文顺序），调用方一般无需再使用，
+        但保留返回值供需要进一步处理（如替换为超链接）的场景使用。
+    """
+    segments = split_text_by_quotes(text)
+    if not segments:
+        # 空字符串等边界：保持原有"至少产出一个 run"的行为不变
+        r = paragraph.add_run(text)
+        if format_fn is not None:
+            format_fn(r, False)
+        return [r]
+
+    runs = []
+    for seg_text, is_quote in segments:
+        r = paragraph.add_run(seg_text)
+        if format_fn is not None:
+            format_fn(r, is_quote)
+        if is_quote:
+            force_quote_font(r._r.get_or_add_rPr())
+        runs.append(r)
+    return runs
+
+
+# =============================================================================
 # 11. 首行缩进（字符模式）
 # =============================================================================
 
@@ -628,3 +750,24 @@ def make_cover_separator_line(paragraph):
         pPr.append(ind)
     ind.set(qn('w:left'), _SEPARATOR_INDENT_TWIPS)
     ind.set(qn('w:right'), _SEPARATOR_INDENT_TWIPS)
+
+
+# =============================================================================
+# 13. 文档级设置（settings.xml）
+# =============================================================================
+
+def set_update_fields_on_open(doc) -> None:
+    """设置文档级 ``w:updateFields``，使 Word 打开文档时自动更新所有域。
+
+    这是 SEQ/PAGEREF/TOC 等域的"双保险"——即便 :func:`make_field` 生成时已
+    写入正确的 ``placeholder_text`` 缓存值，用户后续编辑文档（插入/删除图表、
+    调整章节顺序）后若不记得手动按 F9 全选更新域，缓存值就会与实际值脱节。
+    该设置使 Word 在每次打开文档时主动重新计算所有域，不依赖用户记忆。
+
+    Args:
+        doc: python-docx Document 对象。
+    """
+    settings_el = doc.settings.element
+    update_fields = OxmlElement('w:updateFields')
+    update_fields.set(qn('w:val'), 'true')
+    settings_el.insert(0, update_fields)
