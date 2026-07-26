@@ -488,12 +488,20 @@ def _check_xref_consistency(document_ir: DocumentIR, issues: IssueCollector) -> 
 
             # 登记到 xref_registry
             ref_id = f"{ref_word}{x}-{y}"
+            figure_id = f"{x}-{y}"
+            # Phase 7a: 查找对应图表的书签名供 REF 域渲染
+            bookmark = None
+            if ref_type == "figure" and figure_id in document_ir.figure_registry:
+                bookmark = document_ir.figure_registry[figure_id].bookmark_name
+            elif ref_type == "table" and figure_id in document_ir.table_registry:
+                bookmark = document_ir.table_registry[figure_id].bookmark_name
             document_ir.xref_registry.append(
                 XRefMention(
                     ref_id=ref_id,
                     ref_type=ref_type,
                     mention_line=source_line,
                     style="paren",
+                    bookmark_name=bookmark,
                 )
             )
 

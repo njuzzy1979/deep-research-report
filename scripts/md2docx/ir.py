@@ -228,6 +228,7 @@ class XRefMention:
     ref_type: str  # "figure" | "table"
     mention_line: int
     style: str  # "paren"（图X-Y） | "asshown"（如图X-Y所示） | "positional"（下图/上表, 违规）
+    bookmark_name: str | None = None  # Phase 7a: 对应图表的书签名（如 "fig_1_1"/"Tab1_1"），供 REF 域渲染
 
 
 # ---------------------------------------------------------------------------

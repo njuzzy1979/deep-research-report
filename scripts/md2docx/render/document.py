@@ -41,7 +41,7 @@ from .figures import render_figure
 from .headerfooter import setup_section_headers_footers
 from .headings import render_heading
 from .lists import render_bullet_list, render_numbered_list
-from .paragraphs import render_paragraph, render_quote
+from .paragraphs import _build_ref_map, render_paragraph, render_quote
 from .styles import register_styles
 from .tables import render_table
 from .toc import render_chart_directory, render_toc, should_render_chart_directory
@@ -144,16 +144,20 @@ def _dispatch_body_element(
     flags: BehaviorFlags,
     issues: IssueCollector,
     bookmark_id_counter: list[int],  # mutable list as counter
+    ref_map: dict[str, str] | None = None,
 ) -> None:
     """按元素类型分派到对应渲染模块。
 
     G-02：PageBreakIR 的唯一消费点——doc.add_page_break() 只在此函数中调用。
+
+    Args:
+        ref_map: { "图1-1": "fig_1_1", ... }，传入时段落渲染启用 REF 域替换
     """
     if isinstance(element, HeadingIR):
         render_heading(doc, element, styles_map)
 
     elif isinstance(element, ParagraphIR):
-        render_paragraph(doc, element, styles_map)
+        render_paragraph(doc, element, styles_map, ref_map=ref_map)
 
     elif isinstance(element, FigureIR):
         render_figure(doc, element, styles_map, _oxml, issues, flags)
@@ -251,6 +255,9 @@ def render_document(
     # ---- 阶段 5.5-5.8：逐节渲染 ----
     bookmark_id_counter = [0]
 
+    # Phase 7a：构建交叉引用 REF 域映射（{ "图1-1": "fig_1_1", ... }）
+    ref_map = _build_ref_map(ir.xref_registry) if hasattr(ir, 'xref_registry') and ir.xref_registry else None
+
     for sec_idx, section_spec in enumerate(section_plan.sections):
         if sec_idx > 0:
             new_sec = doc.add_section()
@@ -265,7 +272,8 @@ def render_document(
             elem_range = element_ranges.get(sec_idx, (0, 0))
             for element in ir.elements[elem_range[0]:elem_range[1]]:
                 _dispatch_body_element(
-                    doc, element, styles_map, flags, issues, bookmark_id_counter
+                    doc, element, styles_map, flags, issues, bookmark_id_counter,
+                    ref_map=ref_map,
                 )
 
         elif section_spec.kind == SectionKind.TOC:
@@ -287,7 +295,8 @@ def render_document(
             elem_range = element_ranges.get(sec_idx, (0, len(ir.elements)))
             for element in ir.elements[elem_range[0]:elem_range[1]]:
                 _dispatch_body_element(
-                    doc, element, styles_map, flags, issues, bookmark_id_counter
+                    doc, element, styles_map, flags, issues, bookmark_id_counter,
+                    ref_map=ref_map,
                 )
 
     # ---- 延后设置页码格式：在所有节创建完毕后，doc.sections[i]._sectPr 才能正确解析 ----
