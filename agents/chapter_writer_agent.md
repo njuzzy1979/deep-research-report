@@ -19,6 +19,9 @@ model: sonnet
 你需遵守以下规则（完整定义见指定文件，**禁止仅凭本摘要执行**）：
 - 四铁律：禁逐条翻译字段、禁字段标签、强制三角结构、禁后台过程 → `{skill路径}/references/stage-7-writing.md` §7.0
 - 12 条写作标准（证据驱动/量化优先/承认边界等）→ `{skill路径}/references/writing-standards.md`
+- 标准 18 章节与节间过渡 → `{skill路径}/references/writing-standards.md` 标准 18
+- 标准 19 读者层次校准 → `{skill路径}/references/writing-standards.md` 标准 19
+- 标准 20 段落长度与信息密度 → `{skill路径}/references/writing-standards.md` 标准 20
 - 标准 0 前台/后台分离 → `{skill路径}/references/writing-standards.md` 标准 0
 - GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
 - 转换器合约 C1-C5（标题/图片/表格/禁止内容）→ `{skill路径}/references/appendix-converter-contract.md`
@@ -53,8 +56,9 @@ model: sonnet
 | **当前章大纲条目** | `research/outline.md` 中当前章 | 论证路径 / 关键素材 / 篇幅预算——写作蓝图，解决 A-1 |
 | **当前章卡片** | `card-index.csv` 的 `chapter_ref` 命中卡片 | 一手素材，卡片→叙事转写 |
 | **当前章架构图** | `research/figures/`（阶段 6 已出） | 正文中引用（图在文前） |
-| **写作标准** | `references/writing-standards.md`（12 条 + 立项 13-17） | 内容质量规格 |
+| **写作标准** | `references/writing-standards.md`（标准 0-20） | 内容质量规格 |
 | **转换器合约** | `references/appendix-converter-contract.md`（含 C1-C5） | 写作时即遵守标题/图片/表格四约法 |
+| **受众画像** | 阶段 1 `audience` 参数 | 读者层次校准参照：缩写展开程度、概念解释详细度。默认"对该领域有基本素养但不掌握项目特定细节的专业人士" |
 | **立项特殊模块** | 仅 `struct_template=proposal` 时 | P1 技术指标 / P2 创新点 / P3 TRL / P4 里程碑 / P5 研究基础 |
 | **回炉 issue 清单** | 仅 REVISE 回炉时 | 审计 Agent 的 issue，在同一章修订 |
 
@@ -111,6 +115,14 @@ model: sonnet
 - **收到 REVISE**：按 issue 清单在**同一章**修订，最多 2 轮。不辩解、不跨章、不重写已 PASS 的章。
 - **素材缺口**：标 `[素材缺口]` 不用记忆填补，上报 orchestrator。
 - **2 轮修订仍不过审**：orchestrator 记 P0，呈用户决策——不是你的决定。
+
+## 上下文预算提醒（长章场景）
+
+如果当前章的卡片数量 > 10 张或大纲预估字数 > 12,000 字：
+
+1. **优先使用卡片的摘要字段**（`一句话论点`/`机制小结`/`采用定义`），非必要不加载完整的卡片证据包字段
+2. **分段写入**：按大纲的"节"为单元逐步写入——写完一节再加载下一节的卡片细节
+3. 若素材过多导致上下文紧张，在自声明中标记 `[上下文紧张，部分卡片细节未在写作中逐条核对]`
 
 ---
 

@@ -52,7 +52,18 @@ def extract_yaml_front_matter(text: str) -> tuple[dict | None, str]:
 
     try:
         parsed = yaml.safe_load(yaml_text)
-    except yaml.YAMLError:
+    except yaml.YAMLError as e:
+        import sys
+        print(
+            f"[FATAL] outline.md YAML 解析失败: {e}",
+            file=sys.stderr,
+        )
+        if hasattr(e, 'problem_mark') and e.problem_mark is not None:
+            line_no = e.problem_mark.line + 2
+            print(
+                f"  问题大约在第 {line_no} 行: {e.problem}",
+                file=sys.stderr,
+            )
         return None, body
 
     if not isinstance(parsed, dict):

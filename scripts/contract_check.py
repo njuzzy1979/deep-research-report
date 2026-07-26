@@ -100,6 +100,45 @@ def count_cjk_chars(text: str) -> int:
     return len(re.findall(r"[\u4e00-\u9fff]", body))
 
 
+def compute_paragraph_stats(text: str) -> dict:
+    """QS4: \u6bb5\u843d\u957f\u5ea6\u5206\u5e03\u3002
+    \u6392\u9664\u6807\u9898/\u5f15\u7528\u5757/\u8868\u683c\u884c/\u56fe\u7247\u884c/\u4ee3\u7801\u5757\u3002"""
+    clean = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    paras, cur = [], []
+    for line in clean.split("\n"):
+        s = line.strip()
+        if not s:
+            if cur:
+                ptext = "".join(cur)
+                cnt = len(re.findall(r"[\u4e00-\u9fff]", ptext))
+                if cnt > 0:
+                    paras.append(ptext)
+                cur = []
+            continue
+        if s.startswith("#") or s.startswith(">") or s.startswith("|") or s.startswith("!["):
+            continue
+        cur.append(s)
+    if cur:
+        ptext = "".join(cur)
+        cnt = len(re.findall(r"[\u4e00-\u9fff]", ptext))
+        if cnt > 0:
+            paras.append(ptext)
+    if not paras:
+        return {"count": 0, "mean": 0.0, "p25": 0.0, "p50": 0.0, "p75": 0.0, "p90": 0.0,
+                "over_600": 0, "under_150": 0, "ideal_range": 0, "longest": 0}
+    lengths = sorted(len(re.findall(r"[\u4e00-\u9fff]", p)) for p in paras)
+    n = len(lengths)
+    def pct(data, pct):
+        return data[max(0, min(n - 1, int(n * pct / 100)))]
+    return {"count": n, "mean": round(sum(lengths) / n, 1),
+            "p25": pct(lengths, 25), "p50": pct(lengths, 50),
+            "p75": pct(lengths, 75), "p90": pct(lengths, 90),
+            "over_600": sum(1 for l in lengths if l > 600),
+            "under_150": sum(1 for l in lengths if l < 150),
+            "ideal_range": sum(1 for l in lengths if 150 <= l <= 400),
+            "longest": lengths[-1]}
+
+
 def check_contract(text: str, merged: bool, expect_figures) -> dict:
     """执行 C1-C5 + QS1-QS3，返回结构化结果。"""
     clean = strip_code_blocks(text)
@@ -156,6 +195,7 @@ def check_contract(text: str, merged: bool, expect_figures) -> dict:
             "QS1_est_pages": round(word_count / 800, 1),
             "QS2_figures": img_count,
             "QS3_tables": table_blocks,
+            "QS4_paragraphs": compute_paragraph_stats(text),
         },
     }
     # 高严重度合约项（C1/C2/C5）任一失败 → 整体 fail
@@ -191,13 +231,23 @@ def format_text_report(r: dict) -> str:
         lines.append(f"      {WARN} 检测到密级词 —— 红线，一律阻断（门 3 安全前移）")
     lines.extend([
         "",
-        "-- 量化层 QS1-QS3 --",
+        "-- 量化层 QS1-QS4 --",
         f"     QS1 正文字数(中文): {q['QS1_cjk_chars']} 字 (约 {q['QS1_est_pages']} 页)",
         f"     QS2 图片引用数: {q['QS2_figures']}",
         f"     QS3 表格数: {q['QS3_tables']}",
-        "",
-        f"=== 总判定: {'PASS' if r['overall_pass'] else 'FAIL (高严重度 C1/C2/C5 存在失败项)'} ===",
     ])
+    qs4 = q.get("QS4_paragraphs", {})
+    if qs4 and qs4.get("count", 0) > 0:
+        lines.extend([
+            f"     QS4 段落总数: {qs4['count']} | 平均: {qs4['mean']} 字",
+            f"     QS4 分位数: P25={qs4['p25']} P50={qs4['p50']} P75={qs4['p75']} P90={qs4['p90']}",
+            f"     QS4 理想区间(150-400字): {qs4['ideal_range']}/{qs4['count']}",
+            f"     QS4 超长段落(>600字): {qs4['over_600']} 个 (建议拆分)",
+        ])
+    lines.append("")
+    lines.append(
+        f"=== 总判定: {'PASS' if r['overall_pass'] else 'FAIL (高严重度 C1/C2/C5 存在失败项)'} ===",
+    )
     return "\n".join(lines)
 
 
