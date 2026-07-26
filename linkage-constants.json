@@ -1,0 +1,66 @@
+{
+  "_description": "SSOT for numerical constants used across multiple files in deep-research-report skill. Each constant has a unique key, its value, and a list of files where marker comments should exist. The check_linkage_constants.py script validates that markers in files match the values defined here.",
+  "_updated": "2026-07-26",
+  "constants": {
+    "forward_ref_limit_brief": {
+      "value": 0,
+      "description": "前向引用限额 - 快速简报(brief)",
+      "marker_files": [
+        "references/stage-7-writing.md",
+        "references/appendix-report-types.md"
+      ]
+    },
+    "forward_ref_limit_research": {
+      "value": 3,
+      "description": "前向引用限额 - 深度研究(research)",
+      "marker_files": [
+        "references/stage-7-writing.md"
+      ]
+    },
+    "forward_ref_limit_policy": {
+      "value": 3,
+      "description": "前向引用限额 - 政策分析(policy)",
+      "marker_files": [
+        "references/stage-7-writing.md"
+      ]
+    },
+    "forward_ref_limit_proposal": {
+      "value": 6,
+      "description": "前向引用限额 - 立项报告(proposal)",
+      "marker_files": [
+        "references/stage-7-writing.md"
+      ]
+    },
+    "forward_ref_limit_tech_eval": {
+      "value": 6,
+      "description": "前向引用限额 - 技术评估(tech-eval)",
+      "marker_files": [
+        "references/stage-7-writing.md"
+      ]
+    },
+    "card_overlap_n_gram": {
+      "value": 12,
+      "description": "卡片-正文重合度检测 n-gram 窗口大小",
+      "marker_files": [
+        "agents/chapter_auditor_agent.md",
+        "scripts/card_overlap_check.py"
+      ]
+    },
+    "card_overlap_block_len": {
+      "value": 46,
+      "description": "卡片-正文重合度检测 block-len（最长连续重合字符数阈值，P75）",
+      "marker_files": [
+        "agents/chapter_auditor_agent.md",
+        "scripts/card_overlap_check.py"
+      ]
+    },
+    "card_overlap_block_count": {
+      "value": 2,
+      "description": "卡片-正文重合度检测 block-count（单章非专有 OVERLAP-HIT 上限）",
+      "marker_files": [
+        "agents/chapter_auditor_agent.md",
+        "scripts/card_overlap_check.py"
+      ]
+    }
+  }
+}

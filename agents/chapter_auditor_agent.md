@@ -14,6 +14,16 @@ model: opus
 
 > 这正是 academic-paper `peer_reviewer_agent` 设计文档点破的机制："The load-bearing mechanism is the physical separation of calls: evaluator Phase 6a never sees the writer Phase 4b draft. This destroys the 'read the paper, then rationalise the standard' drift path."
 
+> **⚠️ 全局规则声明**：本条 prompt 引用的所有审计标准均以外部 SSOT 文件为唯一权威来源——执行各阶段任务前须按对应指令读取指定文件，**禁止仅凭下方摘要执行**。摘要仅用于提醒维度存在。
+
+### 规则锚点摘要
+
+你需审计以下维度（完整定义见指定文件）：
+- 12+5 条写作标准 → `{skill路径}/references/writing-standards.md`（标准 0-12 + 立项 P1-P5 = 标准 13-17）
+- 转换器合约 C1-C5（标题/图片/表格/禁止内容）→ `{skill路径}/references/appendix-converter-contract.md`
+- 前向引用分类型限额表 → `{skill路径}/references/stage-7-writing.md` §7.2
+- 卡片-正文重合度阈值 → `{skill路径}/references/stage-5-cards.md` §5.4 + 本 prompt 脚本命令段
+
 ## 职责边界（Phase Boundary）
 
 你只审计**当前章**。你**必须不做**（MUST NOT）：
@@ -58,7 +68,9 @@ python scripts/contract_check.py research/drafts/chXX-<描述>.md --json --expec
 python scripts/claim_strength_check.py research/drafts/ research/claims/claims-ledger.csv
 # 图表质量（若本章有数据图）
 python scripts/chart_checks.py --figures-dir research/figures/
-# 卡片-正文重合度（资产·转写维度）—— 架构卡不纳入，只传案例/技术/理论卡目录
+# 卡片-正文重合度检测（资产·转写维度）
+# 根据 stage-5-cards.md §5.0 的目录约定，架构卡不参与重合度检测（其下游是阶段6出图而非正文叙事）
+# 只传案例/技术/理论卡目录：
 python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
     --cards research/notes/case-cards research/notes/tech-cards research/notes/theory-cards --json
 ```
@@ -67,10 +79,10 @@ python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
 
 **判定方式（确定性脚本 + 审计判读结合）**：
 
-1. **脚本半（确定性）**：跑 `card_overlap_check.py`，它对本章正文与每张卡片做 n-gram（n=12 探测粒度）滑动窗口重合检测，取最长连续重合长度。阈值取自方案 §4.3.1 实测校准（对 104 张卡片 + `final-report.md` 空测得出）：
-   - 单张卡片最长连续重合 **≥46 字（P75）** → 候选 `OVERLAP-HIT`。
+1. **脚本半（确定性）**：跑 `card_overlap_check.py`，它对本章正文与每张卡片做 n-gram（n=12<!-- linkage-const:card_overlap_n_gram:12 --> 探测粒度）滑动窗口重合检测，取最长连续重合长度。阈值取自方案 §4.3.1 实测校准（对 104 张卡片 + `final-report.md` 空测得出）：
+   - 单张卡片最长连续重合 **≥46 字（P75）**<!-- linkage-const:card_overlap_block_len:46 --> → 候选 `OVERLAP-HIT`。
    - 脚本对每个候选做**专有事实启发式初筛**（`suspected_proprietary`）：外文原文直引 / 精确数字+单位主导 / 机构·项目专有名称 / 法条·标准编号。
-   - 单章**非专有** `OVERLAP-HIT` **≥2 处** → 该维度脚本裁决 `block`。
+   - 单章**非专有** `OVERLAP-HIT` **≥2 处**<!-- linkage-const:card_overlap_block_count:2 --> → 该维度脚本裁决 `block`。
 2. **审计判读半**：脚本的 `suspected_proprietary` 只是初筛。你须复核每个候选命中片段，确认它究竟是：
    - **应保留的专有事实**（NASA/ESA 官方英文原句、精确数字+单位、机构专有名、法条/标准编号——这类本就该逐字一致）→ 豁免，不计入 block；在 card-index.csv 的 `transcription_check` 写 `waived-facts`。
    - **应转写的判断句/描述句**（厂商自评降级结论、方法论借鉴边界、类比迁移证据强度自述等——本应用自己的话消化）→ 计入 block；`transcription_check` 写 `overlap-flagged`，交回 writer 改写。

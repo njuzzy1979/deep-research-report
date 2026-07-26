@@ -231,9 +231,9 @@ def main():
     ap = argparse.ArgumentParser(description="卡片-正文重合度检测（P0-6）")
     ap.add_argument("--report", required=True, help="本章草稿或合并终稿 md")
     ap.add_argument("--cards", nargs="+", required=True, help="卡片目录（可多个，架构卡不纳入检测）")
-    ap.add_argument("--n", type=int, default=12, help="n-gram 探测粒度（默认 12，方案 §4.3.1）")
-    ap.add_argument("--block-len", type=int, default=46, help="最长重合判罚门槛（默认 46=P75）")
-    ap.add_argument("--block-count", type=int, default=2, help="单章非专有 OVERLAP-HIT block 门槛（默认 2）")
+    ap.add_argument("--n", type=int, default=12, help="n-gram 探测粒度（默认 12，方案 §4.3.1）")  # linkage-const:card_overlap_n_gram:12
+    ap.add_argument("--block-len", type=int, default=46, help="最长重合判罚门槛（默认 46=P75）")  # linkage-const:card_overlap_block_len:46
+    ap.add_argument("--block-count", type=int, default=2, help="单章非专有 OVERLAP-HIT block 门槛（默认 2）")  # linkage-const:card_overlap_block_count:2
     ap.add_argument("--json", action="store_true", help="输出 JSON（供审计 Agent 解析）")
     args = ap.parse_args()
 

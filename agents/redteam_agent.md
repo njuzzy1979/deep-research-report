@@ -57,7 +57,7 @@ model: opus
 | `research/chapter-reports/*`（各章审计报告） | 阶段 7 已判的，红队只复核不重判 |
 | `research/claims/claims-ledger.csv` | 强表述/证据交叉核对 |
 | `research/notes/card-index.csv` | 卡片浪费核查 |
-| `references/red-team-checklist.md` | 六大审查维度详细清单 |
+| `references/red-team-checklist.md` | 八审查维度详细清单 |
 | persona + 维度子集 + scope 约束 | orchestrator 注入的人格指令 |
 
 ## 各人格的视角提问句（制造区分度，防同质化）

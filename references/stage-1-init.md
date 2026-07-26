@@ -93,7 +93,7 @@ B. 素材 + 扩展搜集（综合研究报告，推荐）
 
 ## 1.2 建立工作目录与工具路径配置
 
-在项目根目录创建 `research/` 目录骨架：
+在项目根目录创建 `research/` 目录骨架。目录名约定以 `references/stage-5-cards.md` §5.0 为唯一权威来源，如需改名只改该处和此处，不可在各 Agent prompt 中单独修改。
 
 ```text
 research/
