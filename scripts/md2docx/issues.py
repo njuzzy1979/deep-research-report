@@ -144,6 +144,36 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
         "（第X章 / 一、）以标示正文起点",
         "P-006（07-p3-fixes-design.md §2.4 P006-3 候选 C1）",
     ),
+    "I-HDR-07": IssueCodeInfo(
+        Level.INFO,
+        "结构注入模式已启用（--outline）：N 个 heading 的分类/编号由 outline.md"
+        " 结构清单覆盖，替代基于文本模式匹配的推断",
+        "report-generation-flow-optimization.md §3.5",
+    ),
+    "W-HDR-04": IssueCodeInfo(
+        Level.WARNING,
+        "正文中存在 outline.md 结构清单未声明的 heading（标题文本在结构清单中"
+        "找不到精确匹配），该 heading 保持原推断分类和编号",
+        "report-generation-flow-optimization.md §3.5",
+    ),
+    "W-HDR-05": IssueCodeInfo(
+        Level.WARNING,
+        "outline.md 结构清单中声明的 heading 在正文中缺失（结构清单预期该节"
+        "存在但正文中没有匹配的 heading）",
+        "report-generation-flow-optimization.md §3.5",
+    ),
+    "I-OL-01": IssueCodeInfo(
+        Level.INFO,
+        "outline.md YAML 结构清单解析成功：M 个 frontmatter 标题、N 章、"
+        "P 节、Q 小节、R 个附录",
+        "report-generation-flow-optimization.md §3.5",
+    ),
+    "W-OL-01": IssueCodeInfo(
+        Level.WARNING,
+        "outline.md 文件存在但 YAML 解析失败或无 structure 节点，已回退到"
+        "当前 heading 推断模式，不对结构做额外覆盖",
+        "report-generation-flow-optimization.md §8",
+    ),
     "E-YML-01": IssueCodeInfo(
         Level.ERROR,
         "配置文件包含 metadata_defaults/behavior/report 三块之外的顶层键、块内白名单外"

@@ -50,6 +50,7 @@ class RunOptions:
     header_short: str | None
     build_date: str | None
     cover_path: str | None
+    outline_path: str | None
 
     verbose: bool
     quiet: bool
@@ -172,6 +173,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="封面 YAML 文件路径（优先级高于正文 frontmatter）；"
         "封面字段 = cover.md YAML > 正文 md YAML > CLI 参数 > 默认值",
     )
+    parser.add_argument(
+        "--outline", dest="outline_path", type=str, default=None,
+        help="outline.md 路径，提供结构 SSOT — 读取其中的 YAML 结构清单"
+        "覆盖 heading 分类/编号推断，用声明式结构替代启发式文本模式匹配",
+    )
 
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument("-v", "--verbose", action="store_true", default=False, help="控制台输出提升到 DEBUG 级")
@@ -225,6 +231,7 @@ def parse_args(argv: list[str] | None = None) -> RunOptions:
         header_short=ns.header_short,
         build_date=ns.build_date,
         cover_path=os.path.abspath(ns.cover_path) if ns.cover_path else None,
+        outline_path=os.path.abspath(ns.outline_path) if ns.outline_path else None,
         verbose=ns.verbose,
         quiet=ns.quiet,
     )

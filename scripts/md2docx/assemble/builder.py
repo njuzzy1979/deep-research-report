@@ -42,8 +42,12 @@ from ..textstage.tokens import (
 
 from .breaks import plan_breaks_and_sections
 from .figures import resolve_figures
-from .headings import classify_and_number
+from .headings import apply_structure_overlay, classify_and_number
 from .metadata import METADATA_WHITELIST_KEYS, extract_metadata
+from .outline_reader import (
+    build_structure_manifest,
+    extract_yaml_front_matter,
+)
 from .tables import resolve_tables
 
 
@@ -116,6 +120,7 @@ def build(
     options,  # RunOptions（含 input_path/output_path/metadata_cli_overrides 等）
     flags,  # BehaviorFlags
     issues: IssueCollector,
+    outline_path: str | None = None,
 ) -> DocumentIR:
     """IR 构建总控：编排全部 assemble 子模块，产出 DocumentIR。
 
@@ -124,6 +129,9 @@ def build(
         options: RunOptions 实例（含 input_path 等）。
         flags: BehaviorFlags 实例。
         issues: IssueCollector 实例。
+        outline_path: outline.md 路径（可选）。传入时启用结构注入模式——
+            从 outline.md YAML front matter 中读取结构清单，覆盖 heading
+            的分类和编号推断。
 
     Returns:
         完整的 DocumentIR 实例。
@@ -153,6 +161,62 @@ def build(
     # ==================================================================
     heading_tokens = [t for t in tokens if isinstance(t, HeadingToken)]
     heading_irs = classify_and_number(heading_tokens, issues)
+
+    # ==================================================================
+    # 步骤2a（Phase 7a）：结构注入 —— 若提供 --outline，用 outline.md
+    #                  YAML 结构清单覆盖推断的 heading 分类与编号
+    # ==================================================================
+    if outline_path:
+        try:
+            with open(outline_path, "r", encoding="utf-8") as f:
+                outline_text = f.read()
+        except (OSError, IOError):
+            issues.append(
+                Issue(
+                    level=Level.WARNING,
+                    code="W-OL-01",
+                    stage="assemble",
+                    message=f"outline.md 文件无法读取：{outline_path}，"
+                    f"已回退到推断模式",
+                )
+            )
+            outline_text = None
+
+        if outline_text:
+            parsed, _body = extract_yaml_front_matter(outline_text)
+            if parsed and "structure" in parsed:
+                structure = parsed["structure"]
+                manifest = build_structure_manifest(structure)
+                issues.append(
+                    Issue(
+                        level=Level.INFO,
+                        code="I-OL-01",
+                        stage="assemble",
+                        message=(
+                            f"outline.md YAML 结构清单解析成功："
+                            f"struct_template={parsed.get('struct_template', '—')}，"
+                            f"frontmatter={manifest['frontmatter_count']}，"
+                            f"chapters={manifest['chapter_count']}，"
+                            f"sections={manifest['section_count']}，"
+                            f"subsections={manifest['subsection_count']}，"
+                            f"appendices={manifest['appendix_count']}"
+                        ),
+                    )
+                )
+                heading_irs = apply_structure_overlay(
+                    heading_irs, structure, issues
+                )
+            else:
+                issues.append(
+                    Issue(
+                        level=Level.WARNING,
+                        code="W-OL-01",
+                        stage="assemble",
+                        message=f"outline.md 存在但 YAML 解析失败或"
+                        f"无 structure 节点，已回退到推断模式："
+                        f"{outline_path}",
+                    )
+                )
 
     # 构建 heading 索引供步骤6 使用
     heading_index = _build_heading_index(heading_irs)

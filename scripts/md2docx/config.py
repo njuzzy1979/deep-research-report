@@ -407,7 +407,7 @@ class BehaviorFlags:
     strict: bool = False
     allow_missing_figures: bool = False
     appendix_page_break: bool = True
-    caption_field_mode: str = "text"  # "text" | "field"
+    caption_field_mode: str = "field"  # "field"——SEQ 域自动编号
     dump_intermediate: bool = False
     figures_dir: str = ""
     figure_max_width_cm: float = FIGURE_MAX_WIDTH_CM_DEFAULT
@@ -452,7 +452,7 @@ BEHAVIOR_BOOL_FIELDS = frozenset(
     }
 )
 BEHAVIOR_ENUM_FIELDS: dict[str, tuple[str, ...]] = {
-    "caption_field_mode": ("text", "field"),
+    "caption_field_mode": ("text", "field"),  # "field" 为默认；"text" 已废弃——仍接受但不改变行为
     "generate_figures_table_toc": ("auto", "always", "never"),
     "body_alignment": ("justify", "left"),
 }

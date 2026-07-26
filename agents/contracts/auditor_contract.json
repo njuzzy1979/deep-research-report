@@ -21,6 +21,8 @@
     {"group": "结构", "id": "conclusion_para", "method": "本章结论段 3-5 句", "severity": "mid"},
     {"group": "结构", "id": "contribution_limitation", "method": "对主论点贡献含 ≥1 句局限", "severity": "mid"},
     {"group": "结构", "id": "numbered_list_audit", "method": "编号列表仅用于机制/流程", "severity": "low"},
+    {"group": "结构", "id": "structural_consistency", "method": "对比本章标题树与 outline.md 结构清单：标题文本变更→WARN；新增不在结构清单中的节→block；缺失声明应有节→block。标题文本以正文为准，结构清单提供分类和编号。", "severity": "mid",
+     "what_triggers_block_hint": "存在不在 outline.md 结构清单中的 H3/H4 标题，或结构清单声明应有的节在正文中缺失"},
     {"group": "资产", "id": "figure_reference", "method": "图表在正文引用，图在文前", "severity": "mid"},
     {"group": "资产", "id": "card_backfill", "method": "核对 card-index.csv used_in_chapter 回填", "severity": "low"},
     {"group": "资产·转写", "id": "card_overlap", "method": "card_overlap_check.py：卡片字段-正文最长连续重合 ≥46字(P75)且非专有事实 → OVERLAP-HIT；单章非专有 OVERLAP-HIT ≥2处 → block。专有事实(外文原文直引/精确数字+单位/机构名/法条标准编号)豁免。n=12仅为探测粒度非判罚阈值。阈值源自方案§4.3.1对104张卡片+final-report.md的实测校准", "severity": "mid",

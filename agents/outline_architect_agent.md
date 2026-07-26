@@ -31,7 +31,7 @@ model: opus
 | `research/claims/claims-ledger.csv`（台账） | 关键素材来源 |
 | `research/sources/source-index.csv`（来源索引） | 证据源标注 |
 
-## 输出——落盘 `research/outline.md`（格式见 stage-4-outline.md §4.1.x）
+## 输出——落盘 `research/outline.md`（格式见 stage-4-outline.md §4.1.x + §4.1.y）
 
 严格按 stage-4-outline.md §4.1.x 定义的落盘格式产出，**每节必含五要素**：
 
@@ -40,6 +40,8 @@ model: opus
 - **关键素材**（来源/卡片 ID 列表，如 S001/CASE-02/ARCH-03）
 - **图表规划**（核心架构图给图号图名；数据图表只写方向）
 - **篇幅预算**（页数 + **字数换算"约 Z×800 字"**——这是阶段 7 QS1 字数门禁的比对基准）
+
+**outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。两者标题文本须**精确一致**。
 
 首行标注 `struct_template=<research|proposal|policy|tech-eval|brief>`，供下游角色识别档位与立项模块。
 

@@ -52,7 +52,7 @@ model: opus
 | 证据 | 证据密度（抽 3 段均可溯源）；C/D 级来源限定词；无空泛来源 | 逐段核 + claims-ledger.csv 交叉 |
 | 引用 | 上标编号 [N] 与参考文献列表一一对应；格式为 GB/T 7714-2015；无 [A]/[B]/[C]/[D] 分级前缀残留；无 claim_id 泄露 | 逐 [N] 核 + 调 `contract_check.py --check-references` |
 | 表述 | 强表述（首次/最大/完全/秒级）有无 A/B 证据；逻辑词（因此/显然/必然） | 调 `scripts/claim_strength_check.py` |
-| 结构 | 本章结论段(3-5句)；对主论点贡献含 ≥1 句局限；编号列表审计 | 结构核对 |
+| 结构 | 本章结论段(3-5句)；对主论点贡献含 ≥1 句局限；编号列表审计；对比本章标题树与 outline.md 结构清单的一致性（标题文本变更→WARN，新增节→block，缺失节→block） | 结构核对 + outline.md YAML 结构清单对比 |
 | 资产 | 图表在正文引用(图在文前)；卡片 used_in_chapter 回填 | 核对 card-index.csv |
 | 资产·转写 | 卡片是否被消化转写而非誊抄（卡片字段值与正文的最长连续重合） | 调 `scripts/card_overlap_check.py` 真跑 + 专有事实豁免判读 |
 | 合约 | C1 无H1 / C2 H2无手动编号 / C3 图片标准语法 / C4 表格加粗题注 / C5 无禁止内容(含密级) | 调 `contract_check.py` |

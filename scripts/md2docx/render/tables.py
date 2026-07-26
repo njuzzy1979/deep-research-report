@@ -289,6 +289,7 @@ def render_table(
             )
             add_run_segments(caption_para, f" {table_ir.caption_text}")
         else:
+            # "text" 模式已废弃（2026-07-26）：兜底路径
             full_caption = f"表{table_ir.table_id} {table_ir.caption_text}"
             add_run_segments(caption_para, full_caption)
 

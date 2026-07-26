@@ -76,7 +76,8 @@ python -m md2docx \
   output/报告题名_v1.0.docx \
   --title "报告题名" \
   --figures-dir research/figures \
-  --cover research/cover.md
+  --cover research/cover.md \
+  --outline research/outline.md
 ```
 
 **脚本自动完成的全部处理**（截至本文档更新时，`textstage/clean.py` 规则表已实现至 R-14，含兜底规则 R-12/R-13/R-14）：

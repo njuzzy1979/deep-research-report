@@ -293,6 +293,9 @@ def render_figure(
         )
         oxml_helpers.add_run_segments(caption_p, f" {figure.caption_text}")
     else:
+        # "text" 模式已废弃（2026-07-26）：兜底路径——使用 figure.figure_id
+        # 拼接静态文本。caption_field_mode 默认值为 "field"（config.py），
+        # 此分支仅在显式传入 --caption-field-mode text 时执行。
         caption_text = f"图{figure.figure_id} {figure.caption_text}"
         oxml_helpers.add_run_segments(caption_p, caption_text)
 
@@ -417,11 +420,11 @@ if __name__ == "__main__":
         any(i.code == "E-IMG-01" for i in collector),
     )
 
-    # 验证：题注段落包含图号
+    # 验证：题注段落包含图号和题注文本（field 模式：图{SEQ} 测试图题）
     caption_found = any(
-        "图1-1 测试图题" in p.text for p in doc.paragraphs
+        "测试图题" in p.text for p in doc.paragraphs
     )
-    _check("题注段落包含 '图1-1 测试图题'", caption_found)
+    _check("题注段落包含 '测试图题'", caption_found)
 
     # ---- 3. --allow-missing-figures 降级 ----
     doc2 = Document()

@@ -30,10 +30,10 @@ model: haiku
 ## 合并纪律（stage-9-finalize.md §9.1.x）
 
 1. **合并前 grep 检测分章 H1 冲突**（v3 修改 4.6.1）：任一分章含 H1 → 合并前替换为 H2。
-2. 按顺序 `cat` 分章文件（转换器自动编号），不 PowerShell 手动拼接。
+2. **结构驱动的合并清单**：读取 `research/outline.md` 的 YAML front matter（`structure` 节点），按 `bodymatter` 中的章序生成合并清单——为每章插入 H2 章容器（`## 第 X 章：<title>`），按 `sections` 列表依次拼接对应分章文件。分章文件命名约定：`ch<chapter_no>-<section_no>-<描述>.md`。
 3. **合约终检**：`python scripts/contract_check.py research/drafts/final-report.md --merged`——`--merged` 允许恰好 1 个 H1；C1-C5 全过才进转换。
 4. **参考文献去重与编号统一**：扫描各分章文件的参考文献列表，识别同一来源以不同临时编号出现的条目→合并为同一编号；为全报告参考文献统一重新编号（按首次出现顺序），更新正文中所有引用编号为统一编号；确认文末参考文献列表中无 `[A]`/`[B]`/`[C]`/`[D]` 信源分级前缀残留
-5. 调用 md→docx 转换器（`python -m md2docx ... --cover research/cover.md`）
+5. 调用 md→docx 转换器（`python -m md2docx ... --cover research/cover.md --outline research/outline.md`）。`--outline` 参数传入 outline.md，转换器将使用其中的 YAML 结构清单覆盖 heading 分类和编号推断。
 6. 核对 V3.2 规范 §10.3 的 12 项交付清单（含**无密级标注** + 参考文献格式 GB/T 7714-2015 且无分级前缀）
 
 ## 交接与失败路径

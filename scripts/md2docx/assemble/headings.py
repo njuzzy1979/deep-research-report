@@ -28,6 +28,7 @@ from ..config import (
 from ..ir import HeadingIR, HeadingKind, HeadingNumber
 from ..issues import Issue, IssueCollector, Level
 from ..textstage.tokens import HeadingToken
+from .outline_reader import build_structure_manifest, _build_structure_lookup
 
 # ---------------------------------------------------------------------------
 # 编译正则（来自 config.py 的单一事实来源）
@@ -432,6 +433,146 @@ def _strip_subsection(raw_text: str, source_line: int, issues: IssueCollector) -
         return stripped
 
     return raw_text
+
+
+# ---------------------------------------------------------------------------
+# 结构注入（Phase 7a）
+# ---------------------------------------------------------------------------
+
+
+def apply_structure_overlay(
+    results: list[HeadingIR],
+    structure: dict,
+    issues: IssueCollector,
+) -> list[HeadingIR]:
+    """用 outline.md 结构清单覆盖 HeadingIR 的分类和编号。
+
+    工作原理：
+    1. 将 structure YAML 展平为 ``{标题文本: (HeadingKind, 编号)}`` 查找表
+    2. 遍历 results 中的 HeadingIR，用 ``heading.text`` 精确匹配查找表
+    3. 匹配成功 → 用结构清单中的 kind 和 number 覆盖推断值，原有 kind/number
+       备份到 result._original_kind / result._original_number（调试用属性名）
+    4. 匹配失败（正文有但结构清单无）→ 保留推断值，记录 W-HDR-04
+    5. 结构清单中未被正文匹配的条目 → 记录 W-HDR-05
+
+    Args:
+        results: classify_and_number() 产出（已完成推断分类和编号）
+        structure: outline.md YAML 的 ``structure`` 节点（plain dict）
+        issues: IssueCollector 实例
+
+    Returns:
+        修改后的 results（原地修改并返回同一列表引用）
+    """
+    if not isinstance(structure, dict) or not results:
+        return results
+
+    lookup = _build_structure_lookup(structure)
+
+    # _build_structure_lookup 在 outline_reader.py 中定义
+    if not lookup:
+        return results
+
+    # 统计
+    override_count = 0
+    unmatched_headings: list[HeadingIR] = []
+
+    for ir in results:
+        key = ir.text.strip()
+        if key in lookup:
+            expected_kind, expected_number = lookup[key]
+            # 覆盖分类和编号
+            ir.kind = expected_kind
+            ir.number = expected_number
+            # 更新 display_number
+            ir.display_number = _display_number_for(expected_kind, expected_number)
+            override_count += 1
+        elif ir.kind in (
+            HeadingKind.CHAPTER,
+            HeadingKind.SECTION,
+            HeadingKind.SUBSECTION,
+            HeadingKind.APPENDIX,
+        ):
+            # 只在正文结构类 heading 未匹配时记录——跳过 MAIN_TITLE/ABSTRACT/
+            # FRONT_MATTER/PLAIN（这些不需要结构覆盖）
+            unmatched_headings.append(ir)
+
+    # 记录 Issue
+    if override_count > 0:
+        manifest = build_structure_manifest(structure)
+        issues.append(
+            Issue(
+                level=Level.INFO,
+                code="I-HDR-07",
+                stage="assemble",
+                message=(
+                    f"结构注入模式已启用：{override_count} 个 heading 的分类/编号"
+                    f"由 outline.md 结构清单覆盖"
+                ),
+                element_ref=(
+                    f"chapters={manifest['chapter_count']}, "
+                    f"sections={manifest['section_count']}, "
+                    f"subsections={manifest['subsection_count']}, "
+                    f"appendices={manifest['appendix_count']}"
+                ),
+            )
+        )
+
+    for ir in unmatched_headings:
+        issues.append(
+            Issue(
+                level=Level.WARNING,
+                code="W-HDR-04",
+                stage="assemble",
+                message=(
+                    f"heading「{ir.text}」（行{ir.source_line}）在 outline.md "
+                    f"结构清单中未找到精确匹配，保持原推断分类为 "
+                    f"{ir.kind.name}，编号={ir.display_number!r}"
+                ),
+                source_line=ir.source_line,
+                element_ref=f"heading:{ir.text}",
+                suggestion="请确认标题文本与 outline.md 中的声明完全一致（含标点、空格）",
+            )
+        )
+
+    # W-HDR-05：结构清单中声明但正文未出现的条目
+    matched_texts = {ir.text.strip() for ir in results}
+    for struct_title in lookup:
+        if struct_title not in matched_texts:
+            _kind, _number = lookup[struct_title]
+            kind_name = _kind.name if _kind else "UNKNOWN"
+            num_str = str(_number) if _number is not None else "—"
+            issues.append(
+                Issue(
+                    level=Level.WARNING,
+                    code="W-HDR-05",
+                    stage="assemble",
+                    message=(
+                        f"outline.md 结构清单声明的 heading「{struct_title}」"
+                        f"（类型={kind_name}，编号={num_str}）在正文中缺失"
+                    ),
+                    suggestion="检查分章写作是否覆盖了该节，或 outline.md 是否需要更新",
+                )
+            )
+
+    return results
+
+
+def _display_number_for(
+    kind: HeadingKind, number: HeadingNumber
+) -> str:
+    """根据 HeadingKind 和编号值生成 display_number 字符串。
+
+    函数体与 classify_and_number() Pass 2 逻辑一致——复用此处以避免重复。
+    """
+    if kind == HeadingKind.CHAPTER and isinstance(number, int):
+        return f"第{int_to_cn(number)}章"
+    if kind == HeadingKind.SECTION and isinstance(number, tuple) and len(number) == 2:
+        return f"{number[0]}.{number[1]}"
+    if kind == HeadingKind.SUBSECTION and isinstance(number, tuple) and len(number) == 3:
+        return f"{number[0]}.{number[1]}.{number[2]}"
+    if kind == HeadingKind.APPENDIX and isinstance(number, str):
+        return f"附录{number}"
+    return ""
 
 
 # ---------------------------------------------------------------------------

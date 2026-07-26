@@ -153,7 +153,7 @@ def _stage3_assemble(tokens, options: RunOptions, flags: BehaviorFlags, issues: 
         module = importlib.import_module(".assemble.builder", package=__package__)
     except ImportError as exc:
         raise _StageNotReady("3-IR构建", exc) from exc
-    return module.build(tokens, options, flags, issues)
+    return module.build(tokens, options, flags, issues, outline_path=options.outline_path)
 
 
 def _stage4_validate(document_ir, issues: IssueCollector):

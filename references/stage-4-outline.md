@@ -69,6 +69,50 @@
 
 **字数换算规则**：每处"篇幅预算：约 Z 页"必须同时给出字数换算"约 Z×800 字"（中文正文按每页约 800 字估算）。这是阶段 7 量化门禁 QS1（字数 vs 预算）的比对基准——审计 Agent 会用 `contract_check.py` 数出实际字数，与此换算值对比，偏差 > 30% 触发说明或 REVISE。
 
+### 4.1.y 机器可读结构清单——YAML front matter
+
+outline.md 在 Markdown 正文（人类可读大纲）之前须包含 **YAML front matter**，声明机器可读的结构清单。此清单供阶段 9 转换器的 `--outline` 参数和 `finalizer_agent` 的结构驱动合并流程消费，用于**覆盖**转换器基于 Markdown heading 文本模式匹配的启发式结构推断。
+
+```yaml
+---
+struct_template: research
+title: "报告题名"
+structure:
+  frontmatter:
+    - chapter_title: "前言/导论"
+      sections:
+        - "问题提出与研究背景"
+        - "概念界定与研究边界"
+  bodymatter:
+    - chapter_no: 1
+      chapter_title: "第一章完整标题"
+      sections:
+        - "X.1 节标题"
+        - "X.2 节标题"
+      subsections:
+        - parent: "X.1 节标题"
+          title: "X.1.1 小节标题"
+    - chapter_no: 2
+      chapter_title: "第二章完整标题"
+      sections:
+        - "X.1 节标题"
+  appendix:
+    - appendix_letter: "A"
+      appendix_title: "附录A标题"
+---
+```
+
+**字段语义**：
+- `frontmatter`：前置件区。H1（MAIN_TITLE）后的 H2/H3 归入此区，**不编号**
+- `bodymatter`：正文区。每个元素是一个完整章，`chapter_no` 为章序号，`sections` 按文档序排列，`subsections` 通过 `parent` 字段关联所属节
+- `appendix`：附录区。`appendix_letter` 为字母标识（A/B/C…），顺序即为文档序
+- 所有标题文本须与 Markdown 正文中实际出现的 heading 文本**精确一致**（含标点、空格）
+
+**下游消费者**：
+- `--outline` 参数传入的转换器：`assemble/headings.py::apply_structure_overlay()` 用于覆盖推断的 heading 分类与编号
+- `finalizer_agent`（阶段 9）：读取结构清单生成合并清单，按章插入 H2 章容器
+- `chapter_auditor_agent`（阶段 7）：结构一致性审计维度的比对基准
+
 > **阶段 7 每节写作前，必须读取 `research/outline.md` 中对应该节的条目。此为硬性要求**——不读大纲就开始写作，等于承认"本 skill 的流程设计是摆设"。在多 Agent 档下，这条硬约束由输入注入机制物理保证（`chapter_writer_agent` 的输入契约里只有当前章条目，拿不到凭记忆写作的机会）。
 
 ## 4.2 报告结构模板——必选骨架 + 可选模块池
