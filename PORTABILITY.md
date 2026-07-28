@@ -12,7 +12,7 @@
 |------|------|
 | **core** | 与具体 LLM 厂商无关的方法论/流程/契约/脚本。任何支持 Agent Skills 标准（读取 Markdown 指令 + 调用工具）的运行时都可以执行。不依赖 `Agent` 工具委派、不依赖 Claude 专有 MCP。 |
 | **claude-enhanced** | 在 Claude 下有增强表现（多 Agent 协同、异构模型防同质化等），但**并非硬依赖**——降级路径明确，非 Claude 宿主可退化执行（通常回退为单 Agent 直接完成同一职责，质量打折但不中断流程）。 |
-| **claude-only** | 依赖 Claude 特有能力（`Agent` 工具 depth-1 委派、drawio MCP 等），非 Claude 宿主上**该能力本身不可用**，只能整体降级为其他档位的等价流程，没有"打折但仍在同一形态下运行"的中间态。 |
+| **claude-only** | 依赖 Claude 特有能力（`Agent` 工具 depth-1 委派等），非 Claude 宿主上**该能力本身不可用**，只能整体降级为其他档位的等价流程，没有"打折但仍在同一形态下运行"的中间态。 |
 
 > **重要说明——"文件"与"文件里的方法论"是两个不同的判断对象**：`agents/*.md` 每个文件本身是"一段被 `Agent` 工具调度执行的 prompt"，这件事的**调度方式**在非 Claude 单 Agent 宿主上必然不同（不能再用 `Agent` 工具分派）。但 prompt **内容**里描述的方法论、检查清单、维度定义绝大多数是模型无关的。本文件的 `portability` 标注遵循以下裁决原则：
 > - 若文件内容的**核心价值**在于"作为独立 Agent 被调度"这件事本身（如红队 4 人格异构并行、写审对抗 pipeline 的物理隔离机制）→ 标 `claude-only` 或 `claude-enhanced`。
@@ -27,7 +27,7 @@
 | 全部 `scripts/*.py`（含新增）、`md2docx` 转换器 | **core** |
 | 契约 JSON / 机读 schema / 填空骨架 / 红线集 / 信封契约 | **core** |
 | `Agent` 工具 depth-1 委派、写审对抗 pipeline、红队 4 人格并行 | **claude-only** |
-| drawio MCP 出图 | **claude-only**（降级 Mermaid） |
+| drawio MCP 出图 | **core**（DeepSeek V4 级模型经端到端实测可用；仅无 MCP 宿主降级 Mermaid） |
 | 三档模式中的"完整/分层"档 | **claude-only** |
 | 单 Agent 极速档 | **core** |
 
@@ -43,7 +43,7 @@
 | `chapter_writer_agent.md` | core | 已有标注（第 6-8 批已定），写作四铁律/标准 0-22 是方法论核心 |
 | `chapter_auditor_agent.md` | core | 已有标注，量化维度调脚本、审计矩阵是方法论 + 脚本组合，模型无关 |
 | `redteam_synthesizer_agent.md` | core | 合并去重/严重度取最高/统一编号是纯结构化整合规则，单 Agent 档下可由 orchestrator 直接执行 |
-| `architecture_chart_agent.md` | claude-enhanced | 核心方法论（图表规划、色板约束）是 core，但默认工具链含 drawio MCP（claude-only，降级 Mermaid）；标 `claude-enhanced` 提示"多数内容可移植，唯独首选工具链有 Claude 专有依赖" |
+| `architecture_chart_agent.md` | core | 核心方法论（图表规划、色板约束、质量门禁）是通用方法论。drawio MCP 经 DeepSeek V4 Pro 2026-07-29 端到端实测可用（Mermaid flowchart/C4Context/手写XML+ELK/libavoid/search_shapes 四层测试全部零错误通过），已从 claude-enhanced 提升为 core。仅无 MCP 能力的宿主需降级 Mermaid |
 | `redteam_agent.md` | claude-enhanced | 4 人格异构模型（2×Opus+2×Sonnet）防同质化是 Claude 多模型调用能力的增强效果；tier B/C 下按 D2 改造退化为同模型+人格 prompt 差异化+顺序轮换，仍可运行但效力下降（非硬失效），故标 `claude-enhanced` 而非 `claude-only` |
 | `finalizer_agent.md` | （由并行 D5/D6 任务标注，本批不改） | 属于另一并行任务范围，避免冲突未触碰 |
 
@@ -71,11 +71,10 @@
 
 ## 5. 诚实结论——非 Claude 宿主上会退化成什么
 
-**非 Claude 宿主上，本 skill 退化为「单 Agent 极速档 + 全套确定性脚本」**：
+**非 Claude 宿主上，本 skill 退化为「单 Agent 极速档 + 全套确定性脚本 + drawio MCP（DeepSeek V4 级模型已实测可用）」**：
 
 - 不再有 `chapter_writer_agent` + `chapter_auditor_agent` 的物理隔离写审对抗（R3 死结的解无法复现——单一模型自评自查，"看了稿再放宽标准"的风险重新出现，只是被脚本层的量化检查部分对冲）。
 - 不再有红队 4 人格异构模型并行（tier B/C 下按 D2 改造退化为同模型 + 人格 prompt 差异化 + 审查顺序轮换，同质化盲点风险部分回归）。
-- drawio MCP 出图不可用，降级为 Mermaid（复杂架构图的表现力打折）。
 - 三档协同模式收窄为只剩"单 Agent 极速"一档可用（完整/分层多 Agent 档要求的 `Agent` 工具委派不可用）。
 
 **但这不等于"退回到什么都没有"**：本方案把大量原本依赖审计 Agent 语义判断的检查**下沉到脚本层**（`contract_check.py`/`claim_strength_check.py`/`card_overlap_check.py`/`term_consistency_check.py`/`figure_gate.py` 等），这些脚本是纯 Python 确定性工具，与调用它们的模型无关。因此：

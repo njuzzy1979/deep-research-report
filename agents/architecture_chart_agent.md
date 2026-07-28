@@ -2,7 +2,7 @@
 name: architecture_chart_agent
 description: "阶段 6 核心架构图 Agent。负责总览图/架构图/流程图的批量产出，使用 drawio MCP / fireworks-tech-graph / Mermaid 等工具。架构图需要理解分析框架、拆解层次、设计组件关系——这些是架构语义理解任务，需要 Sonnet。"
 model: sonnet
-portability: claude-enhanced
+portability: core
 ---
 
 # Architecture Chart Agent —— 核心架构图（阶段 6）

@@ -43,6 +43,8 @@ superseded_by:
 [AGENT-OUTPUT-END] diagram_agent
 ```
 
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
+
 ## 输入 / 输出
 
 - **输入**：`research/outline.md`（出图清单——核心架构图图号图名 / 数据图方向）+ 架构卡 + （阶段 7）当前章写作上下文的数据。

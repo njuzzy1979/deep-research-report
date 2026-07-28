@@ -1,11 +1,11 @@
 {
   "$schema_note": "机读版可移植性边界声明清单，人读版见 PORTABILITY.md，两者手工保持同步。",
-  "version": "1.0",
-  "generated_for_batch": "第9批-A（D3+D4+D2）",
+  "version": "1.1",
+  "generated_for_batch": "第9批-A（D3+D4+D2）→ DeepSeek V4 Pro drawio MCP 实测后修订（2026-07-29）：architecture_chart_agent 从 claude-enhanced 提升为 core",
   "portability_levels": {
     "core": "与具体 LLM 厂商无关的方法论/流程/契约/脚本，任何支持 Agent Skills 标准的运行时均可执行",
     "claude-enhanced": "Claude 下有增强表现但非硬依赖，降级路径明确，非 Claude 宿主可退化执行（打折不中断）",
-    "claude-only": "依赖 Claude 特有能力（Agent 工具 depth-1 委派、drawio MCP 等），非 Claude 宿主上该能力本身不可用，只能整体降级为其他档位"
+    "claude-only": "依赖 Claude 特有能力（Agent 工具 depth-1 委派等），非 Claude 宿主上该能力本身不可用，只能整体降级为其他档位"
   },
   "agents": {
     "report_orchestrator": {
@@ -17,8 +17,8 @@
     "outline_architect_agent.md": { "portability": "core" },
     "card_synthesizer_agent.md": { "portability": "core" },
     "architecture_chart_agent.md": {
-      "portability": "claude-enhanced",
-      "note": "核心方法论 core，默认工具链含 drawio MCP（claude-only，降级 Mermaid）"
+      "portability": "core",
+      "note": "核心方法论 core（图表规划、色板约束、质量门禁）。drawio MCP 经 DeepSeek V4 Pro 2026-07-29 端到端实测可用（Mermaid flowchart/C4Context/手写XML+ELK/libavoid/search_shapes全部通过），已从 claude-enhanced 提升为 core。仅非 MCP 宿主上需降级 Mermaid"
     },
     "data_chart_agent.md": { "portability": "core" },
     "chapter_writer_agent.md": { "portability": "core" },
@@ -143,11 +143,10 @@
     "note": "触发条件是能力探测（声明式），不是运行时嗅探'是否被作为嵌套子 Agent 拉起'这一调用形式本身"
   },
   "honest_conclusion": {
-    "summary": "非 Claude 宿主上退化为「单 Agent 极速档 + 全套确定性脚本」",
+    "summary": "非 Claude 宿主上退化为「单 Agent 极速档 + 全套确定性脚本 + drawio MCP（DeepSeek V4 级模型已实测可用）」",
     "losses": [
       "chapter_writer_agent + chapter_auditor_agent 的物理隔离写审对抗不可用，R3 死结的解无法复现",
       "红队 4 人格异构模型并行不可用，tier B/C 下退化为同模型+人格 prompt 差异化+顺序轮换，同质化盲点风险部分回归",
-      "drawio MCP 出图不可用，降级 Mermaid，复杂架构图表现力打折",
       "三档协同模式收窄为仅'单 Agent 极速'一档可用"
     ],
     "gains_retained": "大量原本依赖审计 Agent 语义判断的检查已下沉到脚本层（contract_check.py/claim_strength_check.py/card_overlap_check.py/term_consistency_check.py/figure_gate.py 等），这些是纯 Python 确定性工具，与调用它们的模型无关",
