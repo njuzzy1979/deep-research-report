@@ -1,0 +1,96 @@
+{
+  "contract": {
+    "C10_source_tier_prefix": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C11_claim_id_leak": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C1_h1": {
+      "count": 1,
+      "limit": 0,
+      "pass": false,
+      "severity": "high"
+    },
+    "C2_manual_number": {
+      "bold_pseudo_heading_count": 0,
+      "bold_pseudo_heading_hits": [],
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "high"
+    },
+    "C3_image_syntax": {
+      "expect": null,
+      "figure_count": 0,
+      "loose_image_count": 0,
+      "pass": true,
+      "severity": "mid"
+    },
+    "C4_table_caption": {
+      "caption_count": 0,
+      "pass": true,
+      "severity": "mid",
+      "table_block_count": 0
+    },
+    "C5_banned": {
+      "hits": {},
+      "pass": true,
+      "severity": "high"
+    },
+    "C6_reference_format": {
+      "local_bib_hits": [],
+      "pass": true,
+      "pure_num_expected": false,
+      "pure_num_hits": [],
+      "s_variant_hits": [],
+      "severity": "high",
+      "slash_src_hits": []
+    },
+    "C7_src_residue": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C8_word_count_residue": {
+      "hits": {},
+      "pass": true,
+      "severity": "low"
+    },
+    "C9_local_bibliography": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "high"
+    }
+  },
+  "fatal_keys": [],
+  "mode": "chapter",
+  "overall_pass": false,
+  "quant": {
+    "QS1_cjk_chars": 117,
+    "QS1_est_pages": 0.1,
+    "QS2_figures": 0,
+    "QS3_tables": 0,
+    "QS4_paragraphs": {
+      "count": 2,
+      "ideal_range": 0,
+      "longest": 67,
+      "mean": 58.5,
+      "over_600": 0,
+      "p25": 50,
+      "p50": 67,
+      "p75": 67,
+      "p90": 67,
+      "under_150": 2
+    }
+  },
+  "stage": "stage7"
+}

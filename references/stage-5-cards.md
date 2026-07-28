@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 5：专题研究——卡片与证据包
 
 > 本文件是 deep-research-report skill 的阶段 5 详细 spec，从 SKILL.md 拆分而来。

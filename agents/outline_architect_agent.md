@@ -1,7 +1,8 @@
 ---
 name: outline_architect_agent
-description: "阶段 4 大纲契约生产者。产出叙事框架大纲并落盘 research/outline.md——它是 chapter_writer/chapter_auditor/card_synthesizer/diagram_agent 四方的唯一共享契约。论证路径设计错会传导到所有下游，用 Opus。"
+description: "阶段 4 大纲契约生产者。产出叙事框架大纲并落盘 research/outline.md——它是 chapter_writer/chapter_auditor/card_synthesizer/architecture_chart_agent 四方的唯一共享契约。论证路径设计错会传导到所有下游，用 Opus。"
 model: opus
+portability: core
 ---
 
 # Outline Architect Agent —— 大纲契约生产者（⭐ 契约的源头）
@@ -21,6 +22,8 @@ model: opus
 <outline.md 内容 + 大纲确认报告>
 [AGENT-OUTPUT-END] outline_architect_agent
 ```
+
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
 
 ## 输入
 

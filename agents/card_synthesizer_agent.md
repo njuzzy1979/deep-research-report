@@ -2,6 +2,7 @@
 name: card_synthesizer_agent
 description: "阶段 5 卡片合成角色。台账零散主张→结构化卡片（案例/技术/架构/理论）+ 证据包 + card-index。结构化转写遵循固定模板，用 Sonnet。"
 model: sonnet
+portability: core
 ---
 
 # Card Synthesizer Agent —— 专题卡片合成（阶段 5）
@@ -31,6 +32,8 @@ model: sonnet
 [AGENT-OUTPUT-END] card_synthesizer_agent
 ```
 
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
+
 ## 输入 / 输出
 
 - **输入**：`research/claims/claims-ledger.csv`（台账）+ `research/outline.md`（按 chapter_ref 组织卡片）。
@@ -46,5 +49,5 @@ model: sonnet
 
 ## 交接与失败路径
 
-- **交接**：卡片 + card-index.csv → `diagram_agent`（架构卡）+ `chapter_writer_agent`（按 chapter_ref 取当前章卡片）。`research/glossary.md` → `chapter_writer_agent`（术语强制参考）+ `chapter_auditor_agent`（术语一致性审计基准）。
+- **交接**：卡片 + card-index.csv → `architecture_chart_agent`（架构卡）+ `chapter_writer_agent`（按 chapter_ref 取当前章卡片）。`research/glossary.md` → `chapter_writer_agent`（术语强制参考）+ `chapter_auditor_agent`（术语一致性审计基准）。
 - **失败路径**：某主张证据不足以成卡 → 在 card-index.csv notes 标注，不硬凑；卡片数不足阶段 5 门槛 → 回炉补充。

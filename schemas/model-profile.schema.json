@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deep-research-report.local/schemas/model-profile.schema.json",
+  "title": "model-profile.json 能力档声明",
+  "description": "跨模型兼容性优化方案 §C1 定义的模型能力档配置文件 schema。注意：phase_a_mode 由 limits.max_output_tokens 派生（方案 §C4：'phase_a_mode = confirm if max_output_tokens < 16000 else free'），是派生量，**不出现在本 schema 中**。",
+  "x-generated-from": "design/model-compatibility-optimization-plan.md#C1 (manual)",
+  "type": "object",
+  "properties": {
+    "capability_tier": {
+      "type": "string",
+      "enum": [
+        "A",
+        "B",
+        "C"
+      ],
+      "default": "A"
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "agent_delegation": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "agent_delegation"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64000
+        }
+      },
+      "required": [
+        "max_output_tokens"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "hard_rule_budget": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "envelope_nonce": {
+          "type": "boolean",
+          "default": false
+        },
+        "template_fill_mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on"
+          ],
+          "default": "off"
+        }
+      },
+      "required": [
+        "hard_rule_budget",
+        "envelope_nonce",
+        "template_fill_mode"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "capability_tier",
+    "host",
+    "limits",
+    "policy"
+  ],
+  "additionalProperties": false
+}

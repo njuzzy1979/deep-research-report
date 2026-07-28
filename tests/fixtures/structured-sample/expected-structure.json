@@ -1,0 +1,62 @@
+{
+  "_comment": "A1 修复后（outline_reader.py _build_structure_lookup 修正 sub.get('parent')/sub.get('title') 为规范字段名 parent_section_no/subsection_title 后）的期望展平结果。这是 A1 唯一有效的回归证据 fixture：修复前 SUBSECTION 条目数=0，修复后应=5（YAML 中声明的 subsection 总数）。",
+  "source_fixture": "tests/fixtures/structured-sample/structured-report.md",
+  "yaml_declared_totals": {
+    "frontmatter_chapter_count": 1,
+    "frontmatter_section_count": 2,
+    "chapter_count": 2,
+    "section_count": 4,
+    "subsection_count": 5,
+    "appendix_count": 1
+  },
+  "lookup_counts": {
+    "MAIN_TITLE": 0,
+    "ABSTRACT": 0,
+    "FRONT_MATTER": 3,
+    "CHAPTER": 2,
+    "SECTION": 4,
+    "SUBSECTION": 5,
+    "APPENDIX": 1,
+    "PLAIN": 0
+  },
+  "subsections": [
+    {
+      "title": "二维视觉定位方法",
+      "parent_section_no": "1.1",
+      "subsection_no": "1.1.1",
+      "expected_kind": "SUBSECTION"
+    },
+    {
+      "title": "三维视觉定位方法",
+      "parent_section_no": "1.1",
+      "subsection_no": "1.1.2",
+      "expected_kind": "SUBSECTION"
+    },
+    {
+      "title": "汽车制造领域应用",
+      "parent_section_no": "1.2",
+      "subsection_no": "1.2.1",
+      "expected_kind": "SUBSECTION"
+    },
+    {
+      "title": "手眼标定算法改进",
+      "parent_section_no": "2.1",
+      "subsection_no": "2.1.1",
+      "expected_kind": "SUBSECTION"
+    },
+    {
+      "title": "多相机联合标定方法",
+      "parent_section_no": "2.1",
+      "subsection_no": "2.1.2",
+      "expected_kind": "SUBSECTION"
+    }
+  ],
+  "note": "关于 subsection 的编号：方案已决策采用「方案甲」——放弃 outline_reader 取真值编号，接受 headings.py Phase 7b 按文档序重算 H4 编号。因此上方 subsections 列表中的 subsection_no 仅为 YAML 声明值，不是 lookup 层或最终渲染的权威编号。断言重点应放在条目数量（SUBSECTION 总数=5）与分类正确性（每个 subsection 标题在 lookup 中被正确识别为 HeadingKind.SUBSECTION 并入表），不应对 lookup 返回的三元组编号做精确断言。最终 H4 显示编号由 assemble/headings.py 的 Phase 7b（约 :557-591）按文档序重算得出。",
+  "manifest": {
+    "frontmatter_count": 2,
+    "chapter_count": 2,
+    "section_count": 4,
+    "subsection_count": 5,
+    "appendix_count": 1
+  }
+}

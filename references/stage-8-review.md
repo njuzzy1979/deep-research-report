@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 8：红队审查
 
 > 本文件是 deep-research-report skill 的阶段 8 详细 spec，从 SKILL.md 拆分而来。

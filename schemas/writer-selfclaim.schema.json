@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deep-research-report.local/schemas/writer-selfclaim.schema.json",
+  "title": "写作者自声明（6 字段）",
+  "description": "chapter_writer_agent 分章文件末尾自声明块的 JSON 校验形态。对应 references/writer-template.md §6 的 Markdown 元数据块，由 orchestrator 提取信封内容后转为 JSON 落盘校验。",
+  "x-generated-from": "agents/contracts/writer_contract.json#/self_declaration_fields (auto) + references/writer-template.md#六 (字段语义人工核对)",
+  "type": "object",
+  "properties": {
+    "chapter_char_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "本章字数（估），writer-template.md §6 '本章字数（估）：约 N 字'"
+    },
+    "figure_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "图片引用数，writer-template.md §6 '图片引用数：M'"
+    },
+    "table_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "表格数，writer-template.md §6 '表格数：K'"
+    },
+    "cited_card_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "引用的 card_id 列表，writer-template.md §6 '引用的 card_id：CASE-01, TECH-03, ...'"
+    },
+    "backfilled_used_in_chapter": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "已回填 used_in_chapter 的卡片列表"
+    },
+    "material_gap_markers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "素材缺口标记出现位置列表（可为空数组）"
+    }
+  },
+  "required": [
+    "chapter_char_count",
+    "figure_count",
+    "table_count",
+    "cited_card_ids",
+    "backfilled_used_in_chapter",
+    "material_gap_markers"
+  ],
+  "additionalProperties": false
+}

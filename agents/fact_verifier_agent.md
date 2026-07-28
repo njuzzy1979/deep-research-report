@@ -2,6 +2,7 @@
 name: fact_verifier_agent
 description: "阶段 3 事实核验角色（方法论核心）。建核验台账、核验、按状态分流，强表述降级。独立成 Agent 保证核验不被写作动机污染。用 Opus。"
 model: opus
+portability: core
 ---
 
 # Fact Verifier Agent —— 事实核验（阶段 3，方法论核心）
@@ -21,6 +22,8 @@ model: opus
 <claims-ledger.csv 摘要 + 不入正文清单>
 [AGENT-OUTPUT-END] fact_verifier_agent
 ```
+
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
 
 ## 输入 / 输出
 

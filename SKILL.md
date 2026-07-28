@@ -39,7 +39,7 @@ description: >
 
 `report_orchestrator` **不是一个 Agent 定义文件，而是主对话采用的编排剧本**——主对话亲自扮演编排器，用 `Agent` 工具逐个分派工作型子 Agent（写作/审计/红队等），委托链恒为 depth-1（主对话 → 工作 Agent）。它的职责：分派、门禁裁决、CHECKPOINT（用户在环确认）、矛盾裁决、降级决策。
 
-11 个角色（落在 `agents/`，沿用 academic-paper 约定）：
+11 个角色（口径：`agents/` 目录下实际存在的 Agent 定义文件数，不含 orchestrator——orchestrator 是主对话采用的编排剧本，未落地为 `agents/` 下的文件；已废弃的 `diagram_agent` 已移入 `agents/deprecated/`，不计入。沿用 academic-paper 约定）：
 
 | 角色 | 族 | 模型 | 阶段 | 一句话职责 |
 |---|---|---|---|---|
@@ -56,7 +56,7 @@ description: >
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份红队报告→统一风险清单 |
 | `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
 
-> **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表）。原有 `diagram_agent.md` 文件不再使用，勿重新添加到角色表。若发现旧版引用，应替换为对应的新角色。
+> **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表）。原文件已移入 `agents/deprecated/diagram_agent.md`，不再计入角色表，勿重新添加。若发现旧版引用，应替换为对应的新角色。
 
 > **模型选型原则**（v4 §3.2）：按任务的**认知负荷类型**分级，不按角色"重要性"。强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；架构语义理解 + 编程（架构图、数据图表）用 Sonnet；机械/模板化（搜集、定稿）用 Haiku。非 Opus 角色必须显式传 `model` 参数，不依赖继承 orchestrator 的 Opus。
 
@@ -68,7 +68,7 @@ description: >
 | **分层多 Agent**（默认，标准研究报告） | 深度研究报告 30-50 页 / 核心章 2-3 | **仅核心分析章**走对抗；摘要/前言/附录 orchestrator 直接写 | 4 人格并行 + 综合 | 标准（6-8 角色） |
 | **单 Agent 极速** | 快速简报(brief) / <15 页 / ≤2 章 / 用户说"简报/快速" | orchestrator 单 Agent 写 + **V3 单 Agent 自查兜底** | 压缩为 3 维度，orchestrator 自审 | 最小（回退 V3） |
 
-> **降级是"回退到 V3"而非"没有质量控制"**：单 Agent 极速档直接采用 V3 的 CHECKPOINT/STATS/REPORT 单 Agent 自律机制，orchestrator 本身也从 Opus 降到 Sonnet。**无 `Agent` 工具时的兜底**：若本 skill 被作为嵌套子 Agent 拉起（无法 depth-1 分派），自动降级为单 Agent 极速档，并标注"多 Agent 协同不可用，已降级为 V3 单 Agent 模式"。
+> **降级是"回退到 V3"而非"没有质量控制"**：单 Agent 极速档直接采用 V3 的 CHECKPOINT/STATS/REPORT 单 Agent 自律机制，orchestrator 本身也从 Opus 降到 Sonnet。**无 `Agent` 工具时的兜底**：触发条件是**检测不到 `Agent` 工具**（无法 depth-1 分派），由 `model-profile.json` 的 `host.agent_delegation: false` 显式声明而非运行时探测，声明为 `false` 时自动降级为单 Agent 极速档，并标注"多 Agent 协同不可用，已降级为 V3 单 Agent 模式"。详见 `references/multiagent-orchestration.md` §1/§7.5。
 
 ### 整合后的机制分层（替代 V3 §4.1.1 原表，升级版）
 
@@ -80,6 +80,24 @@ description: >
 | L3 警告型 | ⚠ WARN | 记录日志 | orchestrator 记 P1-P3（复用 UEAS 问题分级） |
 
 > 一句话：V3 的"三层机制"作为**规格与用户阻断层**完整保留；其中"自查"部分的**执行主体**从写作 Agent 迁移到独立审计/红队 Agent。V3 的检查项（stage-7 自查清单、converter-contract、writing-standards）不删除，而是变成审计 Agent 的评分细则 rubric。
+
+### 模型能力档（`model-profile.json`）
+
+本 skill 支持在 **Claude 之外**的模型上运行（DeepSeek V3.2 / GLM-4.6 / Qwen3 等），核心机制是 skill 根目录的 `model-profile.json` 能力档声明——它告诉 orchestrator 当前模型的输出长度上限、是否有 depth-1 委派底座等能力边界，据此调整 prompt 构造方式与输出切分粒度。
+
+**三种兜底行为**（区分"未配置"与"配置坏了"，二者风险性质不同）：
+
+| 情形 | 行为 |
+|------|------|
+| 文件不存在 | fallback 到 **tier A**（=当前 Claude 行为），写台账提示 |
+| 文件存在但 JSON 解析失败 / schema 校验失败 | 降级到 **tier C**（保守档），写台账 + 显式告警 |
+| 文件存在且合法 | 按声明的 tier 运行 |
+
+**Claude 用户默认无需任何配置**：仓库自带 `model-profile.json`（tier A，全部特性 off），行为与本 skill 历史版本完全一致，字节级不变。
+
+**如何切换到 tier B（DeepSeek 等弱模型）**：将仓库根目录的 `model-profile.json` 内容替换为 `model-profile.deepseek.example.json` 的内容（红线预算收紧为 5 条、Phase A 审计改为确认式、输出信封强制 nonce、Writer 采用填空骨架）。
+
+模型能力档 × 报告规模档的二维决策矩阵、字段完整定义与加载器实现细节，详见 `references/multiagent-orchestration.md` §7 与 `scripts/model_profile.py`。
 
 ---
 
@@ -104,7 +122,7 @@ description: >
 总览图/架构图/流程图在分章写作前完成。出图工具：drawio（复杂架构）、fireworks-tech-graph（技术架构）、Mermaid（简单流程）。PNG 统一 300dpi+，配色限灰度色板 + 暗红 #D62728。
 
 ### [阶段 7：分章写作与数据图表](references/stage-7-writing.md)
-卡片→正文叙事化转写（四条铁律：禁逐条翻译字段、禁字段标签、强制主张→证据→推理三角、禁把后台过程当正文），标准 0-20 内容质量标准，16 项逐章即时自查清单。标题只写纯文字，编号交给转换器。数据图表随写作出。
+卡片→正文叙事化转写（四条铁律：禁逐条翻译字段、禁字段标签、强制主张→证据→推理三角、禁把后台过程当正文），标准 0-22 内容质量标准，16 项逐章即时自查清单。标题只写纯文字，编号交给转换器。数据图表随写作出。
 > **多 Agent 档（默认/完整）**：改为 `chapter_writer_agent` + `chapter_auditor_agent` **写审对抗 pipeline**——逐章 loop-until-pass，审计采用盲态预承诺（先锁标准再看稿），量化维度由审计 Agent 调 `contract_check.py` 真跑。写审物理分离解开 R3 死结。逐章审计报告汇总走 CP4。详见 [`references/workflow-stage7.md`](references/workflow-stage7.md)。单 Agent 极速档回退本文件的 V3 自查清单。
 
 ### [阶段 8：红队审查](references/stage-8-review.md)
@@ -180,7 +198,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 | 10 | **跳过 Word 导出** | 阶段 9 必须执行 md→docx 转换器，生成符合 V3.2 规范的 .docx |
 | 11 | **凭记忆写作**——不读取大纲就开始写正文 | 阶段 7 每节写作前必须读取 `research/outline.md` 对应条目；多 Agent 档下 `chapter_writer_agent` 输入契约只含当前章条目，物理上拿不到跨章内容 |
 | 12 | **内部自查**——写作 Agent 只在心里打勾不输出报告 | 多 Agent 档下自查由**独立** `chapter_auditor_agent` 产出结构化审计报告；单 Agent 档下 10 项自查必须输出报告逐项标注通过/未通过/处理 |
-| 13 | **跳过量化验证 / 编造字数**——写完不统计或自报字数 | 量化维度（字数/图/表）由审计 Agent 调 `contract_check.py` 真跑，写作 Agent 无权自报通过；审计报告须含脚本 stdout |
+| 13 | **跳过量化验证 / 编造字数**——写完不统计或自报字数 | 量化维度（字数/图/表）由审计 Agent 调 `contract_check.py` 真跑，写作 Agent 无权自报通过；审计报告须含脚本 JSON 摘要 + 落盘路径（`chXX-scripts.json`，全量 stdout 由 orchestrator 落盘，非贴完整原始输出） |
 | 14 | **跨 Agent 越界写**——审计者/红队顺手改稿或写下一章 | 发现者 ≠ 修复者：审计只出裁决 + issue 清单，修改交回 `chapter_writer_agent`；每个角色严守 Phase Boundary |
 | 15 | **审计放宽标准**——看了稿再把评分标准调松到刚好让稿子通过 | 审计采用盲态预承诺：Phase A 未看稿先书面锁定触发词，Phase B 打分语言须 substring-match Phase A 承诺（一致性 lint） |
 | 16 | **降级档误用多 Agent**——5 页简报也拉起 writer+auditor 对抗 | brief/简报自动进单 Agent 极速档回退 V3 自查；多 Agent 是标准/完整档的增强，不是唯一选项 |
@@ -229,7 +247,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 - `references/claims-ledger-template.csv` — 事实核验台账模板
 - `references/source-index-template.csv` — 来源索引模板
 - `references/red-team-checklist.md` — 红队审查详细清单
-- `references/writing-standards.md` — 写作标准详细说明与示例（含 12 条标准）
+- `references/writing-standards.md` — 写作标准详细说明与示例（含 23 条标准，标准 0-22）
 - `references/architecture-analysis-guide.md` — 架构分析方法论详细指南
 - `references/研究报告格式规范.md` — **【权威】研究报告 Word 格式规范 V3.1**
 - `references/word-format-spec.md` — Word 文档格式规范（旧版 v1.0，已归档）

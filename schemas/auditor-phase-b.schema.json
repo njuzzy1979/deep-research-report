@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deep-research-report.local/schemas/auditor-phase-b.schema.json",
+  "title": "Phase B 审计明态打分 + 裁决 落盘格式",
+  "description": "chapter_auditor_agent Phase B 明态打分的 JSON 落盘形态（人工设计，依据 agents/chapter_auditor_agent.md Phase B 小节 2『## 逐维度打分』每维度 block/warn/pass + 证据、小节 4『## 裁决』恰一个 PASS/REVISE、小节 5『## issue 清单』维度/位置/问题/建议修法 四元组）。dimension_scores 的键枚举与 issues[].dimension 枚举取自契约 dimensions，自动派生；整体 JSON 结构（issue 四元组字段名）为人工设计，非自动派生。",
+  "x-generated-from": "agents/contracts/auditor_contract.json#/dimensions,/proposal_extra,/verdict (枚举，自动派生) + agents/chapter_auditor_agent.md#Phase-B (issue清单结构，人工设计)",
+  "type": "object",
+  "properties": {
+    "chapter_id": {
+      "type": "string",
+      "pattern": "^ch\\d{2,3}$"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "REVISE"
+      ]
+    },
+    "dimension_scores": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "outline_coverage",
+          "evidence_density",
+          "cd_source_qualifier",
+          "no_vague_source",
+          "strong_claim",
+          "logic_word",
+          "conclusion_para",
+          "contribution_limitation",
+          "numbered_list_audit",
+          "structural_consistency",
+          "figure_reference",
+          "card_backfill",
+          "card_overlap",
+          "C1_h1",
+          "C2_manual_number",
+          "C3_image_syntax",
+          "C4_table_caption",
+          "C5_banned",
+          "QS1_wordcount",
+          "QS2_figures",
+          "QS3_tables",
+          "QS4_paragraphs",
+          "chapter_transition",
+          "reader_calibration",
+          "P1_tech_metrics",
+          "P2_innovation",
+          "P3_trl",
+          "P4_milestone",
+          "P5_research_base"
+        ]
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "warn",
+              "block"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "outline_coverage",
+              "evidence_density",
+              "cd_source_qualifier",
+              "no_vague_source",
+              "strong_claim",
+              "logic_word",
+              "conclusion_para",
+              "contribution_limitation",
+              "numbered_list_audit",
+              "structural_consistency",
+              "figure_reference",
+              "card_backfill",
+              "card_overlap",
+              "C1_h1",
+              "C2_manual_number",
+              "C3_image_syntax",
+              "C4_table_caption",
+              "C5_banned",
+              "QS1_wordcount",
+              "QS2_figures",
+              "QS3_tables",
+              "QS4_paragraphs",
+              "chapter_transition",
+              "reader_calibration",
+              "P1_tech_metrics",
+              "P2_innovation",
+              "P3_trl",
+              "P4_milestone",
+              "P5_research_base"
+            ]
+          },
+          "location": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "suggested_fix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "location",
+          "problem",
+          "suggested_fix"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "chapter_id",
+    "verdict",
+    "dimension_scores",
+    "issues"
+  ],
+  "additionalProperties": false
+}

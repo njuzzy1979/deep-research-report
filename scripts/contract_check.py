@@ -12,6 +12,11 @@
     C7 SRC 引用残留（合并后检查）
     C8 字数统计残留（全文约/本章字数）
     C9 局部参考文献节（每章独立参考文献体系）
+  观察层 C10-C11（跨模型兼容性优化方案 §二 A3，第一阶段非阻塞）
+    C10（F7）信源分级前缀泄露（如 "[A] xxx" 独占行首）——只计数不判负
+    C11（F8）claim_id 泄露（如 [CM021]）——只计数不判负
+    两项均 severity="mid"、pass 恒为 True、不纳入 high_severity_keys，
+    仅用于收集真实报告语料的命中分布，供后续独立决策是否升级为阻塞检查。
   量化层 QS1-QS3 —— 供阶段 7 审计 Agent 做字数/图/表统计
     QS1 正文字数（中文字符计数，供与大纲"约 N×800 字"预算比对）
     QS2 图片引用数
@@ -52,6 +57,20 @@ OK = "[OK]"
 FAIL = "[FAIL]"
 WARN = "[WARN]"
 
+# 输出信封标记正则（跨模型兼容性优化方案 §C5：nonce 迁移）—— 共享常量，供其他脚本
+# import 复用（Critical-5：scripts/merge_drafts.py 的 B1 剥离步骤必须与此保持一致，
+# 否则带 nonce 的新格式标记不会被剥离，导致标记残留进入最终 Word 交付物）。
+#
+# nonce 是**后缀**，前缀 `[AGENT-OUTPUT-START` / `[AGENT-OUTPUT-END` 不变，因此对不含
+# nonce 的旧格式（Claude tier A 默认）匹配行为与放宽前逐字节一致，只是**额外**能匹配到
+# 带 nonce 的新格式 —— 这保证了 tests/golden/ 8 份快照在旧格式输入下的输出不变。
+#
+# 三重误匹配防护（与 scripts/output_envelope_check.py 的 ENVELOPE_MARKER_PATTERN 呼应）：
+#   - nonce 格式限定 `[0-9a-f]{6,16}`（十六进制，6-16 位，全小写）
+#   - 此处不强制行首/agent 名后缀（C5 是"检测残留"场景，任何位置出现即视为违规，
+#     比 output_envelope_check.py 的信封配对语义更宽松是刻意的——宁可多报不可漏报）
+RE_ENVELOPE_MARKER = re.compile(r"\[AGENT-OUTPUT-(?:START|END)(?::[0-9a-f]{6,16})?\]")
+
 # 禁止内容模式（C5）—— 含密级词，门 3 安全机制前移到阶段 7
 BANNED_PATTERNS = {
     "建议印刷页数": re.compile(r"建议印刷页数"),
@@ -60,8 +79,8 @@ BANNED_PATTERNS = {
     "HTML标签": re.compile(r"</?(div|span|table|br|img|p)\b", re.IGNORECASE),
     "封面元数据行": re.compile(r"^(编制单位|申报单位|编制日期)[:：]", re.MULTILINE),
     "密级标注": re.compile(r"绝密|机密|秘密|内部资料|\b内部\b|涉密"),
-    # F1: 输出隔离标记残留（AGENT-OUTPUT-START/END 标记行）
-    "输出隔离标记残留": re.compile(r"\[AGENT-OUTPUT-(?:START|END)\]"),
+    # F1: 输出隔离标记残留（AGENT-OUTPUT-START/END 标记行，含可选 nonce 后缀）
+    "输出隔离标记残留": RE_ENVELOPE_MARKER,
 }
 
 # 标题手动编号模式（C2）：H2-H4 后紧跟阿拉伯数字或中文数字编号
@@ -71,6 +90,19 @@ MANUAL_NUMBER_PATTERN = re.compile(
 
 # C2 增强：粗体伪标题模式 —— 连续 ≥3 行以 ** 开头且独占一行的粗体文本
 BOLD_PSEUDO_HEADING_PATTERN = re.compile(r"^\*\*[^*]+\*\*\s*$")
+
+# C2 豁免（仅 merged 合并终稿模式）：merge_drafts.py 按 stage-7-writing.md 规范
+# 自动插入的标准章容器 H2（形如 `## 第 1 章：绪论`）。
+#
+# 立法意图辨析：C2 禁止的是**作者手写**编号前缀（编号应交由 Word 自动编号域生成，
+# 手写会与域编号冲突产生"1.1 1.1 标题"这类重复）。而此处的章容器是**合并管道自身
+# 按规范产出的结构性标记**（merge_drafts.assemble_merged() 生成），不是作者内容，
+# 下游 md2docx 的 headings.py 会将其识别为 CHAPTER 并接管编号。
+# 若不豁免，则任何含编号章节的真实报告在 `--merged --stage stage9` 下 C2 恒为
+# fatal（且标注"不可降级放行"），交付门禁 CP6 永远无法通过——即检查器把自家管道
+# 的标准输出判为致命错误。豁免范围严格限定为"章容器"这一种确定格式，
+# 不放宽对作者手写编号（如 `## 1.1 xxx`、`### 二、xxx`）的拦截。
+PIPELINE_CHAPTER_CONTAINER_PATTERN = re.compile(r"^##\s+第\s*\d+\s*章[：:]\s*\S")
 
 # C6: 引用格式统一性检查
 # 纯数字引用（如 [1]、[12]、[1,2,3]）
@@ -94,6 +126,14 @@ WORD_COUNT_RESIDUE_PATTERNS = {
 LOCAL_BIBLIOGRAPHY_PATTERN = re.compile(
     r"^#{2,3}\s+参考文献", re.MULTILINE
 )
+
+# C10（F7）: 信源分级前缀泄露（如 "[A] xxx"、"[C] xxx" 独占行首的分级标注）
+# 参考出处：references/stage-7-writing.md:148
+F7_SOURCE_TIER_PREFIX_PATTERN = re.compile(r"^\s*\[[ABCD]\]", re.MULTILINE)
+
+# C11（F8）: claim_id 泄露（如 [CM021]、[CO012] 等草稿期内部标注残留正文）
+# 参考出处：references/stage-7-writing.md:148
+F8_CLAIM_ID_LEAK_PATTERN = re.compile(r"\[[A-Z]{1,3}\d{3}\]")
 
 
 def read_text(path: str) -> str:
@@ -134,9 +174,15 @@ def count_cjk_chars(text: str) -> int:
     return len(re.findall(r"[\u4e00-\u9fff]", body))
 
 
-def compute_paragraph_stats(text: str) -> dict:
-    """QS4: \u6bb5\u843d\u957f\u5ea6\u5206\u5e03\u3002
-    \u6392\u9664\u6807\u9898/\u5f15\u7528\u5757/\u8868\u683c\u884c/\u56fe\u7247\u884c/\u4ee3\u7801\u5757\u3002"""
+def split_paragraphs(text: str) -> list:
+    """按自然段切分正文（排除标题/引用块/表格行/图片行/代码块）。
+
+    从 compute_paragraph_stats 中提取的独立函数（跨模型兼容性优化方案 §E1）：
+    QS4 段落长度分布只需要聚合统计量，而 scripts/writing_quality_check.py 的
+    E1 信息密度检查（QS5_density）需要逐段文本本身（用于统计每段数据点数、
+    定位"连续 500 字无数据点"的具体段落）。此函数是两处共同的段落切分口径，
+    供二者 import 复用，避免切分规则出现两份实现互相漂移。
+    """
     clean = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
     paras, cur = [], []
     for line in clean.split("\n"):
@@ -144,7 +190,7 @@ def compute_paragraph_stats(text: str) -> dict:
         if not s:
             if cur:
                 ptext = "".join(cur)
-                cnt = len(re.findall(r"[\u4e00-\u9fff]", ptext))
+                cnt = len(re.findall(r"[一-鿿]", ptext))
                 if cnt > 0:
                     paras.append(ptext)
                 cur = []
@@ -154,9 +200,19 @@ def compute_paragraph_stats(text: str) -> dict:
         cur.append(s)
     if cur:
         ptext = "".join(cur)
-        cnt = len(re.findall(r"[\u4e00-\u9fff]", ptext))
+        cnt = len(re.findall(r"[一-鿿]", ptext))
         if cnt > 0:
             paras.append(ptext)
+    return paras
+
+
+def compute_paragraph_stats(text: str) -> dict:
+    """QS4: 段落长度分布。
+    排除标题/引用块/表格行/图片行/代码块。
+
+    段落切分逻辑已提取到 split_paragraphs()，本函数只做聚合统计——行为与提取
+    前逐字节一致（不影响 tests/golden/ 快照）。"""
+    paras = split_paragraphs(text)
     if not paras:
         return {"count": 0, "mean": 0.0, "p25": 0.0, "p50": 0.0, "p75": 0.0, "p90": 0.0,
                 "over_600": 0, "under_150": 0, "ideal_range": 0, "longest": 0}
@@ -184,7 +240,14 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     c1_pass = h1_count <= c1_limit
 
     # C2: H2-H4 手动编号
-    c2_hits = [ln.strip() for ln in lines if MANUAL_NUMBER_PATTERN.match(ln)]
+    # merged 模式下豁免管道自动生成的标准章容器（见 PIPELINE_CHAPTER_CONTAINER_PATTERN
+    # 的立法意图辨析）；stage7 分章稿不应出现章容器，故不豁免。
+    c2_hits = [
+        ln.strip()
+        for ln in lines
+        if MANUAL_NUMBER_PATTERN.match(ln)
+        and not (merged and PIPELINE_CHAPTER_CONTAINER_PATTERN.match(ln))
+    ]
     # C2 增强：粗体伪标题检测 —— 连续 ≥3 行匹配模式
     c2_bold_hits = _detect_bold_pseudo_headings(lines)
     c2_pass = len(c2_hits) == 0 and len(c2_bold_hits) == 0
@@ -211,8 +274,8 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             c5_hits[name] = len(found)
     c5_pass = len(c5_hits) == 0
 
-    # C6: 引用格式统一性检查
-    c6_result = _check_c6_references(clean)
+    # C6: 引用格式统一性检查（纯数字引用在 stage9 合并终稿中是预期产出，见函数 docstring）
+    c6_result = _check_c6_references(clean, merged=merged, stage=stage)
     c6_pass = c6_result["pass"]
 
     # C7: SRC 引用残留检测
@@ -233,6 +296,17 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     # C9: 局部参考文献节
     c9_hits_paragraphs = LOCAL_BIBLIOGRAPHY_PATTERN.findall(clean)
     c9_pass = len(c9_hits_paragraphs) == 0
+
+    # C10（F7）: 信源分级前缀泄露 —— 跨模型兼容性优化方案 §二 A3。
+    # 第一阶段非阻塞（审查层 High-3 修订）：severity="mid"，pass 恒为 True，
+    # 不纳入 high_severity_keys；仅用于收集真实报告语料的命中分布，
+    # 供后续独立决策是否升级为阻塞检查（第二阶段）。
+    c10_hits = [ln.strip() for ln in lines if F7_SOURCE_TIER_PREFIX_PATTERN.match(ln)]
+    c10_pass = True
+
+    # C11（F8）: claim_id 泄露 —— 同上，第一阶段非阻塞，仅计数。
+    c11_hits = F8_CLAIM_ID_LEAK_PATTERN.findall(clean)
+    c11_pass = True
 
     # QS1: 正文字数
     word_count = count_cjk_chars(text)
@@ -258,6 +332,10 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C8_word_count_residue": {"hits": c8_hits, "pass": c8_pass, "severity": "low"},
             "C9_local_bibliography": {"hits": c9_hits_paragraphs, "count": len(c9_hits_paragraphs),
                                        "pass": c9_pass, "severity": "high"},
+            "C10_source_tier_prefix": {"hits": c10_hits, "count": len(c10_hits),
+                                        "pass": c10_pass, "severity": "mid"},
+            "C11_claim_id_leak": {"hits": c11_hits, "count": len(c11_hits),
+                                   "pass": c11_pass, "severity": "mid"},
         },
         "quant": {
             "QS1_cjk_chars": word_count,
@@ -301,16 +379,34 @@ def _detect_bold_pseudo_headings(lines: list) -> list:
     return hits
 
 
-def _check_c6_references(text: str) -> dict:
-    """C6: 引用格式统一性检查。"""
+def _check_c6_references(text: str, *, merged: bool = False, stage: str = "stage7") -> dict:
+    """C6: 引用格式统一性检查。
+
+    分阶段语义（与 C7 的 stage7/stage9 对称设计一致）：
+
+    - **stage7（分章草稿）**：纯数字引用 ``[N]`` 是**违规** —— 写作 Agent 应统一写
+      ``[SRC-XXX]``，编号由阶段 9 的 ``convert_references.py`` 按参考文献表统一生成。
+      作者提前写死数字编号会与后续自动编号冲突。
+    - **stage9 + merged（合并终稿）**：纯数字引用是**预期的正确输出** ——
+      ``convert_references.py`` 按 GB/T 7714 顺序编码制正是把 ``[SRC-001]`` 转换为
+      ``[1]``。此时若仍把 ``[N]`` 判为违规，则定稿管道会否定自己上一步的正确产出，
+      导致任何含参考文献的报告都无法通过交付门禁（``delivery_checklist`` 不可达）。
+
+    因此 ``pure_num`` 一项仅在非 stage9-merged 下参与判负；``slash_src``（如
+    ``[SRC-001/026]``）与 ``s_variant``（如 ``[S001]``）两类是任何阶段都不合法的
+    格式错误，始终参与判负。
+    """
     result = {"pass": True, "pure_num_hits": [], "slash_src_hits": [], "s_variant_hits": [],
               "local_bib_hits": []}
-    # 纯数字引用
+    # 纯数字引用 —— 合并终稿中是 convert_references 的预期产出，不判负（仍如实记录）
+    pure_num_is_expected = merged and stage == "stage9"
+    result["pure_num_expected"] = pure_num_is_expected
     pure_nums = PURE_NUM_REF_PATTERN.findall(text)
     if pure_nums:
         result["pure_num_hits"] = pure_nums[:10]  # 最多记录 10 个样本
         result["pure_num_count"] = len(pure_nums)
-        result["pass"] = False
+        if not pure_num_is_expected:
+            result["pass"] = False
     # 斜杠分隔 SRC
     slash_hits = SLASH_SRC_PATTERN.findall(text)
     if slash_hits:
@@ -359,7 +455,7 @@ def format_text_report(r: dict) -> str:
     if not c5["pass"] and "密级标注" in c5["hits"]:
         lines.append(f"      {WARN} 检测到密级词 —— 红线，一律阻断（门 3 安全前移）")
     if not c5["pass"] and "输出隔离标记残留" in c5.get("hits", {}):
-        lines.append(f"      {FAIL} 检测到输出隔离标记残留 [AGENT-OUTPUT-START/END] —— 阻断")
+        lines.append(f"      {FAIL} 检测到输出隔离标记残留 [AGENT-OUTPUT-START/END]（含 nonce 变体）—— 阻断")
 
     c6 = c["C6_reference_format"]
     lines.append(f"{mark(c6['pass'])} C6 引用格式统一: {'无违规' if c6['pass'] else _c6_detail(c6)}")
@@ -374,6 +470,22 @@ def format_text_report(r: dict) -> str:
 
     c9 = c["C9_local_bibliography"]
     lines.append(f"{mark(c9['pass'])} C9 局部参考文献节: {c9['count']} 处 (应为 0)")
+
+    # C10/C11（跨模型兼容性优化方案 §二 A3）：第一阶段非阻塞，pass 恒为 True，
+    # 仅计数展示——不用 mark()（会恒显示 OK），改用中性标记区分"有命中但不阻断"。
+    c10 = c["C10_source_tier_prefix"]
+    c10_mark = WARN if c10["count"] > 0 else OK
+    lines.append(f"{c10_mark} C10 信源分级前缀泄露(F7，非阻塞观察期): {c10['count']} 处")
+    if c10.get("hits"):
+        for h in c10["hits"][:5]:
+            lines.append(f"      - {h}")
+
+    c11 = c["C11_claim_id_leak"]
+    c11_mark = WARN if c11["count"] > 0 else OK
+    lines.append(f"{c11_mark} C11 claim_id泄露(F8，非阻塞观察期): {c11['count']} 处")
+    if c11.get("hits"):
+        for h in c11["hits"][:5]:
+            lines.append(f"      - {h}")
 
     lines.extend([
         "",

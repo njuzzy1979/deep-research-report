@@ -1,0 +1,156 @@
+{
+  "$schema_note": "机读版可移植性边界声明清单，人读版见 PORTABILITY.md，两者手工保持同步。",
+  "version": "1.0",
+  "generated_for_batch": "第9批-A（D3+D4+D2）",
+  "portability_levels": {
+    "core": "与具体 LLM 厂商无关的方法论/流程/契约/脚本，任何支持 Agent Skills 标准的运行时均可执行",
+    "claude-enhanced": "Claude 下有增强表现但非硬依赖，降级路径明确，非 Claude 宿主可退化执行（打折不中断）",
+    "claude-only": "依赖 Claude 特有能力（Agent 工具 depth-1 委派、drawio MCP 等），非 Claude 宿主上该能力本身不可用，只能整体降级为其他档位"
+  },
+  "agents": {
+    "report_orchestrator": {
+      "portability": "n/a",
+      "note": "非独立文件，是主对话采用的编排剧本，不落地为 agents/ 下文件"
+    },
+    "source_collector_agent.md": { "portability": "core" },
+    "fact_verifier_agent.md": { "portability": "core" },
+    "outline_architect_agent.md": { "portability": "core" },
+    "card_synthesizer_agent.md": { "portability": "core" },
+    "architecture_chart_agent.md": {
+      "portability": "claude-enhanced",
+      "note": "核心方法论 core，默认工具链含 drawio MCP（claude-only，降级 Mermaid）"
+    },
+    "data_chart_agent.md": { "portability": "core" },
+    "chapter_writer_agent.md": { "portability": "core" },
+    "chapter_auditor_agent.md": { "portability": "core" },
+    "redteam_agent.md": {
+      "portability": "claude-enhanced",
+      "note": "4 人格异构模型防同质化是 Claude 多模型调用能力的增强效果；tier B/C 下退化为同模型+人格 prompt 差异化+顺序轮换，效力下降但非硬失效"
+    },
+    "redteam_synthesizer_agent.md": { "portability": "core" },
+    "finalizer_agent.md": {
+      "portability": "pending",
+      "note": "属并行任务'第9批-B PhaseE+D5+D6脚本'改动范围，本批未触碰，避免冲突"
+    },
+    "deprecated/diagram_agent.md": {
+      "portability": "n/a",
+      "note": "已废弃，移入 agents/deprecated/，不计入角色表"
+    }
+  },
+  "references": {
+    "stage-1-init.md": { "portability": "core" },
+    "stage-2-collection.md": { "portability": "core" },
+    "stage-3-verification.md": { "portability": "core" },
+    "stage-4-outline.md": { "portability": "core" },
+    "stage-5-cards.md": { "portability": "core" },
+    "stage-6-diagrams.md": { "portability": "core" },
+    "stage-7-writing.md": { "portability": "core" },
+    "stage-8-review.md": { "portability": "core" },
+    "stage-9-finalize.md": {
+      "portability": "pending",
+      "note": "属并行任务'第9批-B PhaseE+D5+D6脚本'改动范围，本批未触碰"
+    },
+    "appendix-converter-contract.md": { "portability": "core" },
+    "appendix-report-types.md": { "portability": "core" },
+    "architecture-analysis-guide.md": { "portability": "core" },
+    "glossary.md": { "portability": "core" },
+    "md-to-docx-pitfalls.md": { "portability": "core" },
+    "writing-process-pitfalls.md": { "portability": "core" },
+    "red-team-checklist.md": { "portability": "core" },
+    "writer-template.md": { "portability": "core" },
+    "writing-standards.md": { "portability": "core" },
+    "研究报告格式规范.md": { "portability": "core" },
+    "multiagent-orchestration.md": {
+      "portability": "claude-only",
+      "note": "编排总纲本身描述 depth-1 委派 + 4 人格并行 fan-out 等 Claude 专有编排机制"
+    },
+    "workflow-stage7.md": {
+      "portability": "claude-only",
+      "note": "写审对抗 pipeline 编排脚本，依赖 Agent 工具分派 writer/auditor 两个独立 Agent"
+    },
+    "workflow-stage8.md": {
+      "portability": "claude-only",
+      "note": "红队 4 人格并行 fan-out 编排脚本，依赖 Agent 工具并行分派"
+    }
+  },
+  "scripts": {
+    "portability": "core",
+    "note": "全部 scripts/*.py 与 scripts/md2docx/** 均为纯 Python 确定性工具，与调用它们的 LLM 无关",
+    "files": [
+      "scripts/card_overlap_check.py",
+      "scripts/chart_checks.py",
+      "scripts/check_linkage_constants.py",
+      "scripts/claim_strength_check.py",
+      "scripts/contract_check.py",
+      "scripts/convert_references.py",
+      "scripts/degradation_log.py",
+      "scripts/degradation_report.py",
+      "scripts/figure_gate.py",
+      "scripts/md2docx.py",
+      "scripts/merge_drafts.py",
+      "scripts/model_profile.py",
+      "scripts/outline_title_extract.py",
+      "scripts/output_envelope_check.py",
+      "scripts/phase_a_to_json.py",
+      "scripts/precommit_consistency_check.py",
+      "scripts/schema_validate.py",
+      "scripts/term_consistency_check.py",
+      "scripts/writing_quality_check.py",
+      "scripts/md2docx/__init__.py",
+      "scripts/md2docx/__main__.py",
+      "scripts/md2docx/check_no_hardcode.py",
+      "scripts/md2docx/cli.py",
+      "scripts/md2docx/config.py",
+      "scripts/md2docx/gate3.py",
+      "scripts/md2docx/iotools.py",
+      "scripts/md2docx/ir.py",
+      "scripts/md2docx/issues.py",
+      "scripts/md2docx/pipeline.py",
+      "scripts/md2docx/report.py",
+      "scripts/md2docx/validate.py",
+      "scripts/md2docx/assemble/*.py",
+      "scripts/md2docx/render/*.py",
+      "scripts/md2docx/textstage/*.py",
+      "scripts/md2docx/tests/*.py"
+    ]
+  },
+  "schemas": {
+    "portability": "core",
+    "files": [
+      "schemas/auditor-phase-a.schema.json",
+      "schemas/auditor-phase-b.schema.json",
+      "schemas/model-profile.schema.json",
+      "schemas/outline-structure.schema.json",
+      "schemas/writer-selfclaim.schema.json"
+    ]
+  },
+  "contracts": {
+    "portability": "core",
+    "files": [
+      "agents/contracts/auditor_contract.json",
+      "agents/contracts/writer_contract.json"
+    ]
+  },
+  "collaboration_modes": {
+    "完整多Agent": "claude-only",
+    "分层多Agent（默认）": "claude-only",
+    "单Agent极速": "core"
+  },
+  "degradation_mechanism": {
+    "trigger": "model-profile.json 的 host.agent_delegation == false",
+    "implementation": "scripts/model_profile.py::resolve_collaboration_mode 硬规则2",
+    "not_runtime_probed": true,
+    "note": "触发条件是能力探测（声明式），不是运行时嗅探'是否被作为嵌套子 Agent 拉起'这一调用形式本身"
+  },
+  "honest_conclusion": {
+    "summary": "非 Claude 宿主上退化为「单 Agent 极速档 + 全套确定性脚本」",
+    "losses": [
+      "chapter_writer_agent + chapter_auditor_agent 的物理隔离写审对抗不可用，R3 死结的解无法复现",
+      "红队 4 人格异构模型并行不可用，tier B/C 下退化为同模型+人格 prompt 差异化+顺序轮换，同质化盲点风险部分回归",
+      "drawio MCP 出图不可用，降级 Mermaid，复杂架构图表现力打折",
+      "三档协同模式收窄为仅'单 Agent 极速'一档可用"
+    ],
+    "gains_retained": "大量原本依赖审计 Agent 语义判断的检查已下沉到脚本层（contract_check.py/claim_strength_check.py/card_overlap_check.py/term_consistency_check.py/figure_gate.py 等），这些是纯 Python 确定性工具，与调用它们的模型无关",
+    "verdict": "非 Claude 宿主的单 Agent 极速档，质量高于本 skill 历史版本（改造前）的单 Agent 极速档——这是'打折'而非'清零'，不粉饰、不夸大"
+  }
+}

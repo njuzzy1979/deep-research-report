@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 附录：报告类型适配
 
 > 本文件是 deep-research-report skill 的报告类型适配附录，从 SKILL.md 拆分而来。

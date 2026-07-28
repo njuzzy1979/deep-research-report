@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # Writer 强制输出骨架与硬性约束
 
 > 本文件是 deep-research-report skill 的 Writer 强制输出模板。每个 `chapter_writer_agent` 在执行 Phase B 写作前**必须**先读取本文件。
@@ -114,21 +118,21 @@ Writer 不得自行判断"美观"而添加装饰性副标题。每个 H2 恰好�
 
 ## 四、禁止内容清单（F1-F8, F10）
 
-以下 10 类内容**绝对禁止**出现在分章文件草稿正文中。审计 Agent 会使用 `contract_check.py` 的 C2/C5/C6/C7/C8/C9 规则和 `term_consistency_check.py` 脚本逐项检测，命中即阻断。
+以下 10 类内容**绝对禁止**出现在分章文件草稿正文中。审计 Agent 会使用 `contract_check.py` 的 C2/C5/C6/C7/C8/C9 规则和 `term_consistency_check.py` 脚本逐项检测（命中即阻断）；`contract_check.py` 另有 C10/C11 两项对应 F7/F8 的检测（详见下表说明），当前处于**第一阶段观察期**——只计数、不阻断，尚未纳入自动阻断范围，Writer 仍须按下表规则自律遵守。
 
 | 编号 | 禁止内容 | 检测正则/方法 | 阻断级别 | 说明 |
 |------|---------|-------------|---------|------|
-| **F1** | 输出隔离标记残留 | `\[AGENT-OUTPUT-START\]` / `\[AGENT-OUTPUT-END\]` | FATAL | 包括 `[AGENT-OUTPUT-START]`、`[AGENT-OUTPUT-END]` 及中间的所有 Agent 名称标记。这些标记是工作流协作元数据，不是正文内容 |
+| **F1** | 输出隔离标记残留 | `\[AGENT-OUTPUT-START(:[0-9a-f]{6,16})?\]` / `\[AGENT-OUTPUT-END(:[0-9a-f]{6,16})?\]`（nonce 后缀可选，两种形式均检测） | FATAL | 包括 `[AGENT-OUTPUT-START]`、`[AGENT-OUTPUT-END]`（含或不含 `:<nonce>` 后缀）及中间的所有 Agent 名称标记。这些标记是工作流协作元数据，不是正文内容 |
 | **F2** | 局部参考文献节 | `^###\s+参考文献` 或 `^##\s+参考文献` | FATAL | 每章末尾不得出现独立的"参考文献"节。全报告统一参考文献由 `finalizer_agent` 在阶段 9 统一生成 |
 | **F3** | 字数统计残留 | `全文约.*字`、`本章字数`、`本章字数.*:.*\d+` | WARN | 包括"全文约 XXXX 字""本章字数约 XXXX"等 |
 | **F4** | 篇幅预算元信息 | `建议印刷页数`、`篇幅预算`、`本章约.*页` | WARN | 大纲阶段的内部标注，不应进入正文 |
 | **F5** | "本章摘要/概览"等变体标题 | `^##\s+本章(摘要|概览|要点|核心)` 等 | FATAL | 章首只允许 `## 本章结论` |
 | **F6** | 装饰性副标题 | `^##\s+——.+` 或 `^##\s+.*——.*` | FATAL | 任何包含破折号副标题的 H2 |
-| **F7** | 信源分级前缀 | `\[A\]`、`\[B\]`、`\[C\]`、`\[D\]` 出现在参考文献条目中 | FATAL | 信源分级是内部质控工具，不出现在读者输出中。match `^\s*\[[ABCD]\]` |
-| **F8** | claim_id 泄露 | `\[CM\d{3}\]`、`\[CASE-\d{2}\]`（非引用上下文中） | FATAL | claim_id 是台账主键，读者看到的是上标编号 `[N]` |
+| **F7** | 信源分级前缀 | `\[A\]`、`\[B\]`、`\[C\]`、`\[D\]` 出现在参考文献条目中 | **观察期非阻塞**（`contract_check.py` C10，match `^\s*\[[ABCD]\]`，只计数不判负） | 信源分级是内部质控工具，不应出现在读者输出中。目标仍是 FATAL——第一阶段先收集真实报告语料的命中分布以排除误报，Writer 仍须自律避免写入 |
+| **F8** | claim_id 泄露 | `\[CM\d{3}\]`、`\[CASE-\d{2}\]`（非引用上下文中） | **观察期非阻塞**（`contract_check.py` C11，match `\[[A-Z]{1,3}\d{3}\]`，只计数不判负） | claim_id 是台账主键，读者看到的应是上标编号 `[N]`。目标仍是 FATAL——第一阶段先收集真实报告语料的命中分布以排除误报，Writer 仍须自律避免写入 |
 | **F10** | 术语不一致 | 使用 glossary 中 `banned_forms` 的禁止变体，或在无标注情况下使用 `aliases` 中的简称 | WARN（阶段7逐章）/ FATAL（阶段9终稿） | 所有原创概念的表述必须与 `research/glossary.md` 一致。Writer 必须逐字使用 preferred_form，不得使用 banned_forms。检测方式：`scripts/term_consistency_check.py` |
 
-> **F1（输出隔离标记）特别说明**：Writer 的产出在交给 orchestrator 时，orchestrator 会提取 `[AGENT-OUTPUT-START]`...`[AGENT-OUTPUT-END]` 之间的内容并落盘为分章文件。如果落盘后的分章文件仍然包含这些标记行，说明 orchestrator 提取环节有遗漏、或 Writer 在正文内部再次写入了这些标记。无论哪种原因，标记出现在分章文件中即为 F1 违规。
+> **F1（输出隔离标记）特别说明**：Writer 的产出在交给 orchestrator 时，orchestrator 会提取 `[AGENT-OUTPUT-START]`...`[AGENT-OUTPUT-END]`（或带 nonce 后缀的 `[AGENT-OUTPUT-START:<hex>]`...`[AGENT-OUTPUT-END:<hex>]`）之间的内容并落盘为分章文件。如果落盘后的分章文件仍然包含这些标记行（任一形式），说明 orchestrator 提取环节有遗漏、或 Writer 在正文内部再次写入了这些标记。无论哪种原因，标记出现在分章文件中即为 F1 违规。
 
 ---
 
@@ -198,7 +202,7 @@ Writer 只关心前两步。`[SRC-XXX]` → `[N]` 的转换是 `finalizer_agent`
 [AGENT-OUTPUT-END] chapter_writer_agent_selfclaim
 ```
 
-> **注意**：自声明使用独立的标记对 `[AGENT-OUTPUT-START] chapter_writer_agent_selfclaim` / `[AGENT-OUTPUT-END] chapter_writer_agent_selfclaim`，与正文的 `chapter_writer_agent` 标记对相区分。这样 `finalizer_agent` 可以精准剥离自声明而不误删正文。
+> **注意**：自声明使用独立的标记对 `[AGENT-OUTPUT-START] chapter_writer_agent_selfclaim` / `[AGENT-OUTPUT-END] chapter_writer_agent_selfclaim`（同样支持可选 nonce 后缀，如 `[AGENT-OUTPUT-START:a7f3c9d2] chapter_writer_agent_selfclaim`），与正文的 `chapter_writer_agent` 标记对相区分。这样 `finalizer_agent` 可以精准剥离自声明而不误删正文。
 
 ---
 

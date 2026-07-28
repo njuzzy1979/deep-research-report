@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deep-research-report.local/schemas/auditor-phase-a.schema.json",
+  "title": "Phase A 审计盲态预承诺（确认式）落盘格式",
+  "description": "chapter_auditor_agent Phase A 盲态预承诺的 JSON 落盘形态（方案 §C4 tier B/C 确认式）。顶层键为章标识（如 'ch01'），每章下键为维度 id，值为 {mode: confirm|adjust, text?}。当前维度 id 枚举共 24 个核心维度 + 5 个立项扩展维度。",
+  "x-generated-from": "agents/contracts/auditor_contract.json#/dimensions,/proposal_extra (维度id枚举，自动派生) + design/model-compatibility-optimization-plan.md#C4 (confirm/adjust JSON落盘形态，人工设计)",
+  "type": "object",
+  "propertyNames": {
+    "pattern": "^ch\\d{2,3}$"
+  },
+  "minProperties": 1,
+  "additionalProperties": {
+    "type": "object",
+    "propertyNames": {
+      "enum": [
+        "outline_coverage",
+        "evidence_density",
+        "cd_source_qualifier",
+        "no_vague_source",
+        "strong_claim",
+        "logic_word",
+        "conclusion_para",
+        "contribution_limitation",
+        "numbered_list_audit",
+        "structural_consistency",
+        "figure_reference",
+        "card_backfill",
+        "card_overlap",
+        "C1_h1",
+        "C2_manual_number",
+        "C3_image_syntax",
+        "C4_table_caption",
+        "C5_banned",
+        "QS1_wordcount",
+        "QS2_figures",
+        "QS3_tables",
+        "QS4_paragraphs",
+        "chapter_transition",
+        "reader_calibration",
+        "P1_tech_metrics",
+        "P2_innovation",
+        "P3_trl",
+        "P4_milestone",
+        "P5_research_base"
+      ]
+    },
+    "minProperties": 1,
+    "additionalProperties": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "confirm",
+            "adjust"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "adjust"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "mode",
+          "text"
+        ]
+      },
+      "additionalProperties": false
+    }
+  }
+}

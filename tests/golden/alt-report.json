@@ -1,0 +1,103 @@
+{
+  "contract": {
+    "C10_source_tier_prefix": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C11_claim_id_leak": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C1_h1": {
+      "count": 1,
+      "limit": 1,
+      "pass": true,
+      "severity": "high"
+    },
+    "C2_manual_number": {
+      "bold_pseudo_heading_count": 0,
+      "bold_pseudo_heading_hits": [],
+      "count": 6,
+      "hits": [
+        "## 第一章 产业概述",
+        "### 1.1 发展历程",
+        "### 1.2 产业链构成",
+        "## 第二章 市场与竞争",
+        "### 2.1 竞争格局分析",
+        "## 第三章 国际化与展望"
+      ],
+      "pass": false,
+      "severity": "high"
+    },
+    "C3_image_syntax": {
+      "expect": null,
+      "figure_count": 3,
+      "loose_image_count": 3,
+      "pass": true,
+      "severity": "mid"
+    },
+    "C4_table_caption": {
+      "caption_count": 1,
+      "pass": false,
+      "severity": "mid",
+      "table_block_count": 2
+    },
+    "C5_banned": {
+      "hits": {},
+      "pass": true,
+      "severity": "high"
+    },
+    "C6_reference_format": {
+      "local_bib_hits": [],
+      "pass": true,
+      "pure_num_expected": false,
+      "pure_num_hits": [],
+      "s_variant_hits": [],
+      "severity": "high",
+      "slash_src_hits": []
+    },
+    "C7_src_residue": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "mid"
+    },
+    "C8_word_count_residue": {
+      "hits": {},
+      "pass": true,
+      "severity": "low"
+    },
+    "C9_local_bibliography": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "high"
+    }
+  },
+  "fatal_keys": [],
+  "mode": "merged",
+  "overall_pass": false,
+  "quant": {
+    "QS1_cjk_chars": 1061,
+    "QS1_est_pages": 1.3,
+    "QS2_figures": 3,
+    "QS3_tables": 2,
+    "QS4_paragraphs": {
+      "count": 16,
+      "ideal_range": 0,
+      "longest": 132,
+      "mean": 66.3,
+      "over_600": 0,
+      "p25": 15,
+      "p50": 90,
+      "p75": 115,
+      "p90": 128,
+      "under_150": 16
+    }
+  },
+  "stage": "stage7"
+}

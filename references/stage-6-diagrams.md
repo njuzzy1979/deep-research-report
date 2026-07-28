@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 6：核心架构图——先于写作
 
 > 本文件是 deep-research-report skill 的阶段 6 详细 spec，从 SKILL.md 拆分而来。

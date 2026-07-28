@@ -1,0 +1,14 @@
+{
+  "capability_tier": "C",
+  "host": {
+    "agent_delegation": true
+  },
+  "limits": {
+    "max_output_tokens": 8000
+  },
+  "policy": {
+    "hard_rule_budget": 5,
+    "envelope_nonce": true,
+    "template_fill_mode": "on"
+  }
+}

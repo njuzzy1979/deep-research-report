@@ -169,10 +169,24 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
         "report-generation-flow-optimization.md §3.5",
     ),
     "W-OL-01": IssueCodeInfo(
-        Level.WARNING,
+        Level.ERROR,
         "outline.md 文件存在但 YAML 解析失败或无 structure 节点，已回退到"
-        "当前 heading 推断模式，不对结构做额外覆盖",
-        "report-generation-flow-optimization.md §8",
+        "当前 heading 推断模式，不对结构做额外覆盖（跨模型兼容性优化方案 "
+        "§二 A2：由 WARNING 提级为 ERROR，统一三处 outline.md SSOT 降级"
+        "语义的显著性）",
+        "report-generation-flow-optimization.md §8；"
+        "model-compatibility-optimization-plan.md §二 A2",
+    ),
+    "W-OL-02": IssueCodeInfo(
+        Level.ERROR,
+        "--outline 指定的 outline.md 文件不存在或不可读（区别于 W-OL-01"
+        "“文件存在但解析失败/无 structure 节点”），已回退到当前 heading "
+        "推断模式，不对结构做额外覆盖",
+        "G1 交叉验证裁决 O1：builder.py 中“文件读取失败”与“YAML 解析"
+        "失败”原先共用 W-OL-01 却发射不同级别（WARNING vs ERROR），"
+        "语义不同（前者文件本身不可达，后者文件存在但内容/结构有问题），"
+        "故拆分为独立 code，级别统一为 ERROR 以保持 outline.md SSOT "
+        "降级信号的显著性一致",
     ),
     "E-YML-01": IssueCodeInfo(
         Level.ERROR,
@@ -221,6 +235,30 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
 
 
 # ---------------------------------------------------------------------------
+# strict 升级豁免集（G1 交叉验证 D1 裁决）
+# ---------------------------------------------------------------------------
+
+# 这些 code 即使在 --strict 模式下命中 ERROR 级，也**不**被 IssueCollector.append()
+# 就地升级为 FATAL——豁免只影响"strict 下 ERROR→FATAL 的自动升级"这一步，issue 本身
+# 仍以 ERROR 级别记入报告，不改变其可见性。
+#
+# 为什么需要豁免：00-master-design.md §A2 对 "L-显著" 降级路径的定义是"进 Issue
+# 报告但不中断转换"，并在 §1.4 决策5 中明确要求 YAML 解析失败这类 outline.md SSOT
+# 降级场景走"延迟阻断"（留到 CP6 汇总台账后再决定是否阻断），而不是在转换过程中
+# 立即阻断。W-OL-01（outline.md YAML 解析失败/无 structure 节点）本次批次从
+# WARNING 提级为 ERROR 以提升报告显著性，但 IssueCollector 的 strict 短路逻辑是
+# "ERROR 一律升 FATAL"的无差别规则，会把这条 ERROR 在 --strict 下升级为 FATAL、
+# 触发 pipeline 的 FATAL 短路（跳过渲染阶段），与"延迟阻断而非立即阻断"的方案
+# 原则相悖，属于回归而非预期行为。故将 W-OL-01 纳入豁免集：仍然是 ERROR 级、
+# 仍然会被 CP6 台账汇总看到，但不会在 --strict 下阻止 DOCX 产出。
+#
+# W-OL-02（G1 交叉验证 O1 裁决新增：outline.md 文件不存在/不可读）与 W-OL-01
+# 是同一类"outline.md SSOT 降级"信号，语义上同样应走延迟阻断而非立即阻断，
+# 故一并纳入豁免集——否则 O1 的拆分会在这条新 code 上重现 D1 同款回归。
+STRICT_ESCALATION_EXEMPT_CODES: frozenset[str] = frozenset({"W-OL-01", "W-OL-02"})
+
+
+# ---------------------------------------------------------------------------
 # IssueCollector
 # ---------------------------------------------------------------------------
 
@@ -232,13 +270,20 @@ class IssueCollector:
     §1.3："--strict 模式下，任何本应为 ERROR 级的处理直接短路为 FATAL"）。升级逻辑
     集中在这一唯一入口，避免每个阶段各自重复判断 strict 标志（呼应本设计"单一触发点"
     的一贯思想）。
+
+    例外：``STRICT_ESCALATION_EXEMPT_CODES`` 中的 code 不参与这一自动升级（见其
+    定义处注释），issue 本身的 ERROR 级别不受影响。
     """
 
     strict: bool = False
     issues: list[Issue] = field(default_factory=list)
 
     def append(self, issue: Issue) -> None:
-        if self.strict and issue.level is Level.ERROR:
+        if (
+            self.strict
+            and issue.level is Level.ERROR
+            and issue.code not in STRICT_ESCALATION_EXEMPT_CODES
+        ):
             issue.level = Level.FATAL
         self.issues.append(issue)
 

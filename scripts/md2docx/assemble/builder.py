@@ -45,10 +45,21 @@ from .figures import resolve_figures
 from .headings import apply_structure_overlay, classify_and_number
 from .metadata import METADATA_WHITELIST_KEYS, extract_metadata
 from .outline_reader import (
+    _build_structure_lookup,
     build_structure_manifest,
     extract_yaml_front_matter,
 )
 from .tables import resolve_tables
+
+# 降级台账（跨模型兼容性优化方案 §二 A2）：builder.py 位于
+# scripts/md2docx/assemble/ 包内，degradation_log.py 位于 scripts/ 下。
+# 转换器运行时 cwd 通常是 scripts/，可直接导入；容错兜底为 no-op，
+# 只丢失台账观测性，不影响转换主流程。
+try:
+    from degradation_log import record_degradation
+except ImportError:
+    def record_degradation(**kwargs):  # type: ignore[no-redef]
+        pass
 
 
 def _build_heading_index(
@@ -171,22 +182,49 @@ def build(
             with open(outline_path, "r", encoding="utf-8") as f:
                 outline_text = f.read()
         except (OSError, IOError):
+            # G1 交叉验证 O1 裁决：本分支（文件根本不存在/不可读）与下方
+            # YAML 解析失败分支语义不同——前者是"outline.md 这个文件本身
+            # 拿不到"，后者是"文件存在、内容打不开/没有 structure 节点"。
+            # 二者原先共用同一个 code W-OL-01 却发射不同级别（WARNING vs
+            # ERROR），导致 issues.py registry 只能反映其一。判断后拆分为
+            # 两个独立 code：本分支专用 W-OL-02。级别统一为 ERROR——理由是
+            # 本次批次（§二 A2）明确要求"统一三处 outline.md SSOT 降级
+            # 语义的显著性"，而"文件读不到"导致的结构注入整体失效，其
+            # 严重性不低于"文件能读但解析失败"，没有理由级别更低；同时
+            # 补齐台账写入，与 outline_reader.py/merge_drafts.py/figure_gate.py
+            # 三个既有消费者的处理力度保持一致。
             issues.append(
                 Issue(
-                    level=Level.WARNING,
-                    code="W-OL-01",
+                    level=Level.ERROR,
+                    code="W-OL-02",
                     stage="assemble",
                     message=f"outline.md 文件无法读取：{outline_path}，"
                     f"已回退到推断模式",
                 )
             )
+            record_degradation(
+                stage="assemble",
+                component="builder",
+                reason="outline_file_unreadable",
+                level="L-显著",
+                fallback_used="heuristic_text_match",
+                impact="结构清单不可用（文件无法读取），heading 分类/编号回退到推断模式",
+                input_path=outline_path,
+            )
             outline_text = None
 
         if outline_text:
-            parsed, _body = extract_yaml_front_matter(outline_text)
+            parsed, _body = extract_yaml_front_matter(outline_text, outline_path)
             if parsed and "structure" in parsed:
                 structure = parsed["structure"]
-                manifest = build_structure_manifest(structure)
+                # D5：本函数与 apply_structure_overlay() 都需要
+                # _build_structure_lookup() 的展平结果——只算一次，两处复用，
+                # 避免同一条 stderr 诊断（如孤儿 subsection 未找到匹配）在
+                # 一次转换中被重复解析导致重复打印。
+                overlay_lookup = _build_structure_lookup(structure, outline_path)
+                manifest = build_structure_manifest(
+                    structure, outline_path, lookup=overlay_lookup
+                )
                 issues.append(
                     Issue(
                         level=Level.INFO,
@@ -204,18 +242,31 @@ def build(
                     )
                 )
                 heading_irs = apply_structure_overlay(
-                    heading_irs, structure, issues
+                    heading_irs, structure, issues,
+                    outline_path=outline_path, lookup=overlay_lookup,
                 )
             else:
+                # 跨模型兼容性优化方案 §二 A2：outline.md SSOT 三处延迟阻断
+                # 语义统一——本处原为 WARNING，与 merge_drafts.py/figure_gate.py
+                # 的阻断/诊断力度不一致，升级为 ERROR 并写降级台账。
                 issues.append(
                     Issue(
-                        level=Level.WARNING,
+                        level=Level.ERROR,
                         code="W-OL-01",
                         stage="assemble",
                         message=f"outline.md 存在但 YAML 解析失败或"
                         f"无 structure 节点，已回退到推断模式："
                         f"{outline_path}",
                     )
+                )
+                record_degradation(
+                    stage="assemble",
+                    component="builder",
+                    reason="outline_yaml_parse_failed_or_missing_structure",
+                    level="L-显著",
+                    fallback_used="heuristic_text_match",
+                    impact="结构清单不可用，heading 分类/编号回退到推断模式",
+                    input_path=outline_path,
                 )
 
     # 构建 heading 索引供步骤6 使用

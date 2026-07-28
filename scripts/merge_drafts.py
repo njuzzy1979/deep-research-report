@@ -37,6 +37,30 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# 降级台账（跨模型兼容性优化方案 §二 A2）：merge_drafts.py 与 degradation_log.py
+# 同处 scripts/ 目录下，正常情况下直接导入即可；容错兜底以防被从其他 cwd/
+# 打包方式调用导致导入失败——此时只丢失台账观测性，不影响主流程报错行为。
+try:
+    from degradation_log import record_degradation
+except ImportError:
+    def record_degradation(**kwargs):  # type: ignore[no-redef]
+        pass
+
+# 输出信封标记正则（跨模型兼容性优化方案 §C5，审查层 Critical-5 修复）：
+# contract_check.py 已定义共享常量 RE_ENVELOPE_MARKER，此处优先 import 复用，
+# 避免两处正则各写一份产生漂移。
+#
+# ⚠️ 注意：这里的容错降级**不能**像上面 record_degradation 那样 no-op！
+# B1 剥离步骤（clean_draft 函数）若 import 失败就静默跳过匹配，会导致带 nonce
+# 的信封标记（如 `[AGENT-OUTPUT-START:a7f3c9d2]`）无法被剥离、残留进入最终
+# Word 交付物——这是 Critical-5 明确指出的风险，不是"丢失可观测性"这种可接受
+# 的降级，而是"功能性缺陷直接产出错误结果"。因此降级方案是**本地定义一份
+# 逐字节相同的正则**，保证剥离功能不丢失，仅放弃"单一权威定义"这层好处。
+try:
+    from contract_check import RE_ENVELOPE_MARKER
+except ImportError:
+    RE_ENVELOPE_MARKER = re.compile(r"\[AGENT-OUTPUT-(?:START|END)(?::[0-9a-f]{6,16})?\]")
+
 
 # ── 阶段 A：解析 outline.md 结构清单 ────────────────────────
 
@@ -57,8 +81,29 @@ def parse_outline_yaml(outline_path: str) -> dict:
         print("[ERROR] outline.md 中未找到 YAML front matter", file=sys.stderr)
         sys.exit(2)
 
-    data = yaml.safe_load(yaml_text)
-    if "structure" not in data:
+    # 跨模型兼容性优化方案 §二 A2：yaml.safe_load 原先未捕获异常，格式错误的
+    # outline.md 会导致裸 traceback 直接甩给用户。统一为 L-显著 降级语义：
+    # 写台账 + 醒目 stderr 提示 + sys.exit(2)（此处原本就是硬阻断语义，
+    # 关键修复点是消除裸 traceback，而非改变"阻断"这个结果）。
+    try:
+        data = yaml.safe_load(yaml_text)
+    except yaml.YAMLError as e:
+        print(f"[FATAL] outline.md YAML 解析失败: {e}", file=sys.stderr)
+        if hasattr(e, "problem_mark") and e.problem_mark is not None:
+            line_no = e.problem_mark.line + 2
+            print(f"  问题大约在第 {line_no} 行: {e.problem}", file=sys.stderr)
+        record_degradation(
+            stage="merge",
+            component="merge_drafts",
+            reason="yaml_parse_failed",
+            level="L-显著",
+            fallback_used="hard_block",
+            impact="outline.md 结构清单不可用，合并流程无法继续",
+            input_path=outline_path,
+        )
+        sys.exit(2)
+
+    if not isinstance(data, dict) or "structure" not in data:
         print("[ERROR] outline.md YAML 中缺少 structure 节点", file=sys.stderr)
         sys.exit(2)
     return data["structure"]
@@ -71,11 +116,13 @@ def clean_draft(text: str) -> tuple:
     report = []
     lines = text.split("\n")
 
-    # B1: 剥离 Agent 输出隔离标记
+    # B1: 剥离 Agent 输出隔离标记（Critical-5 修复：改用共享正则常量，同时匹配
+    # 带 nonce `[AGENT-OUTPUT-START:a7f3c9d2]` 与不带 nonce `[AGENT-OUTPUT-START]`
+    # 两种格式——原字面量 startswith 只认后者，nonce 化后会漏剥离导致标记残留进 Word）
     cleaned_lines = []
     for line in lines:
         s = line.strip()
-        if s.startswith("[AGENT-OUTPUT-START]") or s.startswith("[AGENT-OUTPUT-END]"):
+        if RE_ENVELOPE_MARKER.match(s):
             report.append(f"B1-剥离标记: {s[:60]}")
             continue
         cleaned_lines.append(line)

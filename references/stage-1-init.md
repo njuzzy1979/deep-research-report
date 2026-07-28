@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 1：项目初始化——理解任务、设定参数
 
 > 本文件是 deep-research-report skill 的阶段 1 详细 spec，从 SKILL.md 拆分而来。

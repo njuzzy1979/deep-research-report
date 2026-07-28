@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deep-research-report.local/schemas/outline-structure.schema.json",
+  "title": "outline.md YAML front matter 结构清单",
+  "description": "research/outline.md 的机器可读结构清单（references/stage-4-outline.md §4.1.y）。figures_manifest 为可选字段（§4.1.z），架构图/数据图/表格三个子清单。",
+  "x-generated-from": "references/stage-4-outline.md#4.1.y,#4.1.z (manual)",
+  "type": "object",
+  "properties": {
+    "struct_template": {
+      "type": "string",
+      "enum": [
+        "research",
+        "proposal",
+        "policy",
+        "tech-eval",
+        "brief"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "structure": {
+      "type": "object",
+      "properties": {
+        "frontmatter": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "chapter_title": {
+                "type": "string"
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "section_no": {
+                      "type": "string"
+                    },
+                    "section_title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "section_no",
+                    "section_title"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "chapter_title"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "bodymatter": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "chapter_no": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "chapter_title": {
+                "type": "string"
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "section_no": {
+                      "type": "string"
+                    },
+                    "section_title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "section_no",
+                    "section_title"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "subsections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "parent_section_no": {
+                      "type": "string"
+                    },
+                    "subsection_no": {
+                      "type": "string"
+                    },
+                    "subsection_title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "parent_section_no",
+                    "subsection_no",
+                    "subsection_title"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "chapter_no",
+              "chapter_title"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "appendix": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "appendix_letter": {
+                "type": "string"
+              },
+              "appendix_title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "appendix_letter",
+              "appendix_title"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "bodymatter"
+      ],
+      "additionalProperties": false
+    },
+    "figures_manifest": {
+      "type": "object",
+      "properties": {
+        "architecture_figures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "figure_id": {
+                "type": "string"
+              },
+              "figure_no": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "drawio",
+                  "fireworks-tech-graph",
+                  "mermaid",
+                  "matplotlib"
+                ]
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional"
+                ]
+              },
+              "belongs_to_chapter": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "planned",
+                  "in_progress",
+                  "done",
+                  "dropped"
+                ]
+              },
+              "output_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "checkpoints": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "data_source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "figure_id",
+              "figure_no",
+              "title",
+              "type",
+              "tool",
+              "priority",
+              "belongs_to_chapter",
+              "status",
+              "output_files"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "data_figures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "figure_id": {
+                "type": "string"
+              },
+              "figure_no": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "drawio",
+                  "fireworks-tech-graph",
+                  "mermaid",
+                  "matplotlib"
+                ]
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "optional"
+                ]
+              },
+              "belongs_to_chapter": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "planned",
+                  "in_progress",
+                  "done",
+                  "dropped"
+                ]
+              },
+              "output_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "checkpoints": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "data_source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "figure_id",
+              "figure_no",
+              "title",
+              "type",
+              "tool",
+              "priority",
+              "belongs_to_chapter",
+              "status",
+              "output_files"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table_id": {
+                "type": "string"
+              },
+              "table_no": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "belongs_to_chapter": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "planned",
+                  "in_progress",
+                  "done",
+                  "dropped"
+                ]
+              },
+              "rows_estimate": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "table_id",
+              "table_no",
+              "title",
+              "belongs_to_chapter",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "struct_template",
+    "title",
+    "structure"
+  ],
+  "additionalProperties": false
+}

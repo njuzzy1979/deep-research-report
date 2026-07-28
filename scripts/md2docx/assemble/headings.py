@@ -444,6 +444,8 @@ def apply_structure_overlay(
     results: list[HeadingIR],
     structure: dict,
     issues: IssueCollector,
+    outline_path: str | None = None,
+    lookup: dict | None = None,
 ) -> list[HeadingIR]:
     """用 outline.md 结构清单覆盖 HeadingIR 的分类和编号。
 
@@ -459,6 +461,13 @@ def apply_structure_overlay(
         results: classify_and_number() 产出（已完成推断分类和编号）
         structure: outline.md YAML 的 ``structure`` 节点（plain dict）
         issues: IssueCollector 实例
+        outline_path: 真实的 outline.md 路径，透传给 build_structure_manifest()
+            的台账写入（D3 附带修复）。默认 None 回退旧字面量，兼容既有调用方。
+        lookup: 可选的、调用方已算好的 ``_build_structure_lookup()`` 结果。
+            传入时直接复用，不再内部重新调用一遍（G1 交叉验证 D5 裁决：一次
+            转换中 builder.py 会先算一次 manifest，这里若再算一次 lookup，
+            `_build_structure_lookup()` 内部的逐条 stderr 诊断会重复打印）。
+            不传时（默认 None）内部自行计算，行为与旧版本一致。
 
     Returns:
         修改后的 results（原地修改并返回同一列表引用）
@@ -466,9 +475,10 @@ def apply_structure_overlay(
     if not isinstance(structure, dict) or not results:
         return results
 
-    lookup = _build_structure_lookup(structure)
+    if lookup is None:
+        # _build_structure_lookup 在 outline_reader.py 中定义
+        lookup = _build_structure_lookup(structure, outline_path)
 
-    # _build_structure_lookup 在 outline_reader.py 中定义
     if not lookup:
         return results
 
@@ -498,7 +508,9 @@ def apply_structure_overlay(
 
     # 记录 Issue
     if override_count > 0:
-        manifest = build_structure_manifest(structure)
+        # D5：复用本函数已持有的 lookup，避免 build_structure_manifest()
+        # 内部再次调用 _build_structure_lookup() 重复解析 + 重复打印诊断。
+        manifest = build_structure_manifest(structure, outline_path, lookup=lookup)
         issues.append(
             Issue(
                 level=Level.INFO,

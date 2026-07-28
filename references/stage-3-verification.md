@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 3：事实核验
 
 > 本文件是 deep-research-report skill 的阶段 3 详细 spec，从 SKILL.md 拆分而来。

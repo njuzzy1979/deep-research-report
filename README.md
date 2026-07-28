@@ -58,7 +58,9 @@
 
 详见 [`references/multiagent-orchestration.md`](references/multiagent-orchestration.md)。
 
-### 10 个角色
+### 11 个角色
+
+口径：`agents/` 目录下实际存在的 Agent 定义文件数（不含 orchestrator——orchestrator 是主对话采用的编排剧本，未落地为 `agents/` 下的文件；已废弃的 `diagram_agent` 已移入 `agents/deprecated/`，不计入角色数）。
 
 | 角色 | 族 | 模型 | 阶段 | 简介 |
 |------|------|------|------|------|
@@ -67,7 +69,6 @@
 | `fact_verifier_agent` | 研究 | Opus | 3 | 事实核验台账，强表述降级 |
 | `outline_architect_agent` | 设计 | Opus | 4 | 产出 outline.md 叙事框架契约 |
 | `card_synthesizer_agent` | 设计 | Sonnet | 5 | 台账→结构化卡片 + 证据包 |
-| `diagram_agent`（已废弃） | 制图 | Haiku | 6+7 | 已于 2026-07-28 拆分为 architecture_chart_agent + data_chart_agent（均升级为 Sonnet） |
 | `architecture_chart_agent` | 制图 | Sonnet | 6 | 核心架构图批量产出（总览图/架构图/流程图） |
 | `data_chart_agent` | 制图 | Sonnet | 7 | 数据图表随写作按章产出（matplotlib） |
 | `chapter_writer_agent` | 写作 | Sonnet | 7 | 逐章写作，卡片→叙事化转写 |
@@ -76,6 +77,8 @@
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份报告→统一风险清单 |
 | `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
 
+> **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已于 2026-07-28 废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表），均升级为 Sonnet。原文件已移入 `agents/deprecated/diagram_agent.md`，不计入上表 11 个角色。
+>
 > **模型选型原则**：按认知负荷类型分级——强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；架构语义理解 + 编程（架构图、数据图表）用 Sonnet；机械/模板化（搜集、定稿）用 Haiku。
 
 ### 三档协同模式
@@ -86,7 +89,7 @@
 | **分层多 Agent**（默认） | 深度研究 30-50 页 / 核心章 2-3 | 仅核心章走对抗，其余 orchestrator 直接写 | 4 人格并行 + 综合 | 标准（6-8 角色） |
 | **单 Agent 极速** | 快速简报(brief) / <15 页 / ≤2 章 | orchestrator 单 Agent + V3 自查兜底 | 3 维度自审 | 最小（回退 V3） |
 
-## 写作标准体系（17 条）
+## 写作标准体系（23 条）
 
 | 编号 | 标准 | 作用域 |
 |------|------|--------|
@@ -104,8 +107,13 @@
 | 标准 11 | 承认边界——每章至少 1 句分析局限 | 全类型 |
 | 标准 12 | 摘要自足性——摘要不是目录散文版 | 全类型 |
 | 标准 13-17 | 立项报告专属（P1 技术指标量化 / P2 创新点三分 / P3 TRL / P4 里程碑 / P5 研究基础） | proposal 专用 |
+| 标准 18 | 章节与节间过渡——叙事连贯性 | 全类型 |
+| 标准 19 | 读者层次校准——"知识的诅咒"防御 | 全类型 |
+| 标准 20 | 段落长度与信息密度 | 全类型 |
+| 标准 21 | 表格写作规范 | 全类型 |
+| 标准 22 | 术语一致性 | 全类型 |
 
-> 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
+> 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)（标准 0-22，共 23 条）。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
 
 ## 自动化检查脚本（6 个）
 
@@ -169,7 +177,7 @@ deep-research-report/
 ├── dashboard.md                          # Darwin 2.0 评估优化记录
 ├── linkage-constants.json                # SSOT 跨文件数值常量（7 个阈值/限额）
 ├── .gitignore                            # 排除 research/ output/ tests/
-├── agents/                               # 12 个 Agent 定义（prompt + 契约）
+├── agents/                               # 11 个 Agent 定义（prompt + 契约）
 │   ├── chapter_writer_agent.md           # 写作者（Sonnet）
 │   ├── chapter_auditor_agent.md          # 审计者（Opus，R3 的解）
 │   ├── redteam_agent.md                  # 红队 4 人格（异构 2×Opus+2×Sonnet）
@@ -180,8 +188,8 @@ deep-research-report/
 │   ├── fact_verifier_agent.md            # 事实核验（Opus）
 │   ├── architecture_chart_agent.md       # 核心架构图（Sonnet，阶段6）
 │   ├── data_chart_agent.md               # 数据图表（Sonnet，阶段7）
-│   ├── diagram_agent.md                  # 制图（已废弃，拆分为以上两个）
 │   ├── finalizer_agent.md                # 定稿整合（Haiku）
+│   ├── deprecated/                       # 已废弃角色归档（agents/deprecated/diagram_agent.md，制图角色，已拆分为 architecture_chart_agent + data_chart_agent）
 │   └── contracts/                        # writer_contract.json + auditor_contract.json
 ├── scripts/
 │   ├── contract_check.py                 # 合约 + 量化检查（审计 Agent 确定性工具）
@@ -209,7 +217,7 @@ deep-research-report/
 │   ├── stage-1-init.md through stage-9-finalize.md  # 9 阶段独立 spec
 │   ├── appendix-report-types.md          # 报告类型适配 + 分报告类型行文要点
 │   ├── appendix-converter-contract.md    # 转换器合约 C1-C5
-│   ├── writing-standards.md              # 写作标准详细说明（标准 0-17）
+│   ├── writing-standards.md              # 写作标准详细说明（标准 0-22）
 │   ├── writing-process-pitfalls.md       # 写作/协同流程踩坑记录（流程层根因分析）
 │   ├── md-to-docx-pitfalls.md            # 转换器踩坑记录（代码层修复方案）
 │   ├── multiagent-orchestration.md       # 多 Agent 编排总纲

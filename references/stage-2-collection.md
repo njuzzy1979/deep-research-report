@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 2：资料搜集、抽取与来源索引
 
 > 本文件是 deep-research-report skill 的阶段 2 详细 spec，从 SKILL.md 拆分而来。

@@ -65,9 +65,15 @@ _DEFAULT_ROOT = Path(__file__).resolve().parent
 
 # 允许承载中文"消息文案"的关键字参数名（§F.2"消息文案"允许项）。
 # Issue()/警告构造/报告拼接/argparse help 的文字提示均归此类。
+# level/reason/fallback_used/impact：跨模型兼容性优化方案 §二 A2 新增的
+# record_degradation() 降级台账 API 的关键字参数，承载的同样是诊断/降级
+# 说明文案（如 "L-显著"、"结构清单不可用，回退到推断模式"），性质与
+# Issue(message=/suggestion=) 完全一致——都是"读出这是一条什么诊断"，不是
+# "读出报告写了什么内容"，故纳入同一豁免类别。
 _MESSAGE_KWARGS = frozenset({
     "message", "suggestion", "detail", "note", "desc", "hint",
     "help", "description", "metavar", "title",
+    "level", "reason", "fallback_used", "impact",
 })
 
 # 方法名后缀：字面量作为这些调用的实参时视为"输出文案"（写入报告/日志/控制台/文档）。

@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 写作/协同过程踩坑记录——根因链分析
 
 本文档与 `references/md-to-docx-pitfalls.md` 是互补关系，边界如下：

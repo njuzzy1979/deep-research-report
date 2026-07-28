@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 4：详细大纲
 
 > 本文件是 deep-research-report skill 的阶段 4 详细 spec，从 SKILL.md 拆分而来。
@@ -48,7 +52,7 @@
 
 ### 4.1.x 大纲落盘——共享契约文件 `research/outline.md`
 
-> 本节对应 v3 优化方案修改 4.1/4.2。在多 Agent 协同体系（见 `multiagent-orchestration.md`）下，本文件由 `outline_architect_agent` 产出，落盘格式沿用本节定义——它是 `chapter_writer_agent`（写作蓝图）、`chapter_auditor_agent`（审计基准）、`card_synthesizer_agent`（按章组织卡片）、`diagram_agent`（出图清单）四方的**唯一共享契约**。单 Agent 极速档下由 orchestrator 自己落盘同一格式。
+> 本节对应 v3 优化方案修改 4.1/4.2。在多 Agent 协同体系（见 `multiagent-orchestration.md`）下，本文件由 `outline_architect_agent` 产出，落盘格式沿用本节定义——它是 `chapter_writer_agent`（写作蓝图）、`chapter_auditor_agent`（审计基准）、`card_synthesizer_agent`（按章组织卡片）、`architecture_chart_agent`（出图清单）四方的**唯一共享契约**。单 Agent 极速档下由 orchestrator 自己落盘同一格式。
 
 大纲产出后**必须保存为独立文件 `research/outline.md`**，为阶段 7"写每节前先读对应大纲条目"做准备。格式为：
 

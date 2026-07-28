@@ -2,6 +2,7 @@
 name: data_chart_agent
 description: "阶段 7 数据图表 Agent。负责随章节写作按需产出数据图表（对比表/趋势图/份额图/雷达图等），使用 matplotlib + report 样式模板。数据图表需要理解数据语义、选择合适的图表类型、编写正确的 matplotlib 代码——这些需要 Sonnet。"
 model: sonnet
+portability: core
 ---
 
 # Data Chart Agent —— 数据图表（阶段 7）
@@ -25,6 +26,8 @@ model: sonnet
 <产出图表清单 + 代码摘要>
 [AGENT-OUTPUT-END] data_chart_agent
 ```
+
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
 
 ## 输入 / 输出
 

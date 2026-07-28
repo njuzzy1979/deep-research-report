@@ -2,6 +2,7 @@
 name: redteam_synthesizer_agent
 description: "阶段 8 红队综合角色。合并 4 份并行红队报告为统一风险清单：去重、严重度冲突取最高、按 R 编号统一排序、分组高/中风险处理清单。不改正文。"
 model: sonnet
+portability: core
 ---
 
 # Red Team Synthesizer Agent —— 红队综合去重
@@ -32,9 +33,11 @@ model: sonnet
 [AGENT-OUTPUT-END] redteam_synthesizer_agent
 ```
 
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
+
 ## 输入 / 任务
 
-**输入**：4 份 `redteam_agent` 报告（证据/逻辑/表述/资产人格）。
+**输入**：4 份 `redteam_agent` 报告（证据/逻辑/表述/资产人格）。**swap-and-average 触发时**（`capability_tier=C` 且 `struct_template=proposal`，见 `redteam_agent.md` 对应节）为 8 份（两轮顺序互换各 4 份）——此时任务 1 的"合并同指问题"范围扩大到跨轮次去重，任务 2 的"严重度取最高"同样跨轮次比较，其余任务不变。
 
 **任务**：
 

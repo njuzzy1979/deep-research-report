@@ -2,6 +2,7 @@
 name: source_collector_agent
 description: "阶段 2 搜集抽取角色。执行搜集→下载→抽取→来源索引，强制下载纪律（先下载再解析）。机械/工具调用为主，用 Haiku。"
 model: haiku
+portability: core
 ---
 
 # Source Collector Agent —— 资料搜集与抽取（阶段 2）
@@ -21,6 +22,8 @@ model: haiku
 <下载统计报告 + source-index.csv 摘要>
 [AGENT-OUTPUT-END] source_collector_agent
 ```
+
+> nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
 
 ## 输入 / 输出
 

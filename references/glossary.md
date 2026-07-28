@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 术语表（Glossary）
 
 > 本文件是 deep-research-report skill 的术语表模板。由 `card_synthesizer_agent` 在阶段 5 完成卡片合成后编译产出，供阶段 7 `chapter_writer_agent`（术语统一参考）和 `chapter_auditor_agent`（术语一致性审计基准）使用。

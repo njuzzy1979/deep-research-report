@@ -1,3 +1,7 @@
+---
+portability: core
+---
+
 # 阶段 9：定稿整合
 
 > 本文件是 deep-research-report skill 的阶段 9 详细 spec，从 SKILL.md 拆分而来。
@@ -5,7 +9,36 @@
 
 ---
 
+## 9.0 推荐执行方式：`scripts/finalize_pipeline.py`（方案 §D5）
+
+> **多 Agent 协同体系下（`finalizer_agent` 执行）以及单 Agent 极速档下，均推荐优先使用本脚本**，而非下方 §9.1.x 逐条手动执行 grep/cat/contract_check 命令——脚本已把剥离标记→H1检测替换→结构驱动合并→引用转换→合约终检（`--merged --stage stage9`）→13项交付清单这 6 个顺序强依赖步骤串成单一 Python 流程，消除人工/弱模型记错步骤顺序的风险。下方 §9.1/§9.1.x 的分步说明仍保留，作为脚本不可用环境下的手动兜底参考、以及理解每一步具体做什么的详细说明。
+
+```bash
+python scripts/finalize_pipeline.py \
+  --drafts-dir research/drafts --outline research/outline.md \
+  --source-index research/sources/source-index.csv \
+  --output research/drafts/final-report.md \
+  --glossary research/glossary.md --figures-dir research/figures \
+  --redteam-diff research/redteam-resolution-diff.md --json
+```
+
+JSON 输出含 `failure_step` 枚举字段（`strip_markers`/`h1_check`/`merge`/`convert_refs`/`contract_check`/`delivery_checklist`），标出六步中具体哪一步失败，退出码 0/1/2 语义见脚本内 docstring（`agents/finalizer_agent.md` 中有按 `failure_step` 查表的固定路由说明）。
+
+> **⚠️ 已知系统性冲突（实现阶段实测确认，详见实现报告）**：`contract_check` 步骤在真实报告场景下可能因两处既有脚本组件间的矛盾而失败——(1) `merge_drafts.assemble_merged()` 按规范插入的标准章容器 `## 第 X 章：<chapter_title>` 会被 `contract_check.py` 的 C2（手动编号检测）判为 `fatal`；(2) `convert_references.py` 转换出的正常纯数字引用 `[N]` 会被 C6 判负。这两处不是 `finalize_pipeline.py` 的实现缺陷，是 `contract_check.py` 既有判定规则与 stage9 合并产物格式之间此前从未被真正验证过的冲突（此前 `merge_drafts.py` 自身的阶段 E/F 校验只 WARN 不阻断，从未让这一冲突真正生效过）。命中时不应回炉重写章节内容，应回报 orchestrator 决定人工豁免或另行修订 `contract_check.py`（后者超出阶段9执行者权限）。
+
+### 9.0.1 门禁对应（方案 §D1）
+
+本阶段对应 `multiagent-orchestration.md` §5 门禁体系中的 **G(交付)** 一行（沿用现有门禁实名，非虚构 G0-G8）：
+
+| 门禁/阶段 | 新增调用 | 调用者 | 失败路由 |
+| --- | --- | --- | --- |
+| **G(交付)** | `degradation_report.py`（**12 项 → 13 项清单**，第 13 项"降级台账确认"由 `scripts/delivery_checklist_check.py` 聚合调用，见 §9.1） | `finalizer_agent` | 未确认降级 → **阻断 CP6** |
+
+---
+
 ## 9.1 整合清单
+
+> **与方案 §D6 的对应关系**：下方是人工核对口径的整合清单（历史沿革，逐项对应写作规范原文）；方案 §D6 "12 项 → 13 项清单"是其**脚本化聚合版本**（`scripts/delivery_checklist_check.py`，10 项可脚本化 + 2 项 manual_required + 第 13 项降级台账确认，见 §9.0 D5 管道第 6 步 `delivery_checklist`）——推荐执行方式下由脚本自动核对前 11 项中的可脚本化部分，人工只需核对 manual_required 的 2 项与全文通读。两份清单条目大体一一对应，不是相互独立的两套标准。
 
 - [ ] 统一术语（同一概念在全文中使用相同名称）
 - [ ] **全文术语一致性核对**：运行 `scripts/term_consistency_check.py`，以 `research/glossary.md` 为基准，检查合并后 `final-report.md` 全文。确认无 banned_forms 泄露、所有原创核心概念的 preferred_form 被逐字使用、aliases 首次使用时已标注
@@ -13,7 +46,7 @@
 - [ ] **参考文献去重与编号统一**：检查是否存在同一来源以不同编号出现的情况——合并为同一编号；确认所有 `[N]` 在正文和参考文献列表之间一一对应，无遗漏无多余
 - [ ] 图表编号统一（图 N-M：章号-图序）
 - [ ] 交叉引用检查（"如图 X-Y 所示"与实际图表编号一致）
-- [ ] **输出隔离标记剥离**：所有分章文件中 `[AGENT-OUTPUT-START]` / `[AGENT-OUTPUT-END]` 标记行已删除（F1 违规检测）
+- [ ] **输出隔离标记剥离**：所有分章文件中 `[AGENT-OUTPUT-START]` / `[AGENT-OUTPUT-END]` 标记行（含可选 `:<nonce>` 十六进制后缀，两种形式均须剥离）已删除（F1 违规检测）
 - [ ] **写作者自声明剥离**：各分章文件中 `### 写作者自声明（第 X 章）` 区块已完整删除
 - [ ] **红队批注剥离**：`> [红队 RXXX 已改写/已补证据]` 等引用块已删除
 - [ ] **字数统计残留清理**：`全文约 XXXX 字`、`本章字数约 XXXX` 等已删除（C8 检查）
@@ -53,10 +86,10 @@ cat research/drafts/ch01-*.md research/drafts/ch02-*.md ... > research/drafts/fi
 **合并后终检**：对合并后的 `final-report.md` 运行合约终检（v5 清单 #6 复用）——
 
 ```bash
-python scripts/contract_check.py research/drafts/final-report.md --merged
+python scripts/contract_check.py research/drafts/final-report.md --merged --stage stage9
 ```
 
-`--merged` 模式下 C1 允许恰好 1 个 H1；若 > 1 则说明分章 H1 未清理干净，回到上一步替换为 H2。
+`--merged` 模式下 C1 允许恰好 1 个 H1；若 > 1 则说明分章 H1 未清理干净，回到上一步替换为 H2。`--stage stage9` 与 `scripts/finalize_pipeline.py`（见 §9.0）内部调用 `check_contract(merged=True, stage="stage9")` 的参数口径保持一致（stage9 下 C2 severity 升级为 fatal、C7 由 WARN 升级为 FATAL）——本节手动兜底命令仅在 §9.0 脚本不可用时使用，仍应带上该参数，避免因遗漏 `--stage stage9` 而得到比脚本化路径更宽松（因而不可信）的通过结果。
 
 ## 9.2 自动导出标准 Word 文档（.docx）——必须执行
 

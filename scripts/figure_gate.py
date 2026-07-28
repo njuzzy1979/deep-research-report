@@ -40,6 +40,14 @@ except ImportError:
     print("错误：需要 PyYAML 库。pip install PyYAML")
     sys.exit(1)
 
+# 降级台账（跨模型兼容性优化方案 §二 A2）：figure_gate.py 与 degradation_log.py
+# 同处 scripts/ 目录下；容错兜底为 no-op，避免观测性依赖影响主流程。
+try:
+    from degradation_log import record_degradation
+except ImportError:
+    def record_degradation(**kwargs):  # type: ignore[no-redef]
+        pass
+
 
 # ---------------------------------------------------------------------------
 # YAML figures_manifest 提取
@@ -62,7 +70,24 @@ def extract_manifest_from_yaml(outline_path: Path) -> Optional[dict]:
     yaml_text = content[3:end_idx].strip()
     try:
         fm = yaml.safe_load(yaml_text)
-    except yaml.YAMLError:
+    except yaml.YAMLError as e:
+        # 跨模型兼容性优化方案 §二 A2：原为静默 return None，调用方无法得知
+        # 图表清单降级到 Markdown 正文标记提取的原因。这里只补诊断输出和
+        # 台账写入，返回值语义（None）保持不变，不改变调用方行为。
+        print(
+            f"[WARN] figure_gate: outline.md YAML 解析失败，"
+            f"figures_manifest 不可用，将回退到 Markdown 正文标记提取: {e}",
+            file=sys.stderr,
+        )
+        record_degradation(
+            stage="figure_gate",
+            component="figure_gate",
+            reason="yaml_parse_failed",
+            level="L-显著",
+            fallback_used="markdown_body_marker_extraction",
+            impact="figures_manifest 不可用，图表清单回退到 Markdown 正文标记提取",
+            input_path=str(outline_path),
+        )
         return None
     if not isinstance(fm, dict):
         return None

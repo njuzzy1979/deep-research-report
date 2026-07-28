@@ -1,3 +1,7 @@
+---
+portability: claude-only
+---
+
 # 多 Agent 协同编排总纲
 
 > 本文件是 deep-research-report skill 多 Agent 协同的编排总纲，落盘 v4 §2/§6/§7 的编排机制。
@@ -12,9 +16,9 @@
 
 - ✅ **正确激活**：用户在主对话说"用 deep-research-report 写一份关于 XX 的报告"，主对话读 SKILL.md、采用编排剧本、开始分派。
 - ❌ **禁止**：把本 skill 通过 `Agent` 工具作为嵌套子 Agent 拉起——此时无法再向下分派。
-- **降级兜底**：若本 skill 被作为嵌套子 Agent 拉起（`Agent` 工具不可用），**自动降级为单 Agent 极速档**，标注"多 Agent 协同不可用，已降级为 V3 单 Agent 模式"。
+- **降级兜底**：触发条件是**检测不到 `Agent` 工具**（而非"被作为嵌套子 Agent 拉起"这一运行时场景本身——两者常同时成立，但判据是能力探测，不是调用形式），由 `model-profile.json` 的 `host.agent_delegation: false` 显式声明（`scripts/model_profile.py::resolve_collaboration_mode` 硬规则 2），而非运行时嗅探。声明为 `false` 时**自动降级为单 Agent 极速档**，标注"多 Agent 协同不可用，已降级为 V3 单 Agent 模式"。
 
-## 2. 11 角色 × 阶段 × 模型 × 编排模式
+## 2. 11 角色（口径：`agents/` 下实际存在的 Agent 定义文件数，不含 orchestrator——orchestrator 是主对话采用的编排剧本，由本文件定义，不落地为 `agents/` 下的文件；已废弃的 `diagram_agent` 移入 `agents/deprecated/` 后不计入）× 阶段 × 模型 × 编排模式
 
 | 阶段 | 主责角色 | 编排模式 | 模型 | CHECKPOINT | 门禁 |
 |------|---------|---------|------|:---:|:---:|
@@ -23,7 +27,7 @@
 | 3 事实核验 | `fact_verifier_agent` | 单 Agent 分派 | Opus | — | G(核验) |
 | 4 详细大纲 | `outline_architect_agent` | 单 Agent 分派 | Opus | **CP3 大纲确认** | G(大纲) |
 | 5 专题卡片 | `card_synthesizer_agent` | 单 Agent 分派 | Sonnet | — | G(卡片) |
-| 6 核心架构图 | `diagram_agent` | 单 Agent 分派（多图可 parallel） | Haiku | — | G(出图) |
+| 6 核心架构图 | `architecture_chart_agent` | 单 Agent 分派（多图可 parallel） | Sonnet | — | G(出图) |
 | **7 分章写作** | `chapter_writer` + `chapter_auditor` | **pipeline + loop-until-pass** | Sonnet + Opus | CP4 逐章汇总 | **G7-write** |
 | **8 红队审查** | `redteam ×4` + `redteam_synthesizer` | **parallel fan-out + gather** | 2Opus+2Sonnet + Sonnet | **CP5 风险处理** | **G8-redteam** |
 | 9 定稿整合 | `finalizer_agent` | 单 Agent 分派 | Haiku | CP6 交付清单 | G(交付) |
@@ -40,11 +44,13 @@
 [AGENT-OUTPUT-END] <agent名称>
 ```
 
+> **nonce（可选后缀）**：`model-profile.json` 的 `policy.envelope_nonce` 为 true 的能力档（tier B/C）下，orchestrator 在分派 prompt 中附带一个十六进制 nonce（如 `a7f3c9d2`），要求该 Agent 原样接到标记后面（`[AGENT-OUTPUT-START:a7f3c9d2]`）。Claude（tier A，`envelope_nonce=false`）默认不启用，继续沿用不带 nonce 的旧格式——两种格式提取正则均能正确处理。nonce 未被照抄不阻断，降级为无 nonce 匹配并写台账。
+
 分派子 Agent 时必须在 prompt 中写明此契约。
 
 ## 4. 噪声检测与重试（收集每个子 Agent 输出时执行）
 
-1. **提取有效内容**：用正则 `\[AGENT-OUTPUT-START\]([\s\S]*?)\[AGENT-OUTPUT-END\]` 提取。无匹配 → FAILED → 重试。
+1. **提取有效内容**：用正则 `\[AGENT-OUTPUT-(START|END)(?::[0-9a-f]{6,16})?\]([\s\S]*?)\[AGENT-OUTPUT-(START|END)(?::[0-9a-f]{6,16})?\]` 提取（同时接受带 nonce 与不带 nonce 两种标记形式）。无匹配 → FAILED → 重试。
 2. **噪声比率检测**：污染行（GBK 乱码 + 进度条字符 `▕ █ %`）> 30% → CONTAMINATED → 重试（最多 2 次）。
 3. **超时保护**：单 Agent > 15 分钟 → 终止重试；仍超时 → P0 停流水线。
 4. **关键路径**：`chapter_auditor_agent`（G7）和 `redteam_agent`（G8）若输出污染/超时，必须重试满 2 次才放弃。其他 Agent 最多允许跳过 1 个。
@@ -79,6 +85,26 @@
 > **超大报告红队降级（阶段 8 额外降级路径）**：当报告正文超过 50,000 中文字或章节数超过 8 章时，全报告注入可能超出 Agent 上下文窗口安全边界。此时 4 人格红队可从"全报告并行"降级为"按章节组分批（2-3 组），再跨组交叉"——每组内 4 人格仍并行审查，分组间的一致性矛盾可能漏检（代价声明）。核心结论章不允许被拆分到不同组（红线）。此降级独立于三档协同模式——即使"完整多 Agent"档也适用。详见 `references/workflow-stage8.md` 超大报告降级分支。
 
 > **降级不是"没有质量控制"**：单 Agent 极速档采用 V3 的 CHECKPOINT/STATS/REPORT 单 Agent 自律机制，V3 的价值在极速档完全保留。**关键**：单 Agent 档 orchestrator 自身也从 Opus 降到 Sonnet——此时它承担"直接写一份简报"而非"跨 9 阶段全局裁决"，认知负荷类型变了。回退兜底：模型不可用时按 Haiku→Sonnet→Opus 单向就高兜底。
+
+## 7.5 二维决策矩阵：模型能力档 × 报告规模档（跨模型兼容性优化方案 §C2）
+
+上面 §7 的"三档协同模式"由**报告规模/类型**决定；`model-profile.json` 声明的**模型能力档**（tier A/B/C，见 `scripts/model_profile.py`）是**正交的第二维**——两者不互相覆盖，只有一个例外（见下表 Tier C × 完整多 Agent）。
+
+| | **完整多 Agent** | **分层多 Agent**（默认） | **单 Agent 极速** |
+|---|---|---|---|
+| **Tier A**<br>(Claude Opus/Sonnet) | **现状完全不变**。红线不限、Phase A 自由生成 24 维度、nonce 可选、无填空骨架 | **现状不变** | **现状不变** |
+| **Tier B**<br>(DeepSeek V3.2 / GLM-4.6 / Qwen3 等) | 红线 ≤5；Phase A 确认式；强制 nonce；填空骨架 on；4 个新脚本全开 | 同左，仅核心章走对抗；非核心章 orchestrator 直写 + 全套脚本校验 | 红线 ≤5；填空骨架 on；语义自查压缩 3 项，其余交脚本 |
+| **Tier C**<br>(未知模型兜底) | **不允许**——自动降为"分层多 Agent"并写台账（理由：完整档成本放大 3-5 倍 + 未知模型 = 高失败风险叠加） | 同 Tier B 分层多 Agent 档 | 同 Tier B 单 Agent 极速档 |
+
+**正交性说明**：能力档影响**每次调用的 prompt 构造方式与输出切分粒度**（红线条数、Phase A 书写形态、是否强制 nonce、是否用填空骨架）；规模档影响**调用哪些 Agent、调用几次**（完整/分层/极速三档见 §7 上表）。两者独立生效，唯一硬性覆盖规则是 `Tier C × 完整多 Agent` 强制降级。
+
+**硬规则的代码实现**：`scripts/model_profile.py` 的 `resolve_collaboration_mode(profile, requested_mode)` 返回 `(实际生效模式, 降级原因|None)`，落地两条硬规则：
+1. `capability_tier == "C"` 且请求档位为"完整多 Agent" → 强制降为"分层多 Agent" + 写台账。
+2. `host.agent_delegation == false`（无 depth-1 委派底座）→ 强制降为"单 Agent 极速"，与本文件 §1"降级兜底"一致。
+
+模式命名（"完整多 Agent"/"分层多 Agent"/"单 Agent 极速"）与 `SKILL.md` §三档协同模式表、本文件 §7 上表严格一致，代码中的字符串常量与文档措辞同步维护。
+
+> **⚠️ 风险标注**：`Tier B × 完整多 Agent` **未经实测**。建议首个真实项目先跑分层多 Agent 档，验证通过后再尝试完整档。
 
 ## 8. 门禁快照落盘（防长会话丢失，UEAS 习惯）
 
