@@ -2,6 +2,8 @@
 
 面向支持 Agent Skills 标准的运行时（Claude Code、Codex、Cursor 等）的**深度研究报告编写全流程方法论**。将"写一份研究报告"拆解为 9 个顺序阶段，用证据驱动 + 架构分析的方式，产出有事实核验台账、有架构图、经过写审对抗 + 红队审查的正式研究报告（Markdown + 标准格式 Word .docx）。
 
+**v5.1 起支持跨模型运行**：除 Claude 外，已适配 DeepSeek V4/V3、GLM-4、Qwen3 等模型——通过 `model-profile.json` 声明能力档，自动调整 prompt 构造与输出切分策略。Claude 用户默认零配置，非 Claude 用户执行 `python scripts/model_profile.py --model auto` 一行命令自动适配。
+
 ## 这个 skill 解决什么问题
 
 直接让 LLM"写一份关于 XX 的报告"，容易出现：
@@ -25,6 +27,7 @@
 | **红队并行** | 阶段 8 四人格（2×Opus+2×Sonnet）并行审查，独立综合去重 | 单视角审查遗漏；同质化风险 |
 | **SSOT 治理** | Agent prompt 强制 Read 外部规范文件，`linkage-constants.json` + `check_linkage_constants.py` 跨文件常量联动校验 | 规范文档腐烂——Agent 内嵌摘要与源文件脱节；关键数值（阈值/限额）在多文件间漂移 |
 | **Word 原生动态编号** | `w:numPr` 多级列表 + SEQ 域 + `w:updateFields` 双保险 | 硬编码编号在文档编辑后失序——章节增删后需全篇人工重新核对编号 |
+| **跨模型兼容** | `model-profile.json` 能力档声明（tier A/B/C）+ 模型名自动检测 → 自动调整 prompt 策略；非 Claude 宿主退化为单 Agent 极速 + 全套确定性脚本，质量打折但不清零 | 离开 Claude 后 skill 行为未定义——弱模型上 prompt 溢出/红线被忽略/输出格式失控 |
 
 ## 9 阶段流程
 
@@ -83,11 +86,13 @@
 
 ### 三档协同模式
 
-| 档位 | 触发条件 | 阶段 7 写作 | 阶段 8 红队 | Agent 调用量级 |
-|------|---------|-----------|-----------|--------------|
-| **完整多 Agent** | 立项报告(proposal) / ≥40 页 / 核心章 ≥3 | 全部章 writer+auditor 对抗 + loop-until-pass | 4 人格并行 + 综合 | 完整（10+ 角色） |
-| **分层多 Agent**（默认） | 深度研究 30-50 页 / 核心章 2-3 | 仅核心章走对抗，其余 orchestrator 直接写 | 4 人格并行 + 综合 | 标准（6-8 角色） |
-| **单 Agent 极速** | 快速简报(brief) / <15 页 / ≤2 章 | orchestrator 单 Agent + V3 自查兜底 | 3 维度自审 | 最小（回退 V3） |
+| 档位 | 触发条件 | 阶段 7 写作 | 阶段 8 红队 | Agent 调用量级 | 跨模型支持 |
+|------|---------|-----------|-----------|--------------|-----------|
+| **完整多 Agent** | 立项报告(proposal) / ≥40 页 / 核心章 ≥3 | 全部章 writer+auditor 对抗 + loop-until-pass | 4 人格并行 + 综合 | 完整（10+ 角色） | Claude only（需 depth-1 委派） |
+| **分层多 Agent**（默认） | 深度研究 30-50 页 / 核心章 2-3 | 仅核心章走对抗，其余 orchestrator 直接写 | 4 人格并行 + 综合 | 标准（6-8 角色） | Claude only（需 depth-1 委派） |
+| **单 Agent 极速** | 快速简报(brief) / <15 页 / ≤2 章 | orchestrator 单 Agent + V3 自查兜底 | 3 维度自审 | 最小（回退 V3） | 全模型通用（`core`） |
+
+> 非 Claude 宿主（DeepSeek V4/V3、GLM-4、Qwen3 等）通过 `model-profile.json` 声明能力档。若 `host.agent_delegation=false`（无 depth-1 委派底座），`model_profile.py` 的 C2 二维矩阵硬规则强制降级为单 Agent 极速档。完整可移植性声明见 [PORTABILITY.md](PORTABILITY.md)。
 
 ## 写作标准体系（23 条）
 
@@ -115,7 +120,7 @@
 
 > 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)（标准 0-22，共 23 条）。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
 
-## 自动化检查脚本（6 个）
+## 自动化检查脚本（15 个）
 
 | 脚本 | 触发阶段 | 功能 | 调用方 |
 |------|---------|------|--------|
@@ -126,6 +131,18 @@
 | `figure_gate.py` | 阶段6 CP + 阶段9 | 全自动文件系统级图表存在性检查（FATAL阻断） | orchestrator |
 | `check_linkage_constants.py` | CI/维护 | 扫描 `linkage-const` 标记，与 `linkage-constants.json` 比对 | 开发者 |
 | `check_no_hardcode.py` | CI | AST 扫描内容硬编码 + 结构违规 + schema 漂移 | 开发者 |
+| **🆕 跨模型兼容性优化新增（2026-07-28）** |
+| `model_profile.py` | 阶段 1 初始化 | 加载能力档（`--model auto` 自动检测模型名并生成配置） | orchestrator |
+| `output_envelope_check.py` | 每阶段 | Agent 输出标记配对 + nonce 校验 + 噪声比率 | orchestrator |
+| `schema_validate.py` | 每阶段 | JSON 输出 schema 校验 | orchestrator / `precommit_consistency_check.py` |
+| `outline_title_extract.py` | 阶段 4 | 双向一致性检查：YAML 结构清单 vs Markdown 正文标题 | orchestrator |
+| `phase_a_to_json.py` | 阶段 7 | Phase A 确认式 Markdown → JSON 落盘转换 | orchestrator |
+| `precommit_consistency_check.py` | 阶段 7 | Phase A/B 承诺一致性机械校验（红线 A5） | orchestrator（不由 auditor 自调） |
+| `writing_quality_check.py` | 阶段 7 | 写作质量 Lint（缩写展开检测 + 段落信息密度） | orchestrator |
+| `delivery_checklist_check.py` | 阶段 9 | 交付清单逐项机械检查 | orchestrator |
+| `finalize_pipeline.py` | 阶段 9 | 定稿管道编排（merge_drafts + convert_references + contract_check） | orchestrator |
+| `degradation_log.py` | 全局 | 降级事件台账写入 | 各脚本 |
+| `degradation_report.py` | 阶段 9 | 降级台账聚合报告（阻断未确认 L-显著事件） | orchestrator |
 
 ## 转换器卡片-正文重合度检测
 
@@ -175,8 +192,13 @@ deep-research-report/
 ├── SKILL.md                              # 核心方法论（skill 主体，模块化入口）
 ├── README.md                             # 本文件
 ├── dashboard.md                          # Darwin 2.0 评估优化记录
+├── PORTABILITY.md                        # 可移植性边界声明（人读版）
+├── portability-manifest.json             # 可移植性边界声明（机读版，CI 校验用）
 ├── linkage-constants.json                # SSOT 跨文件数值常量（7 个阈值/限额）
-├── .gitignore                            # 排除 research/ output/ tests/
+├── model-profile.json                    # 能力档声明（仓库默认 tier A = Claude 安全基线）
+├── model-profile.{claude,deepseek,unknown}.example.json  # 三份 tier A/B/C 示例
+├── model-profile.local.json              # 用户本地覆盖（.gitignore 保护，不提交）
+├── .gitignore                            # 排除 research/ output/ .local.json
 ├── agents/                               # 11 个 Agent 定义（prompt + 契约）
 │   ├── chapter_writer_agent.md           # 写作者（Sonnet）
 │   ├── chapter_auditor_agent.md          # 审计者（Opus，R3 的解）
@@ -186,10 +208,10 @@ deep-research-report/
 │   ├── card_synthesizer_agent.md         # 卡片合成（Sonnet）
 │   ├── source_collector_agent.md         # 资料搜集（Haiku）
 │   ├── fact_verifier_agent.md            # 事实核验（Opus）
-│   ├── architecture_chart_agent.md       # 核心架构图（Sonnet，阶段6）
+│   ├── architecture_chart_agent.md       # 核心架构图（Sonnet，阶段6；drawio MCP）
 │   ├── data_chart_agent.md               # 数据图表（Sonnet，阶段7）
 │   ├── finalizer_agent.md                # 定稿整合（Haiku）
-│   ├── deprecated/                       # 已废弃角色归档（agents/deprecated/diagram_agent.md，制图角色，已拆分为 architecture_chart_agent + data_chart_agent）
+│   ├── deprecated/                       # 已废弃角色归档
 │   └── contracts/                        # writer_contract.json + auditor_contract.json
 ├── scripts/
 │   ├── contract_check.py                 # 合约 + 量化检查（审计 Agent 确定性工具）
@@ -198,6 +220,20 @@ deep-research-report/
 │   ├── chart_checks.py                   # 图表 DPI/颜色/注册表检查
 │   ├── figure_gate.py                    # 全自动图表存在性门禁（FATAL阻断）
 │   ├── check_linkage_constants.py        # SSOT 数值一致性校验
+│   ├── convert_references.py             # [SRC-XXX] → [N] 引用格式转换
+│   ├── merge_drafts.py                   # 分章草稿合并管道
+│   ├── term_consistency_check.py         # 术语一致性检查
+│   ├── model_profile.py                  # 能力档加载 + --model auto 自动配置
+│   ├── output_envelope_check.py          # Agent 输出标记配对 + nonce + 噪声
+│   ├── schema_validate.py                # JSON schema 校验（Draft 2020-12）
+│   ├── outline_title_extract.py          # YAML 结构清单 vs Markdown 标题一致性
+│   ├── phase_a_to_json.py               # Phase A 确认式 Markdown → JSON 落盘
+│   ├── precommit_consistency_check.py    # Phase A/B 承诺一致性机械校验（红线 A5）
+│   ├── writing_quality_check.py          # 写作质量 Lint（缩写 + 信息密度）
+│   ├── delivery_checklist_check.py       # 12 项交付清单逐项机械检查
+│   ├── finalize_pipeline.py              # 定稿管道编排
+│   ├── degradation_log.py                # 降级事件台账写入
+│   ├── degradation_report.py             # 降级台账聚合报告
 │   ├── md2docx.py                        # md→docx 转换器入口 shim
 │   └── md2docx/                          # 转换器 v2 主包（41 模块）
 │       ├── cli.py / config.py            # CLI + 配置
@@ -210,13 +246,40 @@ deep-research-report/
 │       │                                 # headerfooter
 │       ├── validate.py / report.py / gate3.py  # 校验 + 报告 + 门禁
 │       └── check_no_hardcode.py          # AST 反硬编码扫描
+├── schemas/                              # JSON Schema 定义（Draft 2020-12）
+│   ├── model-profile.schema.json         # model-profile.json 结构约束
+│   ├── auditor-phase-a.schema.json       # Phase A 盲态预承诺落盘格式
+│   ├── auditor-phase-b.schema.json       # Phase B 明态打分流盘格式
+│   ├── outline-structure.schema.json     # outline.md YAML 结构清单约束
+│   └── writer-selfclaim.schema.json      # Writer 自声明格式约束
+├── tests/                                # 测试目录（CI 必跑，280+ 项）
+│   ├── conftest.py                       # fixtures + 台账隔离
+│   ├── test_model_profile.py             # 能力档加载 + auto_configure 测试
+│   ├── test_phase_a_to_json.py           # Phase A JSON 转换
+│   ├── test_precommit_consistency_check.py  # 一致性校验
+│   ├── test_output_envelope_check.py     # 输出信封
+│   ├── test_schema_validate.py           # schema 校验
+│   ├── test_outline_title_extract.py     # 标题提取
+│   ├── test_degradation_report.py        # 台账报告
+│   ├── test_golden_snapshot.py           # L2 黄金快照基线
+│   ├── test_structured_fixture.py        # 结构化 fixture（含真实 subsections）
+│   ├── test_agent_contracts.py           # Agent 合约一致性（hint 覆盖率等）
+│   ├── test_doc_consistency.py           # 文档一致性（角色数/标准数等）
+│   ├── test_envelope_nonce.py            # nonce 生成/匹配
+│   ├── test_writing_quality_check.py     # 写作质量
+│   ├── test_delivery_checklist_check.py  # 交付清单
+│   ├── test_finalize_pipeline.py         # 定稿管道
+│   ├── fixtures/structured-sample/       # 结构化测试数据
+│   └── golden/                           # 8 份黄金样本快照
 ├── design/
+│   ├── model-compatibility-audit-report.md        # 跨模型兼容性问题诊断（30 项发现）
+│   ├── model-compatibility-optimization-plan.md   # 跨模型兼容性优化方案 V1.3（已执行完成）
 │   ├── md-to-docx-design-v2/             # 转换器 v2 完整设计（7 份文档）
 │   └── chart-quality-constraints/        # 图表质量约束方案（9 份文档 + .mplstyle）
 ├── references/                           # 阶段/Agent 执行时按需读取的参考文件
 │   ├── stage-1-init.md through stage-9-finalize.md  # 9 阶段独立 spec
 │   ├── appendix-report-types.md          # 报告类型适配 + 分报告类型行文要点
-│   ├── appendix-converter-contract.md    # 转换器合约 C1-C5
+│   ├── appendix-converter-contract.md    # 转换器合约 C1-C9
 │   ├── writing-standards.md              # 写作标准详细说明（标准 0-22）
 │   ├── writing-process-pitfalls.md       # 写作/协同流程踩坑记录（流程层根因分析）
 │   ├── md-to-docx-pitfalls.md            # 转换器踩坑记录（代码层修复方案）
@@ -227,7 +290,7 @@ deep-research-report/
 │   ├── 研究报告格式规范.md               # 【权威】Word 格式规范 V3.1
 │   ├── claims-ledger-template.csv        # 事实核验台账模板
 │   ├── source-index-template.csv         # 来源索引模板
-│   ├── card-index-template.csv           # 卡片索引模板（含 transcription_check + card_file_path）
+│   ├── card-index-template.csv           # 卡片索引模板
 │   ├── color-mapping-rules.yaml          # 项目级颜色映射规则
 │   └── tool-paths.json                   # 外部工具路径集中配置
 ├── assets/                               # 静态资源
@@ -246,6 +309,19 @@ deep-research-report/
 - Markdown 终稿
 - 符合 V3.2 规范的标准格式 `.docx`（封面 + TOC 域 + 动态多级列表编号 + SEQ 图/表域 + 页眉页脚 + 全框线表格）
 - `research/figures/` 下的全部架构图与数据图表（PNG 300dpi + SVG 源文件）
+
+### 跨模型适配（DeepSeek V4/V3、GLM-4、Qwen3 等）
+
+**Claude 用户默认零配置**——仓库自带的 `model-profile.json` 已经是完整的 Claude 能力档。非 Claude 用户在启动 skill 后第一件事：
+
+```bash
+# 自动探测当前模型并生成匹配的能力档配置
+python scripts/model_profile.py --model auto
+```
+
+Orchestrator 会自动完成这一步，用户无需手动干预。脚本从环境变量探测模型名，匹配内置映射表（Claude→A、DeepSeek V4→B/380K、DeepSeek V3/GLM-4/Qwen3→B/8K），生成 `.gitignore` 保护的 `model-profile.local.json`。
+
+自动匹配的模型到能力档映射，以及降级策略，详见 [SKILL.md §模型能力档](SKILL.md#模型能力档model-profilejson) 和 [`scripts/model_profile.py`](scripts/model_profile.py) 的 `_MODEL_RULES` 映射表。离开 Claude 后 skill 退化成什么样子，可以保留哪些能力，详见 [PORTABILITY.md](PORTABILITY.md)。
 
 ### 极速模式
 
