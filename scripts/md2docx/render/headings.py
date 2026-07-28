@@ -37,9 +37,10 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.MAIN_TITLE: 1,
     HeadingKind.SECTION: 2,
     HeadingKind.ABSTRACT: 2,
-    # FRONT_MATTER（前言/导论区的无编号 H2/H3，§C.3 R-FM）：与 ABSTRACT 一致
-    # 按 Heading 2 渲染——同属无编号前置件。
-    # 显式登记以杜绝走 .get(kind, 4) 兜底导致的字号偏小/语义漂移。
+    # FRONT_MATTER（前言/导论区的无编号标题，§C.3 R-FM）：默认 Heading 2，
+    # 若 HeadingIR.markdown_level 已设置（来自 assemble 层），render_heading()
+    # 会优先使用 markdown_level 作为 Word 标题级别，以保留 TOC 层级关系。
+    # 此处登记的值 2 仅作为 markdown_level 缺失时的兜底。
     HeadingKind.FRONT_MATTER: 2,
     HeadingKind.SUBSECTION: 3,
     HeadingKind.PLAIN: 4,
@@ -54,15 +55,19 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
 # 显式覆盖，否则会被样式级的默认编号"污染"：
 #   - APPENDIX 复用 Heading 1（与 CHAPTER 同级），须覆盖为独立的附录字母列表
 #   - MAIN_TITLE 复用 Heading 1，不应显示章节编号 → 覆盖为关闭编号（numId=0）
-#   - ABSTRACT / FRONT_MATTER 复用 Heading 2（与 SECTION 同级），不应显示
+#   - ABSTRACT 复用 Heading 2（与 SECTION 同级），不应显示
 #     "X.Y" 节编号 → 覆盖为关闭编号（numId=0）
+#   - FRONT_MATTER 复用 Heading 2/3/4（取决于 markdown_level），
+#     不应显示编号 → 由 render_heading() 动态计算 ilvl 并设置
+#     numId=0（不在本表中静态登记）
 #
 # PLAIN 映射到 Heading 4，该样式未绑定任何 numPr，无需覆盖（自然无编号）。
 _NUMPR_OVERRIDE: dict[HeadingKind, tuple[int, int]] = {
     HeadingKind.APPENDIX: (0, _numbering.APPENDIX_NUM_ID),
     HeadingKind.MAIN_TITLE: (0, _numbering.NO_NUMBERING_ID),
     HeadingKind.ABSTRACT: (1, _numbering.NO_NUMBERING_ID),
-    HeadingKind.FRONT_MATTER: (1, _numbering.NO_NUMBERING_ID),
+    # FRONT_MATTER 不在本表中 —— 其 numPr 由 render_heading() 根据
+    # heading.markdown_level 动态计算 ilvl，再统一设置 numId=NO_NUMBERING_ID。
 }
 
 
@@ -79,12 +84,20 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
     不应显示章节编号的 kind（APPENDIX/MAIN_TITLE/ABSTRACT/FRONT_MATTER）
     在段落级显式覆盖 numPr。段落本身只写入纯标题文字。
 
+    FRONT_MATTER 标题的 Word 级别由其 markdown_level 决定（若 assemble 层
+    已设置），以在 TOC 中保留原始文档层级关系；markdown_level 缺失时退回
+    _KIND_TO_LEVEL 硬编码值 2（Heading 2）。
+
     Args:
         doc: python-docx Document 对象
         heading: 标题中间表示（来自 assemble/* 产出）
         styles: 样式名→样式对象字典（render/styles.py register_styles() 产出）
     """
     level = _KIND_TO_LEVEL.get(heading.kind, 4)
+    # FRONT_MATTER: 优先使用 markdown_level（保留 TOC 层级关系），
+    # 缺失时退回 _KIND_TO_LEVEL 的固定值 2
+    if heading.kind == HeadingKind.FRONT_MATTER and heading.markdown_level is not None:
+        level = heading.markdown_level
     style_name = f"Heading {level}"
     style = styles.get(style_name)
     if style is not None:
@@ -94,9 +107,16 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
         p = doc.add_paragraph()
         p.style = doc.styles[style_name]
 
+    # 静态 numPr 覆盖（APPENDIX / MAIN_TITLE / ABSTRACT）
     override = _NUMPR_OVERRIDE.get(heading.kind)
     if override is not None:
         ilvl, num_id = override
         _numbering.set_heading_numPr(p, ilvl=ilvl, num_id=num_id)
+
+    # FRONT_MATTER: 动态关闭编号（ilvl = level - 1，随 markdown_level 变化；
+    # markdown_level 缺失时 level 来自 _KIND_TO_LEVEL 兜底值 2 → ilvl=1）
+    if heading.kind == HeadingKind.FRONT_MATTER:
+        ilvl = level - 1
+        _numbering.set_heading_numPr(p, ilvl=ilvl, num_id=_numbering.NO_NUMBERING_ID)
 
     add_run_segments(p, heading.text)

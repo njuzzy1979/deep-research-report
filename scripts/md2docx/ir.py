@@ -70,6 +70,7 @@ class HeadingIR:
     number: HeadingNumber  # 结构化编号，供连续性校验；无编号或解析失败为 None
     display_number: str  # 渲染文本："第三章" / "3.1" / "附录A" / ""（Assembler 算好，Renderer 只拼接）
     source_line: int
+    markdown_level: int | None = None  # 原始 Markdown H 级别（1-6），仅 FRONT_MATTER/ABSTRACT 需要；正文标题为 None
 
 
 # ---------------------------------------------------------------------------

@@ -554,6 +554,40 @@ def apply_structure_overlay(
                 )
             )
 
+    # --------------------------------------------------------------
+    # Phase 7b: 重算 SUBSECTION (H4) 三级编号
+    # --------------------------------------------------------------
+    # overlay 只覆盖了 H2 (CHAPTER) 和 H3 (SECTION) 的 kind/number，
+    # H4 (SUBSECTION) 的三级编号在 classify_and_number Pass 2 中
+    # 已经固化为 (0, 0, N)（因为推断阶段的 chapter_index/section_index
+    # 可能是错误的）。此处基于 overlay 修正后的 CHAPTER/SECTION 编号，
+    # 重新计算 SUBSECTION 的 (chapter_no, section_no, subsection_no)。
+    current_chapter: int | None = None
+    current_section: int | None = None
+    subsection_counter = 0
+
+    for ir in results:
+        if ir.kind == HeadingKind.CHAPTER:
+            current_chapter = ir.number if isinstance(ir.number, int) else None
+            current_section = None
+            subsection_counter = 0
+        elif ir.kind == HeadingKind.SECTION:
+            if isinstance(ir.number, tuple) and len(ir.number) == 2:
+                current_section = ir.number[1]
+            else:
+                # fallback: 安全递增（理论上 overlay 后的 SECTION number
+                # 一定是 (ch_no, sec_no) 二元组，此处仅防御）
+                current_section = (current_section or 0) + 1
+            subsection_counter = 0
+        elif ir.kind == HeadingKind.SUBSECTION:
+            subsection_counter += 1
+            if current_chapter is not None and current_section is not None:
+                ir.number = (current_chapter, current_section, subsection_counter)
+                ir.display_number = (
+                    f"{current_chapter}.{current_section}.{subsection_counter}"
+                )
+        # FRONT_MATTER / ABSTRACT / MAIN_TITLE / APPENDIX / PLAIN 不参与重算
+
     return results
 
 
@@ -639,6 +673,7 @@ def classify_and_number(
                     "raw_text": raw,
                     "text": raw,
                     "source_line": line,
+                    "markdown_level": h.level,
                     "orig_num": None,
                     "orig_letter": None,
                 })
@@ -666,6 +701,7 @@ def classify_and_number(
                     "source_line": line,
                     "orig_num": None,
                     "orig_letter": None,
+                    "markdown_level": h.level,
                 })
             else:
                 # 多余 H1（非前置词、或正文已开始、或窗口已消费）→ 降级为 CHAPTER。
@@ -686,6 +722,7 @@ def classify_and_number(
                     "raw_text": raw,
                     "text": stripped,
                     "source_line": line,
+                    "markdown_level": h.level,
                     "orig_num": orig_num,
                     "orig_letter": None,
                 })
@@ -719,6 +756,7 @@ def classify_and_number(
                     "source_line": line,
                     "orig_num": None,
                     "orig_letter": None,
+                    "markdown_level": h.level,
                 })
                 continue
 
@@ -742,6 +780,7 @@ def classify_and_number(
                         "source_line": line,
                         "orig_num": None,
                         "orig_letter": None,
+                        "markdown_level": h.level,
                     })
                     continue
 
@@ -753,6 +792,7 @@ def classify_and_number(
                     "raw_text": raw,
                     "text": stripped,
                     "source_line": line,
+                    "markdown_level": h.level,
                     "orig_num": None,
                     "orig_letter": orig_letter,
                 })
@@ -765,6 +805,7 @@ def classify_and_number(
                 "raw_text": raw,
                 "text": stripped,
                 "source_line": line,
+                "markdown_level": h.level,
                 "orig_num": orig_num,
                 "orig_letter": None,
             })
@@ -782,6 +823,7 @@ def classify_and_number(
                     "source_line": line,
                     "orig_num": None,
                     "orig_letter": None,
+                    "markdown_level": h.level,
                 })
                 continue
             stripped = _strip_section(raw, line, issues)
@@ -790,6 +832,7 @@ def classify_and_number(
                 "raw_text": raw,
                 "text": stripped,
                 "source_line": line,
+                "markdown_level": h.level,
                 "orig_num": None,
                 "orig_letter": None,
             })
@@ -797,12 +840,26 @@ def classify_and_number(
 
         # -- H4 --
         if h.level == 4:
+            # R-FM（§C.3）：前置件区内的 H4 保持 FRONT_MATTER（不编号渲染）。
+            if in_front_matter:
+                stripped = _strip_subsection(raw, line, issues)
+                rows.append({
+                    "kind": HeadingKind.FRONT_MATTER,
+                    "raw_text": raw,
+                    "text": stripped,
+                    "source_line": line,
+                    "orig_num": None,
+                    "orig_letter": None,
+                    "markdown_level": h.level,
+                })
+                continue
             stripped = _strip_subsection(raw, line, issues)
             rows.append({
                 "kind": HeadingKind.SUBSECTION,
                 "raw_text": raw,
                 "text": stripped,
                 "source_line": line,
+                "markdown_level": h.level,
                 "orig_num": None,
                 "orig_letter": None,
             })
@@ -814,6 +871,7 @@ def classify_and_number(
             "raw_text": raw,
             "text": raw,
             "source_line": line,
+            "markdown_level": h.level,
             "orig_num": None,
             "orig_letter": None,
         })
@@ -857,6 +915,7 @@ def classify_and_number(
         source_line: int = row["source_line"]
         orig_num: int | None = row["orig_num"]
         orig_letter: str | None = row["orig_letter"]
+        markdown_level: int | None = row.get("markdown_level")
 
         number: HeadingNumber = None
         display_number = ""
@@ -907,6 +966,7 @@ def classify_and_number(
                 number=number,
                 display_number=display_number,
                 source_line=source_line,
+                markdown_level=markdown_level,
             )
         )
 
