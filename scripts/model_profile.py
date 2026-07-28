@@ -28,8 +28,13 @@ schema 校验复用 ``scripts/schema_validate.py`` 的 ``load_schema`` /
 ``scripts/degradation_log.py`` 的 ``record_degradation``（容错导入，沿用
 ``scripts/output_envelope_check.py`` 同款模式）。
 
+    sync: 新增 `auto_configure()` + `MODEL_CONFIG_MAP`（方案甲：模型名 → 档位自动配置）——
+    Orchestrator 初始化时传入模型名，自动生成 `model-profile.local.json`，
+    用户零干预。未知模型降级为 tier C 保守安全网。
+
 用法：
     python scripts/model_profile.py [--path <model-profile.json>] [--json]
+    python scripts/model_profile.py --model "<模型标识符>"  # 自动配置 → 写入 model-profile.local.json
 
 退出码：0 = 正常加载（含合法声明的 tier A/B/C）；
        1 = 因解析/校验失败被迫降级到 tier C（``_source == fallback_tier_c_invalid``）；
@@ -39,6 +44,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -86,6 +93,64 @@ TIER_A_DEFAULT = {
 }
 
 TIER_C_DEFAULT = {
+    "capability_tier": "C",
+    "host": {"agent_delegation": True},
+    "limits": {"max_output_tokens": 8000},
+    "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+}
+
+# ---------------------------------------------------------------------------
+# 模型名 → 配置映射表（方案甲："--model 自动检测"的数据源）
+#
+# 正则按列表顺序匹配（re.search，忽略大小写），首次命中即停。
+# 未命中任何规则 → tier C（最保守安全网，写台账）。
+# 新增厂商/模型只需在此表追加一行，不改代码逻辑。
+# ---------------------------------------------------------------------------
+_MODEL_RULES: list[tuple[str, str, dict]] = [
+    # --- Claude 系列（全部归 tier A）---
+    (r"claude", "claude-series", {
+        "capability_tier": "A",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 64000},
+        "policy": {"hard_rule_budget": 0, "envelope_nonce": False, "template_fill_mode": "off"},
+    }),
+
+    # --- DeepSeek V4 系列（380K 输出 → phase_a_mode=free）---
+    # 实测证据：2026-07-29 drawio MCP 四层通过 + 280 passed 全量回归
+    (r"deepseek.?v4", "deepseek-v4-series", {
+        "capability_tier": "B",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 380000},
+        "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+    }),
+
+    # --- DeepSeek V3 / 其他 DeepSeek（8K 输出 → phase_a_mode=confirm）---
+    (r"deepseek", "deepseek-generic", {
+        "capability_tier": "B",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 8000},
+        "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+    }),
+
+    # --- GLM-4 系列 ---
+    (r"glm[ -]?4", "glm-4-series", {
+        "capability_tier": "B",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 8000},
+        "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+    }),
+
+    # --- Qwen3 系列 ---
+    (r"qwen[ -]?3", "qwen3-series", {
+        "capability_tier": "B",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 8000},
+        "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+    }),
+]
+
+# 未知模型的兜底配置（映射表未命中时使用）
+_UNKNOWN_MODEL_FALLBACK = {
     "capability_tier": "C",
     "host": {"agent_delegation": True},
     "limits": {"max_output_tokens": 8000},
@@ -258,7 +323,81 @@ def resolve_collaboration_mode(profile: dict, requested_mode: str) -> tuple:
     return requested_mode, None
 
 
-def format_text_report(profile: dict) -> str:
+def auto_configure(model_name: str) -> dict:
+    """根据模型标识符匹配对应的能力档配置（方案甲核心）。
+
+    匹配规则：
+        - 在 ``_MODEL_RULES`` 中按顺序做 ``re.search(pattern, model_name, re.I)``，
+          首次命中即停，返回 ``(配置字典, 匹配规则名, tier)``。
+        - 未命中 → 返回 ``_UNKNOWN_MODEL_FALLBACK``，tier C，写台账。
+
+    Args:
+        model_name: 模型标识符（如 ``"deepseek-v4-pro-guan-cc"``、
+            ``"claude-sonnet-5"``、``"glm-4.6"``）。
+
+    Returns:
+        dict，含 ``config``（待落盘的 profile 字典）、``matched_rule``（规则名）、
+        ``tier``（最终档位）、``is_unknown``（是否未知模型兜底）。
+    """
+    for pattern, rule_name, config in _MODEL_RULES:
+        if re.search(pattern, model_name, re.IGNORECASE):
+            return {
+                "config": config,
+                "matched_rule": rule_name,
+                "tier": config["capability_tier"],
+                "is_unknown": False,
+            }
+
+    record_degradation(
+        stage="init",
+        component="model_profile",
+        reason="unknown_model_fallback_tier_c",
+        level="L-记录",
+        fallback_used="tier_c_unknown_model",
+        impact=f"模型 '{model_name}' 不在已知映射表中，已降级为 tier C（最保守安全网）。"
+               f"如需升级，请在 ``_MODEL_RULES`` 中追加该模型的规则，或手动创建 "
+               f"model-profile.local.json",
+        input_path="(内存匹配，非磁盘文件)",
+    )
+    return {
+        "config": _UNKNOWN_MODEL_FALLBACK,
+        "matched_rule": "unknown-fallback",
+        "tier": "C",
+        "is_unknown": True,
+    }
+
+
+def _write_local_override(config: dict, target_dir: Optional[Path] = None) -> Path:
+    """将配置写入 ``model-profile.local.json``（带 schema 校验）。
+
+    Args:
+        config: 待写入的 profile 字典（不含 _source / phase_a_mode 等运行时字段）。
+        target_dir: 目标目录，默认 skill 根目录。
+
+    Returns:
+        实际写入的文件路径。
+
+    Raises:
+        ValueError: 生成的配置未通过 schema 校验（不应发生——映射表内的配置经人工审核）。
+    """
+    out_dir = target_dir or _PROJECT_ROOT
+    out_path = out_dir / "model-profile.local.json"
+
+    # 写入前做 schema 校验（防御性：映射表内配置若出错，在这里拦下而不写脏文件）
+    if sv is not None:
+        schema = sv.load_schema("model-profile")
+        result = sv.validate_instance(config, schema)
+        if not result["valid"]:
+            raise ValueError(
+                f"auto_configure 生成的配置未通过 schema 校验（此为代码 bug，"
+                f"请检查 ``_MODEL_RULES`` 映射表）: {result['errors']}"
+            )
+
+    out_path.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return out_path
     lines = [
         "=== model-profile 生效配置 ===",
         f"来源(_source): {profile['_source']}",
@@ -281,11 +420,81 @@ def format_text_report(profile: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="model-profile.json 能力档加载器")
+    parser = argparse.ArgumentParser(
+        description="model-profile.json 能力档加载器 / 自动配置器",
+        epilog=(
+            "示例:\n"
+            "  python scripts/model_profile.py                         # 加载生效配置\n"
+            '  python scripts/model_profile.py --model "deepseek-v4-pro-guan-cc"  # 自动配置\n'
+            "  python scripts/model_profile.py --model auto              # 从环境变量探测"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--path", default=None, help="显式指定 model-profile.json 路径（默认 skill 根目录）")
     parser.add_argument("--json", action="store_true", help="输出 JSON（供 orchestrator 解析）")
+    parser.add_argument(
+        "--model", default=None,
+        help=(
+            "模型标识符（如 'deepseek-v4-pro-guan-cc'、'claude-sonnet-5'），"
+            "匹配 _MODEL_RULES 映射表后自动写入 model-profile.local.json。"
+            "传 'auto' 则从 CLAUDE_CODE_MODEL / LLM_MODEL 环境变量自动探测。"
+            "已存在 model-profile.local.json 时跳过（不覆盖已有配置）。"
+        ),
+    )
     args = parser.parse_args()
 
+    # --model 模式：自动配置 → 写入 → 退出
+    if args.model is not None:
+        model_name = args.model.strip()
+        if model_name.lower() == "auto":
+            model_name = _detect_model_from_env()
+            if model_name is None:
+                print(
+                    f"{FAIL} --model auto 未能从环境变量探测到模型名"
+                    f"（尝试了 CLAUDE_CODE_MODEL / LLM_MODEL），"
+                    f"请显式传入 --model \"<模型标识符>\"",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+
+        out_path = _PROJECT_ROOT / "model-profile.local.json"
+        if out_path.exists():
+            existing = json.loads(out_path.read_text(encoding="utf-8-sig"))
+            print(f"model-profile.local.json 已存在（当前 tier={existing.get('capability_tier','?')}），"
+                  f"跳过自动配置。如需重新生成，请先删除该文件。")
+            sys.exit(0)
+
+        result = auto_configure(model_name)
+        config = result["config"]
+
+        try:
+            written = _write_local_override(config)
+        except ValueError as e:
+            print(f"{FAIL} {e}", file=sys.stderr)
+            sys.exit(2)
+
+        tier = config["capability_tier"]
+        rule = result["matched_rule"]
+        phase_a = derive_phase_a_mode(config["limits"]["max_output_tokens"])
+        tokens = config["limits"]["max_output_tokens"]
+
+        lines = [
+            f"{OK} 模型 '{model_name}' → 规则 '{rule}' → tier {tier}",
+            f"    max_output_tokens: {tokens}  →  phase_a_mode: {phase_a}",
+            f"    nonce={config['policy']['envelope_nonce']}  "
+            f"红线预算={config['policy']['hard_rule_budget']}  "
+            f"模板填空={config['policy']['template_fill_mode']}",
+            f"",
+            f"    已写入: {written}",
+        ]
+        if result["is_unknown"]:
+            lines.append(
+                f"    {WARN} 该模型不在已知映射表中，已按 tier C 最保守安全网运行。"
+            )
+        print("\n".join(lines))
+        sys.exit(0)
+
+    # 常规模式：加载并展示生效配置
     try:
         profile = load_profile(args.path)
     except Exception as e:
@@ -299,6 +508,20 @@ def main() -> None:
 
     # 仅"因解析/校验失败被迫降级"才算 exit 1；用户显式声明的合法 tier C 不算异常。
     sys.exit(1 if profile["_source"] == "fallback_tier_c_invalid" else 0)
+
+
+def _detect_model_from_env() -> Optional[str]:
+    """从环境变量自动探测当前运行的模型标识符。
+
+    探测顺序：
+        1. ``CLAUDE_CODE_MODEL`` —— Claude Code / VSCode 扩展注入的当前模型名
+        2. ``LLM_MODEL`` —— 通用回退变量
+    """
+    for var in ("CLAUDE_CODE_MODEL", "LLM_MODEL"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return val
+    return None
 
 
 if __name__ == "__main__":

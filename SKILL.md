@@ -95,7 +95,21 @@ description: >
 
 **Claude 用户默认无需任何配置**：仓库自带 `model-profile.json`（tier A，全部特性 off），行为与本 skill 历史版本完全一致，字节级不变。
 
-**如何切换到 tier B（DeepSeek 等弱模型）**：将仓库根目录的 `model-profile.json` 内容替换为 `model-profile.deepseek.example.json` 的内容（红线预算收紧为 5 条、Phase A 审计改为确认式、输出信封强制 nonce、Writer 采用填空骨架）。
+**非 Claude 用户：一键自动配置**：Orchestrator 在阶段 1 初始化时执行：
+
+```bash
+python scripts/model_profile.py --model auto
+```
+
+脚本从环境变量自动探测当前模型标识符，匹配内置映射表（Claude→A、DeepSeek V4→B/380K、DeepSeek V3/GLM-4/Qwen3→B/8K、未知→C），生成 `.gitignore` 保护的 `model-profile.local.json`。用户**零人工干预**——不再需要手动复制 example 文件或修改 `model-profile.json`。
+
+如需显式指定模型（环境变量探测失败时）：
+
+```bash
+python scripts/model_profile.py --model "deepseek-v4-pro-guan-cc"
+```
+
+当前已支持的模型映射（按匹配优先级，子串匹配、忽略大小写）：Claude 全系 → tier A；DeepSeek V4 → tier B/380K；DeepSeek V3/其他 DeepSeek → tier B/8K；GLM-4 → tier B/8K；Qwen3 → tier B/8K；未命中 → tier C（保守安全网，写台账）。
 
 模型能力档 × 报告规模档的二维决策矩阵、字段完整定义与加载器实现细节，详见 `references/multiagent-orchestration.md` §7 与 `scripts/model_profile.py`。
 

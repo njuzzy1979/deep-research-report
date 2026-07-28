@@ -250,3 +250,115 @@ def test_profile_files_do_not_contain_phase_a_mode_field(example_file):
     assert "phase_a_mode" not in instance
     assert "phase_a_mode" not in instance.get("policy", {})
     assert "phase_a_mode" not in instance.get("limits", {})
+
+
+# ---------------------------------------------------------------------------
+# auto_configure：模型名 → 档位自动匹配（方案甲）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model_name,expected_tier,expected_tokens,expected_rule", [
+    # Claude 系列 → tier A
+    ("claude-sonnet-5", "A", 64000, "claude-series"),
+    ("claude-opus-5", "A", 64000, "claude-series"),
+    ("claude-fable-5", "A", 64000, "claude-series"),
+    # DeepSeek V4 → tier B 380K
+    ("deepseek-v4-pro-guan-cc", "B", 380000, "deepseek-v4-series"),
+    ("deepseek v4", "B", 380000, "deepseek-v4-series"),
+    # DeepSeek V3 → tier B 8K
+    ("deepseek-v3", "B", 8000, "deepseek-generic"),
+    ("deepseek-chat", "B", 8000, "deepseek-generic"),
+    # GLM-4 → tier B 8K
+    ("glm-4.6", "B", 8000, "glm-4-series"),
+    ("glm 4-plus", "B", 8000, "glm-4-series"),
+    # Qwen3 → tier B 8K
+    ("qwen3-235b", "B", 8000, "qwen3-series"),
+    ("qwen 3-max", "B", 8000, "qwen3-series"),
+    # 未知模型 → tier C
+    ("some-unknown-model", "C", 8000, "unknown-fallback"),
+    ("random-llm-v99", "C", 8000, "unknown-fallback"),
+])
+def test_auto_configure_known_models(model_name, expected_tier, expected_tokens, expected_rule, _isolate_degradation_log):
+    result = mp.auto_configure(model_name)
+
+    assert result["tier"] == expected_tier
+    assert result["config"]["capability_tier"] == expected_tier
+    assert result["config"]["limits"]["max_output_tokens"] == expected_tokens
+    assert result["matched_rule"] == expected_rule
+    assert result["is_unknown"] == (expected_tier == "C")
+
+
+def test_auto_configure_case_insensitive(_isolate_degradation_log):
+    """映射表匹配应忽略大小写。"""
+    result = mp.auto_configure("DEEPSEEK-V4-PRO")
+    assert result["tier"] == "B"
+    assert result["config"]["limits"]["max_output_tokens"] == 380000
+
+
+def test_auto_configure_first_match_wins(_isolate_degradation_log):
+    """'deepseek v4 something' 应命中 deepseek-v4 规则（380K），而非后面的 generic deepseek（8K）。"""
+    result = mp.auto_configure("deepseek v4 experimental")
+    assert result["tier"] == "B"
+    assert result["config"]["limits"]["max_output_tokens"] == 380000
+    assert result["matched_rule"] == "deepseek-v4-series"
+
+
+def test_auto_configure_unknown_writes_degradation_log(_isolate_degradation_log):
+    mp.auto_configure("no-such-model-abc")
+
+    log_text = _isolate_degradation_log.read_text(encoding="utf-8").strip()
+    assert log_text != ""
+    record = json.loads(log_text.splitlines()[0])
+    assert record["reason"] == "unknown_model_fallback_tier_c"
+    assert "no-such-model-abc" in record["impact"]
+
+
+def test_auto_configure_known_model_does_not_write_degradation_log(_isolate_degradation_log):
+    mp.auto_configure("claude-sonnet-5")
+
+    if _isolate_degradation_log.exists():
+        log_text = _isolate_degradation_log.read_text(encoding="utf-8").strip()
+        assert log_text == "", f"已知模型不应写台账，实际写入: {log_text[:200]}"
+
+
+def test_write_local_override_creates_valid_file(tmp_path, _isolate_degradation_log):
+    config = {
+        "capability_tier": "B",
+        "host": {"agent_delegation": True},
+        "limits": {"max_output_tokens": 380000},
+        "policy": {"hard_rule_budget": 5, "envelope_nonce": True, "template_fill_mode": "on"},
+    }
+    out = mp._write_local_override(config, target_dir=tmp_path)
+
+    assert out.name == "model-profile.local.json"
+    assert out.exists()
+
+    # 写出的文件通过 schema 校验
+    instance = json.loads(out.read_text(encoding="utf-8"))
+    schema = sv.load_schema("model-profile")
+    valid = sv.validate_instance(instance, schema)
+    assert valid["valid"], f"auto_configure 写出的文件未通过 schema 校验: {valid['errors']}"
+
+
+def test_write_local_override_rejects_invalid_config(_isolate_degradation_log):
+    bad_config = {
+        "capability_tier": "Z",
+        "host": {},
+        "limits": {},
+        "policy": {},
+    }
+    with pytest.raises(ValueError, match="未通过 schema 校验"):
+        mp._write_local_override(bad_config)
+
+
+def test_auto_configure_phase_a_mode_derivation():
+    """确认 auto_configure 返回的配置中 max_output_tokens 正确影响 phase_a_mode。"""
+    # V4 Pro 380K → free
+    result = mp.auto_configure("deepseek-v4-pro")
+    phase_a = mp.derive_phase_a_mode(result["config"]["limits"]["max_output_tokens"])
+    assert phase_a == "free"
+
+    # V3 8K → confirm
+    result2 = mp.auto_configure("deepseek-v3")
+    phase_a2 = mp.derive_phase_a_mode(result2["config"]["limits"]["max_output_tokens"])
+    assert phase_a2 == "confirm"
