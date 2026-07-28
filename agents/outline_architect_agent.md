@@ -41,20 +41,28 @@ model: opus
 - **图表规划**（核心架构图给图号图名；数据图表只写方向）
 - **篇幅预算**（页数 + **字数换算"约 Z×800 字"**——这是阶段 7 QS1 字数门禁的比对基准）
 
-**outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。两者标题文本须**精确一致**。
+**outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。**可选：figures_manifest 字段**——若报告超过 3 个核心架构图则强烈建议产出（格式见 stage-4-outline.md §4.1.z），为阶段6/7/9各方提供机器可读的图表清单权威来源。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。
+
+**YAML `section_title` 纯文字要求（关键——这是消除编号污染的源头约束）**：
+- `section_title` / `subsection_title` 字段**只写纯文字标题**，不得包含任何编号前缀（如 `"1.1 标题"` 是错的，正确是 `"标题"`）
+- 编号信息**只写在 `section_no` / `subsection_no` 字段**（如 `"1.1"`），这些是元数据，不是标题文本的一部分
+- Markdown 正文中的 heading **可以带编号前缀供人阅读**（如 `### 1.1 标题`），但**标题的权威来源是 YAML 字段**——Writer 和转换器消费的都是 YAML `section_title`，不是 Markdown heading 文本
+- 大纲架构师在产出时须**双重核对**：YAML `section_title` 的文本 = Markdown heading 去掉编号前缀后的纯文字部分。两处不一致即视为大纲 bug
 
 首行标注 `struct_template=<research|proposal|policy|tech-eval|brief>`，供下游角色识别档位与立项模块。
 
-## 为什么 outline.md 是四方共享契约
+## 为什么 outline.md 是多方共享契约
 
 | 下游角色 | 用 outline.md 做什么 |
 |---|---|
 | `card_synthesizer_agent` | 按 chapter_ref 组织卡片 |
-| `diagram_agent` | 核心架构图出图清单 |
+| `architecture_chart_agent` | 核心架构图出图清单（从 figures_manifest.architecture_figures 或 Markdown 正文提取） |
+| `data_chart_agent` | 数据图表方向（从 figures_manifest.data_figures 或 Markdown 正文提取） |
 | `chapter_writer_agent` | 写作蓝图（当前章条目 = 唯一大纲输入，解决 A-1） |
 | `chapter_auditor_agent` | 审计基准（大纲对照维度 + 篇幅偏差量化） |
+| `figure_gate.py` | 门禁检查（从 figures_manifest 提取文件清单，逐文件验证存在性） |
 
 ## 交接与失败路径
 
-- **交接**：`outline.md` → 上述四方 + orchestrator（走 CP3 呈用户确认）。
+- **交接**：`outline.md` → 上述六方 + orchestrator（走 CP3 呈用户确认）。
 - **失败路径**：用户不确认大纲 → CP3 阻断，回炉调整（保留的用户确认节点）；台账证据不足以支撑某章论证路径 → 标注"证据基础有限"，不硬凑论证路径。

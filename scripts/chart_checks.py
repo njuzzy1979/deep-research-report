@@ -52,8 +52,13 @@ def check_dpi(figures_dir: str) -> dict:
     results = {"passed": True, "items": []}
     png_files = sorted(fig_dir.glob("*.png"))
     if not png_files:
-        results["passed"] = True
-        results["items"].append({"file": "(无PNG文件)", "width_px": 0, "height_px": 0, "dpi_x": 0, "dpi_y": 0, "dpi_ok": True, "printable": True})
+        results["passed"] = False
+        results["items"].append({
+            "file": "(无PNG文件)",
+            "width_px": 0, "height_px": 0, "dpi_x": 0, "dpi_y": 0,
+            "dpi_ok": False, "printable": False,
+            "error": "figures/ 目录下无任何 PNG 文件——图表产出真空，不可通过质量门禁"
+        })
         return results
     for png in png_files:
         img = Image.open(png)
@@ -81,8 +86,12 @@ def check_colors(figures_dir: str) -> dict:
     results = {"passed": True, "items": []}
     png_files = sorted(fig_dir.glob("*.png"))
     if not png_files:
-        results["passed"] = True
-        results["items"].append({"file": "(无PNG文件)", "violation_pct": 0.0, "passed": True})
+        results["passed"] = False
+        results["items"].append({
+            "file": "(无PNG文件)",
+            "violation_pct": 0.0, "passed": False,
+            "error": "figures/ 目录下无任何 PNG 文件——图表产出真空，不可通过质量门禁"
+        })
         return results
     for png in png_files:
         img = Image.open(png).convert("RGB")

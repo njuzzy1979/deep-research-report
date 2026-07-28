@@ -5,6 +5,20 @@
 
 ---
 
+## 图表术语统一声明
+
+在本 skill 中，三类视觉元素使用如下严格区分：
+
+| 术语 | 定义 | 负责 Agent | 工具 | 质量门槛 |
+|------|------|-----------|------|---------|
+| **架构图** | 阶段 6 产出的核心架构图（总览图/架构图/流程图）——报告的骨架，先于写作完成 | `architecture_chart_agent` (Sonnet) | drawio MCP / fireworks-tech-graph / Mermaid | 阶段6 CHECKPOINT + figure_gate.py 门禁 |
+| **数据图表** | 阶段 7 产出的 matplotlib 图表（对比图/趋势图/份额图/雷达图等）——随写作按章产出 | `data_chart_agent` (Sonnet) | matplotlib + report 样式模板 | 阶段7质量门槛 + chart_checks.py |
+| **表格** | Markdown 原生表格——正文组成部分，Writer 直接编制 | `chapter_writer_agent` (Sonnet) | Markdown 表格语法 | 阶段7合约检查 C4 + gate3 表格框线 |
+
+> 三者使用不同的 Agent、工具和质量门槛，不可混淆。**"架构图"不是"数据图表"的上位词**——前者是阶段6产物，后者是阶段7产物。"图"（figure）泛指架构图+数据图表的 PNG 嵌入，"表"（table）指 Markdown 表格正文。
+
+---
+
 **核心架构图必须在分章写作之前完成**。它们是报告的骨架——定义分析框架、拆解层次、展示逻辑链路，文字要围绕它们展开。
 
 ## 6.1 出图清单
@@ -140,13 +154,45 @@ print('PNG 300dpi OK, size:', img.size)
 
 ---
 
-### 工具 C：Mermaid — 简单流程图（备选）
+### 工具 C：Mermaid — 简单流程图（备选，需渲染为 PNG）
 
-仅用于简单线性流程（≤15 个节点），不产出独立文件，直接内联在 Markdown 的 ` ```mermaid ` 代码块中。复杂架构图仍用 drawio。
+适用场景：简单线性流程（≤15 个节点）。**不再允许仅停留在 Markdown 代码块中——必须产出可嵌入的 PNG 文件**，否则这些 Mermaid 图将在阶段 9 的 docx 转换中全部丢失（python-docx 无法渲染 Mermaid 代码块）。
+
+**Mermaid → PNG 渲染路径**（按可用性降级）：
+
+**路径 1：mmdc（mermaid-cli）——首选**
+```powershell
+# 如 mmdc (mermaid-cli) 已安装且可用
+mmdc -i research/figures/<图号-描述>.mmd -o research/figures/<图号-描述>.mmd.png --scale 3 --backgroundColor white
+
+# 写入 DPI 元数据
+python -c "
+from PIL import Image
+p = 'research/figures/<图号-描述>.mmd.png'
+img = Image.open(p)
+img.save(p, dpi=(300, 300))
+print('PNG 300dpi OK, size:', img.size)
+"
+```
+`--scale 3` 确保输出分辨率足够 300dpi 打印。mmdc 路径配置见 `references/tool-paths.json` 中 `mermaid_cli` 条目。
+
+**路径 2：drawio MCP 降级——mmdc 不可用时的备选**
+```text
+调用: mcp__drawio__create_diagram
+  参数: mermaid（传入原 .mmd 文件内容）
+  写入: 将返回的 xml 字段内容写入 research/figures/<图号-描述>.drawio
+```
+然后按工具 A（drawio）的导出步骤将 .drawio 导出为 PNG。
+
+**路径 3：在线 mermaid.live 手动导出——以上两条均不可用**
+标注该图为"手动渲染"，记录到质量门槛备注中。
+
+> **注意**：复杂架构图（>15 节点、含复杂布局）仍用 drawio（工具 A），不因 Mermaid 渲染路径存在而降级使用。Mermaid 仅用于简单流程图。
 
 ### ▶ 阶段 6 质量门槛
 
 - [ ] 总览图至少 1 张完成（`.drawio` 源文件 + `.svg`（人工编辑用）+ `.png`（docx 嵌入用，300dpi+ 含 pHYs 元数据）已保存到 `research/figures/`）
+- [ ] **所有 Mermaid 产出的流程图已渲染为 PNG**：检查所有 Mermaid `.mmd` 源文件均有对应的 `.png` 渲染产物，不存在仅停留在 Markdown 代码块中的 Mermaid 图。如果 mmdc 不可用且 drawio 降级路径也不可用，标注为"手动渲染"并记录到质量门槛备注
 - [ ] 每个核心分析章节至少 1 张架构图草图
 - [ ] 架构图之间逻辑一致（同一对象在不同图中名称统一）
 - [ ] 所有架构图有逻辑或来源标注（在图注中说明）

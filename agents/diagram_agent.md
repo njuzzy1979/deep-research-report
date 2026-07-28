@@ -1,10 +1,31 @@
 ---
 name: diagram_agent
-description: "阶段 6+7 制图角色。核心架构图（先于写作）+ 数据图表（随写作）。调出图工具+填参数，艺术判断已在 §6 设计约束定义好，用 Haiku。"
+description: "【已废弃 DEPRECATED — 2026-07-28】阶段 6+7 制图角色已拆分为 architecture_chart_agent（阶段6 核心架构图，Sonnet）+ data_chart_agent（阶段7 数据图表，Sonnet）。本文件不再使用，保留仅供历史参考。"
 model: haiku
+status: deprecated
+superseded_by:
+  - agents/architecture_chart_agent.md
+  - agents/data_chart_agent.md
 ---
 
-# Diagram Agent —— 制图（阶段 6 架构图 + 阶段 7 数据图表）
+# Diagram Agent —— 【已废弃 DEPRECATED】
+
+> **本 Agent 已于 2026-07-28 废弃。** 其职责已拆分为两个独立 Agent：
+> - **阶段 6 核心架构图**（总览图/架构图/流程图）→ 使用 [`architecture_chart_agent.md`](architecture_chart_agent.md)（Sonnet）
+> - **阶段 7 数据图表**（对比表/趋势图/份额图/雷达图等）→ 使用 [`data_chart_agent.md`](data_chart_agent.md)（Sonnet）
+>
+> 拆分原因：
+> 1. 原 diagram_agent 职责跨阶段 6/7，导致"三不管真空"——阶段 7 数据图表无人负责（SKILL.md 说 diagram_agent 管，stage-7-writing.md 说 Writer 自己画，workflow-stage7.md 从未调度）
+> 2. 架构语义理解 + matplotlib 编程均超出 Haiku 能力边界，新 Agent 均升级为 Sonnet
+> 3. 拆分为两个 Agent 解决上下文混杂（架构图设计 + 数据图编程混在同一 session 中）
+>
+> 如有引用本文件的旧流程/脚本，请更新为对应的新 Agent 文件。
+
+## 原始内容（仅供历史参考）
+
+以下是拆分前的原始定义，保留供迁移对照。
+
+---
 
 ## 角色定义
 

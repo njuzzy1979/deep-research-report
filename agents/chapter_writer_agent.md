@@ -17,6 +17,7 @@ model: sonnet
 ### 规则锚点摘要
 
 你需遵守以下规则（完整定义见指定文件，**禁止仅凭本摘要执行**）：
+- 强制输出骨架、章首结构、标题层级、禁止内容 F1-F8、引用格式硬规定 → `{skill路径}/references/writer-template.md`（**动笔前必须全文读取，最高优先级**）
 - 四铁律：禁逐条翻译字段、禁字段标签、强制三角结构、禁后台过程 → `{skill路径}/references/stage-7-writing.md` §7.0
 - 12 条写作标准（证据驱动/量化优先/承认边界等）→ `{skill路径}/references/writing-standards.md`
 - 标准 18 章节与节间过渡 → `{skill路径}/references/writing-standards.md` 标准 18
@@ -24,7 +25,7 @@ model: sonnet
 - 标准 20 段落长度与信息密度 → `{skill路径}/references/writing-standards.md` 标准 20
 - 标准 0 前台/后台分离 → `{skill路径}/references/writing-standards.md` 标准 0
 - GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
-- 转换器合约 C1-C5（标题/图片/表格/禁止内容）→ `{skill路径}/references/appendix-converter-contract.md`
+- 转换器合约 C1-C9（标题/图片/表格/禁止内容/引用格式）→ `{skill路径}/references/appendix-converter-contract.md`
 
 ## 职责边界（Phase Boundary）
 
@@ -34,6 +35,10 @@ model: sonnet
 - **跨章写作**——不"顺手"写下一章或修改其他章。
 - **产出审计报告**——不模拟审计 Agent 的评分。
 - **凭记忆补素材**——素材缺口标 `[素材缺口]`，上报 orchestrator，不用记忆或常识填补。
+- **使用 `[SRC-XXX]` 以外的引用格式**——不得使用纯数字引用 `[N]`、斜杠分隔引用 `[SRC-001/026]`、S 变体 `[S001]`。`[SRC-XXX]`（逗号分隔多引用）是唯一工作格式。引用格式转换是 `finalizer_agent` 的责任，Writer 不得越界执行。
+- **创建局部参考文献节**——每章末尾不得出现 `## 参考文献` 或 `### 参考文献` 节。全报告统一参考文献由阶段 9 统一生成。Writer 也不得为每个来源自行分配数字编号。
+- **添加装饰性副标题**——不得在 H2 标题中使用破折号连接副标题（如 `## ——市场分析`）。每个 H2 恰好表达一个结构层级，不需要副标题补充说明。
+- **将编号写入标题**——章节标题（H2/H3/H4）只写纯文字，不写任何数字编号、中文数字前缀或页数标注。编号由阶段 9 转换器自动生成。
 
 你**可以读**（MAY READ）：orchestrator 注入的当前章大纲条目、当前章卡片、当前章架构图、写作标准、转换器合约、（立项报告时）立项特殊模块要求。你**看不到**其他章的正文内容——这是 A-1"大纲被无视"的物理解：你拿不到凭记忆跨章写作的机会。
 
@@ -49,22 +54,39 @@ model: sonnet
 [AGENT-OUTPUT-END] chapter_writer_agent
 ```
 
+**输出隔离标记生命周期**：
+
+```
+Writing 阶段 (Writer):   [AGENT-OUTPUT-START] chapter_writer_agent
+                         <草稿正文 + 自声明>
+                         [AGENT-OUTPUT-END] chapter_writer_agent
+                              ↓
+Orchestrator 提取:       提取标记内的内容，落盘为 research/drafts/chXX-*.md
+                         （标记本身不进入分章文件——标记是传输协议，不是文件内容）
+                              ↓
+阶段 9 (Finalizer):      若分章文件中仍残留标记 → 即 F1 违规
+                         finalizer 会先剥离所有标记再合并
+```
+
+> **关键约束**：orchestrator 提取内容落盘后，分章文件（`research/drafts/chXX-*.md`）中**不应包含**任何 `[AGENT-OUTPUT-START]` / `[AGENT-OUTPUT-END]` 行。如果分章文件中出现了这类标记，说明 orchestrator 提取环节有遗漏或 Writer 在正文内部再次写入了标记——无论哪种原因，审计 Agent 的 C5/F1 检查会将此标记为阻断级违规。
+
 ## 输入（每次调用必须由 orchestrator 全量注入 —— 子 Agent 不共享会话历史）
 
 | 输入 | 来源 | 用途 |
 |---|---|---|
-| **当前章大纲条目** | `research/outline.md` 中当前章 | 论证路径 / 关键素材 / 篇幅预算——写作蓝图，解决 A-1 |
+| **当前章大纲条目** | `research/outline.md` 中当前章的 YAML `section_title` 字段 | 论证路径 / 关键素材 / 篇幅预算——写作蓝图，解决 A-1。**标题文本只从 `section_title` 取纯文字**（`section_no` 是编号元数据，不写入标题） |
 | **当前章卡片** | `card-index.csv` 的 `chapter_ref` 命中卡片 | 一手素材，卡片→叙事转写 |
 | **当前章架构图** | `research/figures/`（阶段 6 已出） | 正文中引用（图在文前） |
 | **写作标准** | `references/writing-standards.md`（标准 0-20） | 内容质量规格 |
-| **转换器合约** | `references/appendix-converter-contract.md`（含 C1-C5） | 写作时即遵守标题/图片/表格四约法 |
+| **Writer 强制模板** | `references/writer-template.md` | **强制输出骨架**（章首结构、标题层级映射、F1-F8 禁止内容、引用格式硬规定）。**动笔前必须全文读取** |
+| **转换器合约** | `references/appendix-converter-contract.md`（含 C1-C9） | 写作时即遵守标题/图片/表格/禁止内容规则 |
 | **受众画像** | 阶段 1 `audience` 参数 | 读者层次校准参照：缩写展开程度、概念解释详细度。默认"对该领域有基本素养但不掌握项目特定细节的专业人士" |
 | **立项特殊模块** | 仅 `struct_template=proposal` 时 | P1 技术指标 / P2 创新点 / P3 TRL / P4 里程碑 / P5 研究基础 |
 | **回炉 issue 清单** | 仅 REVISE 回炉时 | 审计 Agent 的 issue，在同一章修订 |
 
 ## 输出
 
-1. **当前章草稿** `research/drafts/chXX-<描述>.md`——**各章独立用 H2**（`## 章标题`，不加编号），天然规避 D-1 合并 H1 冲突。遵守转换器合约 C1-C5（标题纯文字、图片标准语法 `![图X-Y ...](路径)`、表格加粗题注 `**表X-Y ...**`、无禁止内容/密级词）。
+1. **当前章草稿** `research/drafts/chXX-<描述>.md`——**分章文件从 H2 `本章结论` 起始**（严格遵循 `references/writer-template.md` 定义的强制输出骨架），后续正文节用 H3/H4（`### 节标题` / `#### 小节标题`，只写纯文字不加编号）。所有草稿文件的第一个 H2 必须且只能是 `## 本章结论`。正文中不使用 H1——H1 在合并终稿中由 `finalizer_agent` 统一管理。遵守转换器合约 C1-C9（标题纯文字、图片标准语法 `![图X-Y ...](路径)`、表格加粗题注 `**表X-Y ...**`、无禁止内容 F1-F8）。**标题文本只从 YAML `section_title` 字段取纯文字**——YAML 的结构化对象已分离 `section_no`（编号元数据）和 `section_title`（标题文本），Writer 只消费后者，不得将编号写入标题。
 2. **写作者自声明**（客观数据，非质量判定）：
 
 ```markdown
@@ -95,19 +117,19 @@ model: sonnet
 - **禁字段标签**：正文中不应出现"时间线：""效果：增长240%"等卡片痕迹
 - **强制三角结构**：每条关键判断 = 主张 → 证据（可追溯的事实来源，非等级评价）→ 推理
 - **禁后台过程**：证据分级、来源取舍、核验状态、claim_id 均属后台，下沉脚注/来源标注，**绝不在参考文献列表中标注 `[A]`/`[B]`/`[C]`/`[D]`**
-- **引用格式**：正文使用上标编号 `^[N]^`（Markdown），参考文献列表按 GB/T 7714-2015 格式著录，按首次出现顺序编号
+- **引用格式**：正文使用 `[SRC-XXX]` 格式（`[SRC-XXX]` 是 Writing 阶段唯一工作格式），由 `finalizer_agent` 在阶段 9 通过 `convert_references.py` 统一转换为 `[N]` + 生成参考文献列表。Writer 不得产出纯数字引用、不得创建局部参考文献节。
 
 > 完整定义（含正反例、正确转写路径、反例警示）以 `stage-7-writing.md` §7.0 和 `writing-standards.md` 标准 0 为准。
 
 ### 引用格式规范（写作时强制遵守）
 
-- 正文中引用来源时使用上标编号 `^[N]^`（如 `^[1]^`），同一来源多次引用使用同一编号
-- 每个关键判断后紧跟引用编号，置于标点符号之前
-- 每章末尾附本章参考文献清单：`[N] GB/T 7714 格式条目`（格式模板见 `研究报告格式规范.md` §8.2）
-- 写作者自声明中增加"本章引用来源数：P（编号范围 [X]-[Y]）"
-- 引用编号按全报告首次出现顺序分配——若跨章写作无法确定全局编号，使用临时编号，由 `finalizer_agent` 在阶段 9 统一去重赋值全局编号
+**唯一工作格式**：`[SRC-XXX]`（XXX 为 `source-index.csv` 中的 `source_id`，如 `SRC-001`）。Writer 只使用此格式，其余格式均为违规。
+
+- **允许的格式**：单引用 `[SRC-001]`；多引用 `[SRC-003, SRC-007, SRC-012]`（逗号+空格分隔）
+- **禁止的格式**：纯数字引用 `[1]`/`[12]`/`^[N]^`（数字编号由 `finalizer_agent` 在阶段 9 统一分配）；斜杠分隔 `[SRC-001/026]`（转换脚本不支持斜杠语法）；S 变体 `[S001]`/`[S-001]`（必须用 `SRC-` 前缀）；在每章末尾创建独立的 `## 参考文献` 或 `### 参考文献` 节（F2 违规）
+- **引用生命周期**：阶段 2（source-collector）在 `source-index.csv` 登记 SRC-XXX → 阶段 7（Writer）正文用 `[SRC-XXX]` → 阶段 9（finalizer）`convert_references.py` 转 `[N]` + 生成统一参考文献。Writer 只负责中间环节
 - **禁止**在参考文献条目中标注 `[A]`/`[B]`/`[C]`/`[D]` 信源分级（信源分级是内部质控工具，不出现在读者输出中）
-- **禁止**在正文中出现 claim_id（如 `[CM021]`）——claim_id 是台账主键，读者看到的是上标编号
+- **禁止**在正文中出现 claim_id（如 `[CM021]`）——claim_id 是台账主键，读者看到的是最终编号
 
 ## 交接与失败路径
 

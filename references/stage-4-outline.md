@@ -41,6 +41,8 @@
 > **反例警示**：旧格式的"**关键证据**：S002(Ch7异动识别)、S021(HMM意图识别)"在正文中的正确转写应该是："据遨天科技2026年深度研究报告的分析[S002]，非合作目标的异动识别面临……而基于隐马尔可夫模型的意图识别方法[S021]在仿真中实现了高准确率……"——这是一个因果链叙述，不是两个条目的翻译。
 
 > **页数不写进标题**：章/节/小节标题本身只写标题文字，不要写成"第 X 章：章标题（建议页数：Y 页）"——大纲标题会原样沿用到成稿目录和正文标题，混入页数会导致最终报告的章节标题里出现"建议 XX 页"这种大纲阶段的内部标注。页数预算统一放在标题下方的"篇幅建议"行，写作阶段参考后即可丢弃，不进入正文。
+	
+	> **编号不写进标题**：大纲 Markdown 正文中的 heading 可以带编号前缀供人阅读（如 `### 1.1 节标题`），但标题的**权威来源是 YAML `section_title` 字段**——它存的是纯文字不含编号。Writer 只从 `section_title` 取标题文本写入分章文件。编号（`section_no`）是单独的元数据字段，用于转换器编号和 `finalizer_agent` 的结构驱动合并。**绝对禁止** Writer 将编号（如"1.1""第一章"）写入分章文件的 H3/H4 标题中——这会导致转换器自动编号与手动编号叠加产生"第一章 第一章"或"1.1 1.1"重复。
 
 > **图表规划分两类**：核心架构图（总览图/架构图/流程图）在此阶段就可以给出具体图号和图名——因为阶段 1.3 已确定分析框架，知道有哪些层次和组件需要可视化；**数据图表（对比表/趋势图/雷达图等）只写方向**（如"预计本章需要 1 张市场规模对比表，数据来源 NSR/Euroconsult"），具体图号在阶段 7 随写作产出时才分配——此时写作还没开始，数据细节未定，过早锁定图名会导致图表与文字脱节。
 
@@ -59,7 +61,7 @@
 > **本章要论证什么**：（核心判断及其在全文论证中的位置）
 > 🏗️ **核心架构图**：图 X-1 ...（阶段 6 完成后回填图号）
 
-### X.1 节标题
+### X.1 节标题  <!-- 编号"X.1"是供人阅读的展示前缀，不是标题文本的一部分；Writer 从 YAML section_title 取纯文字"节标题"写入分章文件 -->
 > **篇幅预算**：约 Z 页（约 Z×800 字）
 > **本节要论证什么**：（论点及其在整章论证中的位置）
 > **论证路径**：（因为 A → 所以 B → 因此 C 的因果链）
@@ -81,21 +83,27 @@ structure:
   frontmatter:
     - chapter_title: "前言/导论"
       sections:
-        - "问题提出与研究背景"
-        - "概念界定与研究边界"
+        - section_no: ""
+          section_title: "问题提出与研究背景"
+        - section_no: ""
+          section_title: "概念界定与研究边界"
   bodymatter:
     - chapter_no: 1
       chapter_title: "第一章完整标题"
       sections:
-        - "X.1 节标题"
-        - "X.2 节标题"
+        - section_no: "1.1"
+          section_title: "节标题"
+        - section_no: "1.2"
+          section_title: "节标题"
       subsections:
-        - parent: "X.1 节标题"
-          title: "X.1.1 小节标题"
+        - parent_section_no: "1.1"
+          subsection_no: "1.1.1"
+          subsection_title: "小节标题"
     - chapter_no: 2
       chapter_title: "第二章完整标题"
       sections:
-        - "X.1 节标题"
+        - section_no: "2.1"
+          section_title: "节标题"
   appendix:
     - appendix_letter: "A"
       appendix_title: "附录A标题"
@@ -103,15 +111,136 @@ structure:
 ```
 
 **字段语义**：
-- `frontmatter`：前置件区。H1（MAIN_TITLE）后的 H2/H3 归入此区，**不编号**
-- `bodymatter`：正文区。每个元素是一个完整章，`chapter_no` 为章序号，`sections` 按文档序排列，`subsections` 通过 `parent` 字段关联所属节
+- `struct_template`：报告类型标识，对应五种报告类型（research/proposal/policy/tech-eval/brief）
+- `title`：报告题名
+- `frontmatter`：前置件区。H1（MAIN_TITLE）后的 H2/H3 归入此区，**不编号**。前置件区的 `section_no` 填空字符串
+- `bodymatter`：正文区。每个元素是一个完整章，`chapter_no` 为章序号。`sections` 按文档序排列，每项为 `{section_no, section_title}` 结构化对象——**编号是元数据（`section_no`），不是标题文本的一部分**。`subsections` 通过 `parent_section_no` 字段关联所属节，每项为 `{parent_section_no, subsection_no, subsection_title}` 结构化对象
 - `appendix`：附录区。`appendix_letter` 为字母标识（A/B/C…），顺序即为文档序
-- 所有标题文本须与 Markdown 正文中实际出现的 heading 文本**精确一致**（含标点、空格）
+- `figures_manifest`（**可选，阶段4产出**）：机器可读的图表规划清单。若报告超过 3 个核心架构图则**强烈建议**产出此字段，作为阶段6/7/9各方的图表清单权威来源。与 `structure` 同级，包含三个子清单（见下方完整 YAML 示例和字段 schema）
+- **"精确一致"约束**：YAML 中的 `section_title` / `subsection_title` 文本须与 Writer 分章文件中实际出现的 H3/H4 heading 文本**精确一致**（含标点、空格）。注意：是 `section_title` 与 heading 文本一致——`section_no` 是编号元数据，用于转换器编号和 `finalizer_agent` 结构驱动合并，Writer 不将其写入标题
 
 **下游消费者**：
 - `--outline` 参数传入的转换器：`assemble/headings.py::apply_structure_overlay()` 用于覆盖推断的 heading 分类与编号
 - `finalizer_agent`（阶段 9）：读取结构清单生成合并清单，按章插入 H2 章容器
 - `chapter_auditor_agent`（阶段 7）：结构一致性审计维度的比对基准
+- `architecture_chart_agent`（阶段 6）：从 `figures_manifest.architecture_figures` 获取出图清单（机器可读，无需从正文 grep）
+- `data_chart_agent`（阶段 7）：从 `figures_manifest.data_figures` 获取数据图表方向（为阶段7出图提供结构化上下文）
+- `figure_gate.py`（阶段6 CHECKPOINT + 阶段9转换前）：从 `figures_manifest` 提取文件清单，逐文件验证存在性与有效性
+
+### 4.1.z figures_manifest 字段定义（可选产出，图表清单权威来源）
+
+`figures_manifest` 是 `outline.md` YAML front matter 中与 `structure` 同级的可选字段。**若存在，则阶段6 (`architecture_chart_agent`)、阶段7 (`data_chart_agent`)、阶段9 (`figure_gate.py` 门禁) 均以此字段为图表清单的权威来源**，不再从 Markdown 正文的非结构化文本中 grep 提取图信息。
+
+当前 `outline.md` YAML front matter 中的完整 `figures_manifest` 示例（插入在 `structure` 块之后，`appendix` 与 `figures_manifest` 同级）：
+
+```yaml
+---
+struct_template: research
+title: "报告题名"
+structure:
+  # ...（见 §4.1.y 完整示例）
+figures_manifest:
+  architecture_figures:
+    - figure_id: "fig-arch-overview"
+      figure_no: "1-1"
+      title: "空间态势感知核心闭环"
+      type: "overview"
+      tool: "drawio"
+      priority: "required"
+      belongs_to_chapter: 1
+      status: "planned"
+      output_files:
+        - "research/figures/1-1-空间态势感知核心闭环.drawio"
+        - "research/figures/1-1-空间态势感知核心闭环.drawio.png"
+      checkpoints:
+        - "stage6_figure_gate"
+    - figure_id: "fig-arch-layer"
+      figure_no: "2-1"
+      title: "六层技术架构全景"
+      type: "architecture"
+      tool: "drawio"
+      priority: "required"
+      belongs_to_chapter: 2
+      status: "planned"
+      output_files:
+        - "research/figures/2-1-六层技术架构全景.drawio"
+        - "research/figures/2-1-六层技术架构全景.drawio.png"
+      checkpoints:
+        - "stage6_figure_gate"
+    - figure_id: "fig-arch-pipeline"
+      figure_no: "3-1"
+      title: "数据处理管道流程图"
+      type: "flowchart"
+      tool: "mermaid"
+      priority: "required"
+      belongs_to_chapter: 3
+      status: "planned"
+      output_files:
+        - "research/figures/3-1-数据处理管道流程图.drawio.png"
+      checkpoints:
+        - "stage6_figure_gate"
+  data_figures:
+    - figure_id: "fig-data-market-compare"
+      figure_no: "2-2"
+      title: "主要系统市场份额对比（2025）"
+      type: "bar"
+      tool: "matplotlib"
+      priority: "optional"
+      belongs_to_chapter: 2
+      status: "planned"
+      data_source: "NSR Global Satellite Markets 17th Ed"
+      output_files:
+        - "research/figures/2-2-市场份额对比.png"
+      checkpoints:
+        - "stage9_figure_gate"
+    - figure_id: "fig-data-trend"
+      figure_no: "3-2"
+      title: "轨道目标数量增长趋势（2016-2026）"
+      type: "line"
+      tool: "matplotlib"
+      priority: "required"
+      belongs_to_chapter: 3
+      status: "planned"
+      data_source: "ESA Space Environment Report 2025"
+      output_files:
+        - "research/figures/3-2-轨道目标增长趋势.png"
+      checkpoints:
+        - "stage9_figure_gate"
+  tables:
+    - table_id: "tbl-compare-systems"
+      table_no: "2-1"
+      title: "主流空间态势感知系统能力对比"
+      belongs_to_chapter: 2
+      status: "planned"
+      rows_estimate: 8
+    - table_id: "tbl-eval-metrics"
+      table_no: "3-1"
+      title: "技术评估指标体系"
+      belongs_to_chapter: 3
+      status: "planned"
+      rows_estimate: 10
+```
+
+**字段 schema**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `figure_id` | string | 是 | 唯一标识符，格式 `fig-<type>-<slug>` |
+| `figure_no` | string | 是 | 图号，格式 `X-Y`（章号-章内序号）。架构图由阶段4分配，数据图表由阶段7分配（阶段4可填 `?`） |
+| `title` | string | 是 | 图标题（将作为题注出现） |
+| `type` | string | 是 | 架构图：`overview` / `architecture` / `flowchart`；数据图表：`bar` / `line` / `pie` / `radar` / `scatter` / `table` |
+| `tool` | string | 是 | 产出工具：`drawio` / `fireworks-tech-graph` / `mermaid` / `matplotlib` |
+| `priority` | string | 是 | `required`（不可或缺）/ `optional`（可降级为文字描述） |
+| `belongs_to_chapter` | int | 是 | 所属章序号（与 `structure.bodymatter.chapter_no` 对应） |
+| `status` | string | 是 | `planned` → `in_progress` → `done` → `dropped`（生命周期状态） |
+| `output_files` | list | 是 | 预期产出文件路径列表（至少含1个 PNG） |
+| `checkpoints` | list | 否 | 该图表需要经过的门禁检查点 |
+| `data_source` | string | 否 | 数据来源（数据图表专用，架构图可省略） |
+| `rows_estimate` | int | 否 | 预估行数（表格专用） |
+
+> **figures_manifest 的阶段变迁**：阶段4产出时为 `planned` 状态，数据图表 `figure_no` 可填 `"?"`。阶段6完成后 `architecture_figures` 逐一变为 `done`。阶段7完成后 `data_figures` 逐一变为 `done`。阶段9 `figure_gate.py` 据此逐项验证文件存在性。
+
+> **如果阶段4未产出 figures_manifest**：下游 Agent 从 Markdown 正文的 🏗️ **核心架构图** 和 **图表规划** 标记中提取图信息。此时 `figure_gate.py` 的匹配精度会从"精确匹配"降级为"模糊匹配"，但不会阻断流程。
 
 > **阶段 7 每节写作前，必须读取 `research/outline.md` 中对应该节的条目。此为硬性要求**——不读大纲就开始写作，等于承认"本 skill 的流程设计是摆设"。在多 Agent 档下，这条硬约束由输入注入机制物理保证（`chapter_writer_agent` 的输入契约里只有当前章条目，拿不到凭记忆写作的机会）。
 

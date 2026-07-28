@@ -67,14 +67,16 @@
 | `fact_verifier_agent` | 研究 | Opus | 3 | 事实核验台账，强表述降级 |
 | `outline_architect_agent` | 设计 | Opus | 4 | 产出 outline.md 叙事框架契约 |
 | `card_synthesizer_agent` | 设计 | Sonnet | 5 | 台账→结构化卡片 + 证据包 |
-| `diagram_agent` | 制图 | Haiku | 6+7 | 核心架构图 + 数据图表 |
+| `diagram_agent`（已废弃） | 制图 | Haiku | 6+7 | 已于 2026-07-28 拆分为 architecture_chart_agent + data_chart_agent（均升级为 Sonnet） |
+| `architecture_chart_agent` | 制图 | Sonnet | 6 | 核心架构图批量产出（总览图/架构图/流程图） |
+| `data_chart_agent` | 制图 | Sonnet | 7 | 数据图表随写作按章产出（matplotlib） |
 | `chapter_writer_agent` | 写作 | Sonnet | 7 | 逐章写作，卡片→叙事化转写 |
 | `chapter_auditor_agent` | 审计 | Opus | 7 | 逐章独立审计（R3 的解），真跑 4 个检查脚本 |
 | `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份报告→统一风险清单 |
 | `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
 
-> **模型选型原则**：按认知负荷类型分级——强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；机械/模板化（搜集、制图、定稿）用 Haiku。
+> **模型选型原则**：按认知负荷类型分级——强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；架构语义理解 + 编程（架构图、数据图表）用 Sonnet；机械/模板化（搜集、定稿）用 Haiku。
 
 ### 三档协同模式
 
@@ -109,11 +111,12 @@
 
 | 脚本 | 触发阶段 | 功能 | 调用方 |
 |------|---------|------|--------|
-| `contract_check.py` | 阶段 7 审计 | 合约 C1-C5（标题/图片/表格/禁止内容）+ 量化 QS1-QS3（字数/图数/表数） | `chapter_auditor_agent` |
-| `claim_strength_check.py` | 阶段 7 审计 | 扫描强表述词（首次/最大/完全等），交叉核对 claims-ledger.csv | `chapter_auditor_agent` |
-| `card_overlap_check.py` | 阶段 7 审计 | n-gram 滑动窗口检测卡片-正文重合度（≥46 字候选，专有事实豁免），防逐卡誊抄 | `chapter_auditor_agent` |
-| `chart_checks.py` | 阶段 6/7 | 图表 DPI/颜色/注册表自动检查 | `diagram_agent` |
-| `check_linkage_constants.py` | CI/维护 | 扫描 `linkage-const` 标记，与 `linkage-constants.json` SSOT 比对 | 开发者 |
+| `contract_check.py` | 阶段 7 审计 | 合约 C1-C9 + 量化 QS1-QS4 | `chapter_auditor_agent` |
+| `claim_strength_check.py` | 阶段 7 审计 | 扫描强表述词，交叉核对 claims-ledger.csv | `chapter_auditor_agent` |
+| `card_overlap_check.py` | 阶段 7 审计 | n-gram 滑动窗口检测卡片-正文重合度 | `chapter_auditor_agent` |
+| `chart_checks.py` | 阶段 6/7 | 图表 DPI/颜色/注册表自动检查 | `architecture_chart_agent` / `data_chart_agent` |
+| `figure_gate.py` | 阶段6 CP + 阶段9 | 全自动文件系统级图表存在性检查（FATAL阻断） | orchestrator |
+| `check_linkage_constants.py` | CI/维护 | 扫描 `linkage-const` 标记，与 `linkage-constants.json` 比对 | 开发者 |
 | `check_no_hardcode.py` | CI | AST 扫描内容硬编码 + 结构违规 + schema 漂移 | 开发者 |
 
 ## 转换器卡片-正文重合度检测
@@ -166,7 +169,7 @@ deep-research-report/
 ├── dashboard.md                          # Darwin 2.0 评估优化记录
 ├── linkage-constants.json                # SSOT 跨文件数值常量（7 个阈值/限额）
 ├── .gitignore                            # 排除 research/ output/ tests/
-├── agents/                               # 10 个 Agent 定义（prompt + 契约）
+├── agents/                               # 12 个 Agent 定义（prompt + 契约）
 │   ├── chapter_writer_agent.md           # 写作者（Sonnet）
 │   ├── chapter_auditor_agent.md          # 审计者（Opus，R3 的解）
 │   ├── redteam_agent.md                  # 红队 4 人格（异构 2×Opus+2×Sonnet）
@@ -175,7 +178,9 @@ deep-research-report/
 │   ├── card_synthesizer_agent.md         # 卡片合成（Sonnet）
 │   ├── source_collector_agent.md         # 资料搜集（Haiku）
 │   ├── fact_verifier_agent.md            # 事实核验（Opus）
-│   ├── diagram_agent.md                  # 制图（Haiku）
+│   ├── architecture_chart_agent.md       # 核心架构图（Sonnet，阶段6）
+│   ├── data_chart_agent.md               # 数据图表（Sonnet，阶段7）
+│   ├── diagram_agent.md                  # 制图（已废弃，拆分为以上两个）
 │   ├── finalizer_agent.md                # 定稿整合（Haiku）
 │   └── contracts/                        # writer_contract.json + auditor_contract.json
 ├── scripts/
@@ -183,6 +188,7 @@ deep-research-report/
 │   ├── claim_strength_check.py           # 强表述扫描
 │   ├── card_overlap_check.py             # 卡片-正文重合度检测
 │   ├── chart_checks.py                   # 图表 DPI/颜色/注册表检查
+│   ├── figure_gate.py                    # 全自动图表存在性门禁（FATAL阻断）
 │   ├── check_linkage_constants.py        # SSOT 数值一致性校验
 │   ├── md2docx.py                        # md→docx 转换器入口 shim
 │   └── md2docx/                          # 转换器 v2 主包（41 模块）
@@ -254,7 +260,8 @@ deep-research-report/
 | **drawio（MCP）** | 架构图/流程图生成 `.drawio` | 无需安装，MCP 内置 |
 | **draw.io 桌面版** | `.drawio` → `.svg` / `.png` 导出 | 路径见 `tool-paths.json` |
 | **fireworks-tech-graph** | 技术架构图，10+ 模板 | `pip install cairosvg` |
-| **Mermaid** | 简单流程图备选（≤15 节点） | 内联 Markdown，无需安装 |
+| **Mermaid** | 简单流程图备选（≤15 节点） | 内联 Markdown |
+| **mermaid-cli (mmdc)** | Mermaid → PNG 渲染 | `npm install -g @mermaid-js/mermaid-cli`；路径见 `tool-paths.json` |
 
 ### 转换与检查
 

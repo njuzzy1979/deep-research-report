@@ -41,6 +41,19 @@
     },
     "env_vars": []
   },
+  "mermaid_cli": {
+    "display_name": "Mermaid CLI (mmdc)",
+    "relative_path": "",
+    "absolute_path": "",
+    "description": "Mermaid 图表 → PNG 渲染（阶段6 Mermaid 路径的必选工具）。npm 全局安装：npm install -g @mermaid-js/mermaid-cli",
+    "render_command": "mmdc -i <input>.mmd -o <output>.png --scale 3 --backgroundColor white",
+    "install_command": "npm install -g @mermaid-js/mermaid-cli",
+    "find_commands": {
+      "windows": "where mmdc",
+      "linux_mac": "which mmdc"
+    },
+    "env_vars": []
+  },
   "fireworks_tech_graph": {
     "display_name": "fireworks-tech-graph",
     "relative_path": "fireworks-tech-graph/scripts/generate-from-template.py",

@@ -95,9 +95,11 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
     """
     level = _KIND_TO_LEVEL.get(heading.kind, 4)
     # FRONT_MATTER: 优先使用 markdown_level（保留 TOC 层级关系），
-    # 缺失时退回 _KIND_TO_LEVEL 的固定值 2
+    # 缺失时退回 _KIND_TO_LEVEL 的固定值 2。
+    # markdown_level=1（H1 前端件如"# 摘要"）上封顶为 2，
+    # 避免 Word Heading 1 吞并后续 Heading 2 形成虚假父子关系。
     if heading.kind == HeadingKind.FRONT_MATTER and heading.markdown_level is not None:
-        level = heading.markdown_level
+        level = max(2, heading.markdown_level)
     style_name = f"Heading {level}"
     style = styles.get(style_name)
     if style is not None:

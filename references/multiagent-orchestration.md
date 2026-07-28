@@ -82,6 +82,17 @@
 
 每个门禁步骤把快照 append 落盘（JSONL，append-only）到进度文档，不依赖会话记忆。阶段 7 逐章审计报告落 `research/chapter-reports/`，阶段 8 统一风险清单落 `research/redteam-risklist.md`。
 
+## 8.5 Writer 注入时的标题提取规则（确定性要求）
+
+在阶段 7 为 `chapter_writer_agent` 注入"当前章大纲条目"时，orchestrator **必须**从 `outline.md` 的 YAML front matter 中提取标题文本，而非从 Markdown 正文 heading 行解析。具体规则：
+
+1. **标题文本来源**：从 `structure.bodymatter[*].sections[*].section_title` 字段取纯文字标题。`section_no` 是编号元数据，**不注入**到 Writer prompt 的标题文本中
+2. **注入格式**：向 Writer 注入时，标题文本以纯文字形式呈现（如"军事需求分析"），不附带任何编号前缀（不写"1.1 军事需求分析"）
+3. **Markdown heading 中的编号**：`outline.md` 的 Markdown 正文 heading 可以带编号供人阅读（如 `### 1.1 军事需求分析`），但 orchestrator **不得**从 heading 行解析标题——必须以 YAML `section_title` 为准。这是防止"编号写入标题"的三重防线中的第一道
+4. **YAML-Markdown 一致性校验**：如果 YAML `section_title` 的值与 Markdown heading 去掉编号前缀后的文本不一致，orchestrator 应标记该不一致并提示大纲架构师修正（说明 YAML 或 Markdown 有一方未同步更新）
+
+> **设计理由**：SCIF 项目中 Part 2/6 的 H3 被 Writer 降级为 H4，根因是大纲 YAML 的 section 标题带编号前缀"1.1"，Writer 将编号当标题文字消费后触发了错误的层级判断。这条确定性规则从 orchestrator 注入层面切断编号污染路径——Writer 看到的标题永远是纯文字，无从污染。
+
 ## 9. 已知限制（继承 v4 §9）
 
 - **depth-1 天花板**：`Agent` 工具只支持主对话→工作 Agent 单层委派。

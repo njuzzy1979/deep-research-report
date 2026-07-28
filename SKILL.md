@@ -49,13 +49,15 @@ description: >
 | `outline_architect_agent` | 设计 | Opus | 4 | 产出 outline.md 叙事框架契约 |
 | `card_synthesizer_agent` | 设计 | Sonnet | 5 | 台账→结构化卡片 + 证据包 + card-index |
 | `diagram_agent` | 制图 | Haiku | 6+7 | 核心架构图（先于写作）+ 数据图表 |
+| `architecture_chart_agent` | 制图 | Sonnet | 6 | 核心架构图（总览图/架构图/流程图）批量产出，先于写作 |
+| `data_chart_agent` | 制图 | Sonnet | 7 | 数据图表（对比表/趋势图/份额图/雷达图等）随写作按章产出 |
 | `chapter_writer_agent` | 写作 | Sonnet | 7 | 逐章写作（生成半），卡片→叙事 |
 | `chapter_auditor_agent` | 审计 | Opus | 7 | 逐章独立审计（评估半，R3 的解） |
 | `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份红队报告→统一风险清单 |
 | `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
 
-> **模型选型原则**（v4 §3.2）：按任务的**认知负荷类型**分级，不按角色"重要性"。强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；机械/模板化（搜集、制图、定稿）用 Haiku。非 Opus 角色必须显式传 `model` 参数，不依赖继承 orchestrator 的 Opus。
+> **模型选型原则**（v4 §3.2）：按任务的**认知负荷类型**分级，不按角色"重要性"。强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；架构语义理解 + 编程（架构图、数据图表）用 Sonnet；机械/模板化（搜集、定稿）用 Haiku。非 Opus 角色必须显式传 `model` 参数，不依赖继承 orchestrator 的 Opus。
 
 ### 三档协同模式（按报告规模/类型分档，成本花在刀刃）
 
@@ -181,6 +183,10 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 | 14 | **跨 Agent 越界写**——审计者/红队顺手改稿或写下一章 | 发现者 ≠ 修复者：审计只出裁决 + issue 清单，修改交回 `chapter_writer_agent`；每个角色严守 Phase Boundary |
 | 15 | **审计放宽标准**——看了稿再把评分标准调松到刚好让稿子通过 | 审计采用盲态预承诺：Phase A 未看稿先书面锁定触发词，Phase B 打分语言须 substring-match Phase A 承诺（一致性 lint） |
 | 16 | **降级档误用多 Agent**——5 页简报也拉起 writer+auditor 对抗 | brief/简报自动进单 Agent 极速档回退 V3 自查；多 Agent 是标准/完整档的增强，不是唯一选项 |
+| 17 | **以文字描述替代图表**——该出图的地方写"此处应有一张技术架构图" | 图表不可用文字占位替代；若工具链不可用，标注降级原因并记录到质量门槛备注；但不可从一开始就放弃出图 |
+| 18 | **图表规划与执行脱节**——阶段4规划了5张图，阶段6实际产出3张且图号不匹配 | 阶段4产出 figures_manifest 结构清单，阶段6 architecture_chart_agent 严格按此清单逐项产出；任何偏差必须回写 figures_manifest status 并上报 orchestrator |
+| 19 | **用 Haiku 做架构设计**——用低配模型产出架构图和复杂数据图表 | 架构图需要理解分析框架语义层次（用 Sonnet），数据图表需要非平凡 matplotlib 编程（用 Sonnet）；Haiku 仅限于搜集和定稿等机械任务 |
+| 20 | **质量门槛全靠人眼**——没有文件系统级自动检查就宣布"全部图表就位" | 阶段6 CHECKPOINT 和阶段9转换前必须运行 `python scripts/figure_gate.py` 做全自动文件存在性检查；exit code 非零即阻断，零人工干预 |
 
 ---
 
@@ -214,9 +220,11 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 - `agents/outline_architect_agent.md` — 大纲契约生产者（Opus）
 - `agents/source_collector_agent.md` / `fact_verifier_agent.md` / `card_synthesizer_agent.md` / `diagram_agent.md` / `finalizer_agent.md` — 阶段 2/3/5/6/9 角色
 - `agents/contracts/writer_contract.json` + `auditor_contract.json` — 生成/评估契约维度 schema
-- `scripts/contract_check.py` — 合约 C1-C5 + 量化 QS1-QS3 检查（审计 Agent 调用的确定性工具）
+- `scripts/contract_check.py` — 合约 C1-C9 + 量化 QS1-QS3 检查（审计 Agent 调用的确定性工具）
+	- `scripts/convert_references.py` — 引用格式转换工具 [SRC-XXX]→[N]（skill 内置，跨项目通用）
 
 **模板与规范**：
+- `references/writer-template.md` — **【强制】Writer 输出骨架与硬性约束**（章首结构、标题层级映射、F1-F8 禁止内容、引用格式硬规定）
 - `references/claims-ledger-template.csv` — 事实核验台账模板
 - `references/source-index-template.csv` — 来源索引模板
 - `references/red-team-checklist.md` — 红队审查详细清单
@@ -235,6 +243,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 **外部依赖——出图工具**：
 - **drawio**（MCP + 桌面版）— 架构图、流程图
 - **fireworks-tech-graph** — 技术架构图，16 种模板
-- **Mermaid** — 简单流程图备选，内联 Markdown
+- **Mermaid** — 简单流程图备选，需通过 mmdc 渲染为 PNG
+- **mermaid-cli (mmdc)** — Mermaid → PNG 渲染（npm 全局安装：`npm install -g @mermaid-js/mermaid-cli`），路径配置在 `tool-paths.json` 中 `mermaid_cli` 条目
 
 > 所有工具路径统一配置在 `references/tool-paths.json` 中。
