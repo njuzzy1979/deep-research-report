@@ -129,6 +129,13 @@ def load_profile(path: Optional[str] = None) -> dict:
     """
     target = Path(path) if path else DEFAULT_PROFILE_PATH
 
+    # 用户级本地覆盖：model-profile.local.json（不提交到仓库，供个人按需配置）
+    # 仓库默认值永远是 tier A（Claude 安全基线），本地覆盖文件由 .gitignore 排除。
+    # --path 显式传参时不走覆盖逻辑（调用方已明确指定文件，尊重其选择）。
+    local_override = target.parent / "model-profile.local.json"
+    if path is None and local_override.exists():
+        target = local_override
+
     # 情形 1：文件不存在 -> fallback 到 tier A（=当前 Claude 行为），写台账
     if not target.exists():
         record_degradation(
@@ -190,7 +197,8 @@ def load_profile(path: Optional[str] = None) -> dict:
             return _normalize(TIER_C_DEFAULT, "fallback_tier_c_invalid")
 
     # 情形 4：文件存在且合法 -> 按声明的 tier 运行
-    return _normalize(instance, "file")
+    _src = "file_local_override" if local_override.exists() and target == local_override else "file"
+    return _normalize(instance, _src)
 
 
 def resolve_collaboration_mode(profile: dict, requested_mode: str) -> tuple:

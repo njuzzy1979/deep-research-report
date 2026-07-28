@@ -1,3 +1,7 @@
+# 用户级本地配置覆盖（model-profile.local.json），仓库默认保持 tier A（Claude 安全基线）
+# 个人可按需在此文件中覆盖 capability_tier / limits / policy，不会被提交
+model-profile.local.json
+
 # 工作区产物（运行时生成）
 output/
 research/
