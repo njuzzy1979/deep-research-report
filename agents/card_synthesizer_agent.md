@@ -34,7 +34,7 @@ model: sonnet
 ## 输入 / 输出
 
 - **输入**：`research/claims/claims-ledger.csv`（台账）+ `research/outline.md`（按 chapter_ref 组织卡片）。
-- **输出**：`research/notes/{case-cards,tech-cards,architecture-cards,theory-cards}/` 下的结构化卡片 + `research/notes/card-index.csv`（登记每张卡片类型/对应章节 chapter_ref/关联证据包/是否已被阶段7引用 used_in_chapter/卡片文件路径 card_file_path）。目录名约定以 `references/stage-5-cards.md` §5.0 为准。
+- **输出**：`research/notes/{case-cards,tech-cards,architecture-cards,theory-cards}/` 下的结构化卡片 + `research/notes/card-index.csv`（登记每张卡片类型/对应章节 chapter_ref/关联证据包/是否已被阶段7引用 used_in_chapter/卡片文件路径 card_file_path）。目录名约定以 `references/stage-5-cards.md` §5.0 为准。**此外产出 `research/glossary.md`**——基于 theory-cards 中的原创概念编译术语表，含 preferred_form/aliases/banned_forms 等完整元数据，格式以 `references/glossary.md` 模板为准。
 
 ## 卡片类型（stage-5-cards.md）
 
@@ -46,5 +46,5 @@ model: sonnet
 
 ## 交接与失败路径
 
-- **交接**：卡片 + card-index.csv → `diagram_agent`（架构卡）+ `chapter_writer_agent`（按 chapter_ref 取当前章卡片）。
+- **交接**：卡片 + card-index.csv → `diagram_agent`（架构卡）+ `chapter_writer_agent`（按 chapter_ref 取当前章卡片）。`research/glossary.md` → `chapter_writer_agent`（术语强制参考）+ `chapter_auditor_agent`（术语一致性审计基准）。
 - **失败路径**：某主张证据不足以成卡 → 在 card-index.csv notes 标注，不硬凑；卡片数不足阶段 5 门槛 → 回炉补充。

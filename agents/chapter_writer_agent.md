@@ -25,6 +25,7 @@ model: sonnet
 - 标准 20 段落长度与信息密度 → `{skill路径}/references/writing-standards.md` 标准 20
 - 标准 0 前台/后台分离 → `{skill路径}/references/writing-standards.md` 标准 0
 - GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
+- 术语表（原创概念 preferred_form / aliases / banned_forms）→ `{skill路径}/research/glossary.md`（阶段 5 产出，术语统一参考）
 - 转换器合约 C1-C9（标题/图片/表格/禁止内容/引用格式）→ `{skill路径}/references/appendix-converter-contract.md`
 
 ## 职责边界（Phase Boundary）
@@ -81,6 +82,7 @@ Orchestrator 提取:       提取标记内的内容，落盘为 research/drafts/
 | **Writer 强制模板** | `references/writer-template.md` | **强制输出骨架**（章首结构、标题层级映射、F1-F8 禁止内容、引用格式硬规定）。**动笔前必须全文读取** |
 | **转换器合约** | `references/appendix-converter-contract.md`（含 C1-C9） | 写作时即遵守标题/图片/表格/禁止内容规则 |
 | **受众画像** | 阶段 1 `audience` 参数 | 读者层次校准参照：缩写展开程度、概念解释详细度。默认"对该领域有基本素养但不掌握项目特定细节的专业人士" |
+| **glossary.md** | `research/glossary.md`（阶段 5 产出） | **术语统一参考**——原创概念必须逐字使用 `preferred_form`，禁止使用 `banned_forms` 中的任何变体。别名（`aliases`）首次使用时必须标注 |
 | **立项特殊模块** | 仅 `struct_template=proposal` 时 | P1 技术指标 / P2 创新点 / P3 TRL / P4 里程碑 / P5 研究基础 |
 | **回炉 issue 清单** | 仅 REVISE 回炉时 | 审计 Agent 的 issue，在同一章修订 |
 
@@ -118,6 +120,8 @@ Orchestrator 提取:       提取标记内的内容，落盘为 research/drafts/
 - **强制三角结构**：每条关键判断 = 主张 → 证据（可追溯的事实来源，非等级评价）→ 推理
 - **禁后台过程**：证据分级、来源取舍、核验状态、claim_id 均属后台，下沉脚注/来源标注，**绝不在参考文献列表中标注 `[A]`/`[B]`/`[C]`/`[D]`**
 - **引用格式**：正文使用 `[SRC-XXX]` 格式（`[SRC-XXX]` 是 Writing 阶段唯一工作格式），由 `finalizer_agent` 在阶段 9 通过 `convert_references.py` 统一转换为 `[N]` + 生成参考文献列表。Writer 不得产出纯数字引用、不得创建局部参考文献节。
+- **原创概念仅用 preferred_form**：`glossary.md` 中 `category` 为 `"原创核心概念"` 的术语，正文中必须逐字使用其 `preferred_form`。绝对不得使用 `banned_forms` 中列出的任何变体。
+- **首次出现以 glossary scope 为准**：某概念是否"首次出现"以 `glossary.md` 中 `scope` 字段为准——`scope="全报告"` 的概念在全报告范围内只做一次首次展开（含全称+缩写标注），后续章不再重复展开。
 
 > 完整定义（含正反例、正确转写路径、反例警示）以 `stage-7-writing.md` §7.0 和 `writing-standards.md` 标准 0 为准。
 

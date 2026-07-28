@@ -228,7 +228,7 @@ research/extracted/
 > **⚠️ 如果 MinerU 解析失败**（Token 过期 / API 限流 / 文件格式不支持）：
 > 1. **Token 问题** → 检查 `MINERU_TOKEN` 环境变量，在 [mineru.net/apiManage](https://mineru.net/apiManage) 重新申请
 > 2. **API 限流** → 等待 60 秒后重试，失败则拆分批次（每次 ≤10 个文件）
-> 3. **文件格式不支持** → 降级使用 web-search-skill `extract` 抓取文本（丢失表格/公式精度，在 source-index.csv 的 `extraction_notes` 标注"降级提取"）
+> 3. **文件格式不支持** → 降级使用 web-search-skill `extract` 抓取文本（丢失表格/公式精度，在 source-index.csv 的 `notes` 标注"降级提取"）
 > 4. **仍失败** → 该文件标记为"抽取失败"，在 source-index.csv 的 `extraction_status` 填 `failed`，不阻塞其他文件；后续核验阶段对该来源的数据持"未经核验"标识
 
 ### ▶ 阶段 2 质量门槛

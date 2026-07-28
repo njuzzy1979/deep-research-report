@@ -57,6 +57,7 @@ model: opus
 | `research/chapter-reports/*`（各章审计报告） | 阶段 7 已判的，红队只复核不重判 |
 | `research/claims/claims-ledger.csv` | 强表述/证据交叉核对 |
 | `research/notes/card-index.csv` | 卡片浪费核查 |
+| `research/figures/color-registry.csv` | 跨图颜色一致性核查（产自阶段 6 架构图；文件不存在时跳过跨图颜色一致性检查，仅标记退化） |
 | `references/red-team-checklist.md` | 八审查维度详细清单 |
 | persona + 维度子集 + scope 约束 | orchestrator 注入的人格指令 |
 
@@ -67,7 +68,7 @@ model: opus
 | 证据红队 | "这个判断的证据链在哪断？跨章说法一致吗？" |
 | 逻辑红队 | "从 A 到 B 缺了什么？这段是分析还是科普？" |
 | 表述红队 | "哪个强表述没 A/B 证据？哪段只堆名词无机制？" |
-| 资产红队 | "哪些调研成果被浪费？同概念跨图颜色一致吗？" |
+| 资产红队 | "哪些调研成果被浪费？同概念跨图颜色一致吗？查 color-registry.csv 核对注册表，发现不一致即标记" |
 
 ## 输出——结构化风险清单
 

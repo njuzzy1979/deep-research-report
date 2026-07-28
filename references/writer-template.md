@@ -112,9 +112,9 @@ Writer 不得自行判断"美观"而添加装饰性副标题。每个 H2 恰好�
 
 ---
 
-## 四、禁止内容清单（F1-F8）
+## 四、禁止内容清单（F1-F8, F10）
 
-以下 8 类内容**绝对禁止**出现在分章文件草稿正文中。审计 Agent 会使用 `contract_check.py` 的 C2/C5/C6/C7/C8/C9 规则逐项检测，命中即阻断。
+以下 10 类内容**绝对禁止**出现在分章文件草稿正文中。审计 Agent 会使用 `contract_check.py` 的 C2/C5/C6/C7/C8/C9 规则和 `term_consistency_check.py` 脚本逐项检测，命中即阻断。
 
 | 编号 | 禁止内容 | 检测正则/方法 | 阻断级别 | 说明 |
 |------|---------|-------------|---------|------|
@@ -126,6 +126,7 @@ Writer 不得自行判断"美观"而添加装饰性副标题。每个 H2 恰好�
 | **F6** | 装饰性副标题 | `^##\s+——.+` 或 `^##\s+.*——.*` | FATAL | 任何包含破折号副标题的 H2 |
 | **F7** | 信源分级前缀 | `\[A\]`、`\[B\]`、`\[C\]`、`\[D\]` 出现在参考文献条目中 | FATAL | 信源分级是内部质控工具，不出现在读者输出中。match `^\s*\[[ABCD]\]` |
 | **F8** | claim_id 泄露 | `\[CM\d{3}\]`、`\[CASE-\d{2}\]`（非引用上下文中） | FATAL | claim_id 是台账主键，读者看到的是上标编号 `[N]` |
+| **F10** | 术语不一致 | 使用 glossary 中 `banned_forms` 的禁止变体，或在无标注情况下使用 `aliases` 中的简称 | WARN（阶段7逐章）/ FATAL（阶段9终稿） | 所有原创概念的表述必须与 `research/glossary.md` 一致。Writer 必须逐字使用 preferred_form，不得使用 banned_forms。检测方式：`scripts/term_consistency_check.py` |
 
 > **F1（输出隔离标记）特别说明**：Writer 的产出在交给 orchestrator 时，orchestrator 会提取 `[AGENT-OUTPUT-START]`...`[AGENT-OUTPUT-END]` 之间的内容并落盘为分章文件。如果落盘后的分章文件仍然包含这些标记行，说明 orchestrator 提取环节有遗漏、或 Writer 在正文内部再次写入了这些标记。无论哪种原因，标记出现在分章文件中即为 F1 违规。
 

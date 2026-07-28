@@ -57,6 +57,7 @@ model: opus
 | 资产·转写 | 卡片是否被消化转写而非誊抄（卡片字段值与正文的最长连续重合） | 调 `scripts/card_overlap_check.py` 真跑 + 专有事实豁免判读 |
 | 合约 | C1 无H1 / C2 H2无手动编号 / C3 图片标准语法 / C4 表格加粗题注 / C5 无禁止内容(含密级) | 调 `contract_check.py` |
 | 量化 | QS1 字数vs预算 / QS2 图片计数 / QS3 表格计数 | 调 `contract_check.py` 真实运行 |
+| 术语(Terminology) | 检测本章术语是否与 `glossary.md` 一致——alias 泄露（`aliases` 中未标注的简称）、banned_forms 使用（正文中出现 `banned_forms` 中的禁止变体）、原创概念非逐字引用（`preferred_form` 与正文实际用词不一致） | 调 `scripts/term_consistency_check.py` 真跑 |
 | 立项 | P1 技术指标量化 / P2 创新点三分 / P3 TRL / P4 里程碑 / P5 研究基础（仅 proposal） | 对照 writing-standards.md 标准13-17 逐项核对是否入正文 |
 
 ## 量化检查用真脚本，不用心算（解决 V3 §7.1(2)）

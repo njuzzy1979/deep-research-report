@@ -106,8 +106,14 @@ def _build_structure_lookup(structure: dict) -> dict[str, tuple[HeadingKind, Hea
             title = item.get("chapter_title", "")
             if title:
                 lookup[title.strip()] = (HeadingKind.FRONT_MATTER, None)
-            for sec_title in item.get("sections", []):
-                if isinstance(sec_title, str) and sec_title.strip():
+            for sec_entry in item.get("sections", []):
+                if isinstance(sec_entry, dict):
+                    sec_title = sec_entry.get("section_title", "")
+                elif isinstance(sec_entry, str):
+                    sec_title = sec_entry
+                else:
+                    continue
+                if sec_title.strip():
                     lookup[sec_title.strip()] = (HeadingKind.FRONT_MATTER, None)
 
     # ── bodymatter ──
@@ -121,9 +127,15 @@ def _build_structure_lookup(structure: dict) -> dict[str, tuple[HeadingKind, Hea
             if ch_title and isinstance(ch_no, int) and ch_no > 0:
                 lookup[ch_title.strip()] = (HeadingKind.CHAPTER, ch_no)
 
-            sections: list[str] = ch.get("sections", [])
-            for i, sec_title in enumerate(sections, start=1):
-                if isinstance(sec_title, str) and sec_title.strip():
+            sections: list = ch.get("sections", [])
+            for i, sec_entry in enumerate(sections, start=1):
+                if isinstance(sec_entry, dict):
+                    sec_title = sec_entry.get("section_title", "")
+                elif isinstance(sec_entry, str):
+                    sec_title = sec_entry
+                else:
+                    continue
+                if sec_title.strip():
                     lookup[sec_title.strip()] = (
                         HeadingKind.SECTION,
                         (ch_no, i),

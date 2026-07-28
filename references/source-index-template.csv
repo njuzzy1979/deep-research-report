@@ -1,2 +1,2 @@
-source_id,title,author_or_org,publisher,publish_date,access_date,url_or_path,source_type,credibility_level
-SRC-001,示例：某主题白皮书,某某机构,某某出版社,2024-06-01,2026-07-28,https://example.com/whitepaper.pdf,report,B
+source_id,title,language,author_or_org,publisher,publish_date,access_date,url_or_path,source_type,credibility_level,relevant_chapters,local_path,extraction_status,notes
+SRC-001,示例：某主题白皮书,zh,某某机构,某某出版社,2024-06-01,2026-07-28,https://example.com/whitepaper.pdf,report,B,第1章;第2章,research/sources/SRC-001-某主题白皮书.pdf,已抽取,核心概念定义的权威来源

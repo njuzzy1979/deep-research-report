@@ -12,6 +12,12 @@
 3. **红队 ≠ 阶段 7 审计**：红队只找跨章/对抗性问题，接收阶段 7 审计报告避免重复逐章打分。
 4. **综合去重**：`redteam_synthesizer_agent` 合并 4 份、去重、严重度取最高。
 5. **发现 ≠ 修复**：综合清单交回 `chapter_writer_agent` 修订，红队不改稿。
+6. **超大报告降级**：当报告正文超过 50,000 中文字或章节数超过 8 章时，
+   orchestrator 启动红队前先评估上下文窗口预算。若全报告注入超出安全边界，
+   可将 4 人格从"全报告并行"降级为**"按章节组分批，再跨组交叉"**：
+   - 将章节按相邻关系分为 2-3 组，每组内 4 人格仍并行审查
+   - **代价声明**：分组间的一致性矛盾可能漏检
+   - **红线**：核心结论章不允许被拆分到不同组
 
 ## 声明式伪代码
 
@@ -33,6 +39,8 @@ const redteamReports = parallel(
     agent("redteam_agent", { persona, model: cfg.model, dimensions: cfg.dims,
       inject: { report, prior_audit: auditReports,        // 阶段7已判的，红队只复核不重判
                 ledger: "claims-ledger.csv", cards: "card-index.csv",
+                color_registry: "research/figures/color-registry.csv",
+                // 退化：color-registry.csv 不存在时跳过跨图颜色一致性检查
                 checklist: "red-team-checklist.md",
                 scope: "全报告·跨章·对抗性；逐章合约类问题已由阶段7审计覆盖，勿重复" },
       output_schema: { risks: [{ id, level:["高","中","低"], chapter, type, desc, fix }] } })
@@ -54,6 +62,35 @@ for (const risk of unified.high.concat(unified.mid)) {
   markResolved(risk);
 }
 gate("G8-redteam", unified.high.every(r => r.resolved));  // 高风险未清零→不进阶段9
+
+// ── 超大报告降级分支（超过 50,000 字或 8 章触发）──
+if (report.chinese_chars > 50000 || report.chapter_count > 8) {
+  const groups = splitChaptersIntoGroups(report.chapters, { maxGroups: 3 });
+  // 红线校验：核心结论章不可跨组拆分
+  assert(groups.every(g => !hasSplitCoreChapter(g)), "核心结论章跨组拆分——拒绝降级");
+  warn("超大报告降级启动：4 人格按章节组分批审查，分组间一致性矛盾可能漏检");
+  const groupedReports = [];
+  for (const group of groups) {
+    const partial = parallel(
+      Object.entries(PERSONAS).map(([persona, cfg]) =>
+        agent("redteam_agent", { persona, model: cfg.model, dimensions: cfg.dims,
+          inject: { report: group, prior_audit: auditReportsByGroup(group),
+                    ledger: "claims-ledger.csv", cards: "card-index.csv",
+                    color_registry: "research/figures/color-registry.csv",
+                    checklist: "red-team-checklist.md",
+                    scope: `章节组 ${group.label}·跨章·对抗性（超大报告降级模式）` },
+          output_schema: { risks: [{ id, level, chapter, type, desc, fix }] } })
+      )
+    );
+    groupedReports.push(...partial);
+  }
+  // 合并后仍走综合去重裁决
+  const unified = agent("redteam_synthesizer_agent", { model: "sonnet",
+    inject: { reports: groupedReports },
+    tasks: ["合并同指问题(去重)", "严重度冲突取最高", "统一R编号排序",
+            "标注降级模式:分组间一致性矛盾可能漏检"],
+    output: "research/redteam-risklist.md" });
+}
 ```
 
 ## 等价编排器循环散文（今天可执行）

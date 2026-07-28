@@ -10,6 +10,13 @@
     --source-index research/sources/source-index.csv \
     --output research/drafts
 
+  # 原地转换单个文件（用于 merge_drafts.py 管道阶段 F）
+  python scripts/convert_references.py \
+    --drafts-dir research/drafts \
+    --source-index research/sources/source-index.csv \
+    --output research/drafts \
+    --in-place research/drafts/final-report.md
+
 功能：
   1. 扫描 --drafts-dir 中所有 .md 文件，提取所有 [SRC-XXX] 引用
   2. 从 --source-index 读取来源元数据（source_id → 文献题名/作者/出版信息）
@@ -133,8 +140,15 @@ def build_numbering(refs_by_file: list, source_index: dict) -> tuple:
     return src_to_num, num_to_src, missing
 
 
-def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False) -> str:
-    """替换文件中的 [SRC-XXX] 引用为 [N]。返回替换后的文本。"""
+def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False, in_place: bool = False) -> str:
+    """替换文件中的 [SRC-XXX] 引用为 [N]。返回替换后的文本。
+
+    Args:
+        file_path: 待处理的文件路径
+        src_to_num: SRC 编号到纯数字的映射
+        dry_run: 只检测不写入
+        in_place: 直接覆写原文件（先备份为 .bak）
+    """
     with open(file_path, "r", encoding="utf-8") as f:
         text = f.read()
 
@@ -149,10 +163,19 @@ def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False
     replaced = SRC_REF_PATTERN.sub(replacer, text)
 
     if not dry_run:
-        # 写入同目录，加 _converted 后缀
-        output_path = str(Path(file_path).with_suffix("")) + "_converted.md"
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(replaced)
+        if in_place:
+            # 先备份为 .bak
+            bak_path = file_path + ".bak"
+            with open(bak_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            # 覆写原文件
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(replaced)
+        else:
+            # 写入同目录，加 _converted 后缀
+            output_path = str(Path(file_path).with_suffix("")) + "_converted.md"
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(replaced)
     return replaced
 
 
@@ -231,6 +254,8 @@ def main():
     parser.add_argument("--output", required=True, help="输出目录（转换后的 _converted.md 文件和 bibliography.md 将保存到此）")
     parser.add_argument("--dry-run", action="store_true", help="只检测不写入文件")
     parser.add_argument("--force", action="store_true", help="强制重写已转换文件（默认幂等跳过）")
+    parser.add_argument("--in-place", default=None, metavar="FILE",
+                        help="原地转换单个文件（先备份为 .bak，再覆写）。用于 merge_drafts.py 管道阶段 F")
     args = parser.parse_args()
 
     drafts_dir = args.drafts_dir
@@ -243,8 +268,8 @@ def main():
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
-    # 1. 幂等性检查
-    if not args.force and not has_any_src_refs(drafts_dir):
+    # 1. 幂等性检查（in-place 模式下不检查——明确要求强制转换）
+    if not args.in_place and not args.force and not has_any_src_refs(drafts_dir):
         print("[OK] 草稿中未检测到 [SRC-XXX] 引用，无需转换（已是纯数字引用或无可转换引用）。")
         return
 
@@ -252,8 +277,21 @@ def main():
     source_index = load_source_index(args.source_index)
     print(f"[INFO] 已加载 {len(source_index)} 条来源记录")
 
-    # 3. 扫描草稿文件
-    draft_files = scan_drafts(drafts_dir)
+    # 3. 扫描草稿文件（in-place 模式下仍需扫描全部文件以构建全局编号，但只转换指定文件）
+    if args.in_place:
+        in_place_file = args.in_place
+        if not os.path.isfile(in_place_file):
+            print(f"ERROR: --in-place 指定的文件不存在: {in_place_file}", file=sys.stderr)
+            sys.exit(2)
+        all_draft_files = scan_drafts(drafts_dir)
+        # 确保 in-place 文件在扫描列表中
+        in_place_abs = os.path.abspath(in_place_file)
+        all_draft_paths = [os.path.abspath(f) for f in all_draft_files]
+        if in_place_abs not in all_draft_paths:
+            all_draft_files.append(in_place_file)
+        draft_files = all_draft_files
+    else:
+        draft_files = scan_drafts(drafts_dir)
     print(f"[INFO] 已找到 {len(draft_files)} 个草稿文件")
 
     # 4. 检测斜杠引用
@@ -293,9 +331,14 @@ def main():
 
     # 7. 替换引用
     if not args.dry_run:
-        for fp, _ in refs_by_file:
-            replace_refs_in_file(fp, src_to_num)
-            print(f"[OK] 已转换: {os.path.basename(fp)}")
+        if args.in_place:
+            # in-place 模式：只转换指定文件
+            replace_refs_in_file(args.in_place, src_to_num, in_place=True)
+            print(f"[OK] 已原地转换: {os.path.basename(args.in_place)}（备份: {os.path.basename(args.in_place)}.bak）")
+        else:
+            for fp, _ in refs_by_file:
+                replace_refs_in_file(fp, src_to_num)
+                print(f"[OK] 已转换: {os.path.basename(fp)}")
 
     # 8. 生成参考文献
     bib_path = os.path.join(output_dir, "bibliography.md")

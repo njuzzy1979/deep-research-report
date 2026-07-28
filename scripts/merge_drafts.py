@@ -9,8 +9,8 @@
   B: 逐文件清洗（6 步规则：剥离Agent标记→字数残留→局部参考文献→爬虫标记→粗体伪标题→SRC残留）
   C: 单文件合约校验（C2/C6/C7/C8）
   D: 结构驱动拼接（按章插入 H2 章容器）
-  E: 合并后终检（contract_check --merged --stage stage9）
-  F: 参考文献统一（convert_references.py）
+  F: 引用转换（convert_references.py --in-place，对合并后 final-report.md 原地执行 SRC→[N]）
+  E: 合并后终检（contract_check --merged --stage stage9，在转换后的文件上检查）
 
 用法：
   python scripts/merge_drafts.py \
@@ -274,17 +274,19 @@ def run_merged_check(merged_path: str, script_dir: str) -> bool:
 
 # ── 阶段 F：参考文献统一 ──────────────────────────────────
 
-def run_convert_references(drafts_dir: str, source_index: str, script_dir: str) -> bool:
-    """运行 convert_references.py 做 SRC→N 转换 + 生成 bibliography.md。"""
+def run_convert_references(file_path: str, source_index: str, script_dir: str) -> bool:
+    """运行 convert_references.py --in-place 对单个文件原地做 SRC→[N] 转换。"""
     convert_script = os.path.join(script_dir, "convert_references.py")
-    print(f"\n[阶段 F] 引用统一转换...")
+    drafts_dir = os.path.dirname(file_path)
+    print(f"\n[阶段 F] 引用转换（原地）: {os.path.basename(file_path)}")
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(
         [sys.executable, convert_script,
          "--drafts-dir", drafts_dir,
          "--source-index", source_index,
-         "--output", drafts_dir],
+         "--output", drafts_dir,
+         "--in-place", file_path],
         capture_output=True, text=True, encoding="utf-8", env=env
     )
     print(result.stdout)
@@ -359,19 +361,19 @@ def main():
         f.write(merged_content)
     print(f"  合并完成: {args.output}")
 
-    # 阶段 E: 合并后终检
-    print("\n[阶段 E] 合并后终检...")
-    e_pass = run_merged_check(args.output, script_dir)
-    if not e_pass:
-        print("  [WARN] 合并后终检未通过！请检查上述 FAIL 项。")
-
-    # 阶段 F: 参考文献统一
+    # 阶段 F: 引用转换（在合并后、终检前，原地转换 final-report.md）
     if not args.skip_f:
-        f_pass = run_convert_references(drafts_dir, args.source_index, script_dir)
+        f_pass = run_convert_references(args.output, args.source_index, script_dir)
         if not f_pass:
             print("  [WARN] 引用转换未完全成功，请检查手动修复需求。")
     else:
         print("\n[阶段 F] 已跳过（--skip-f）")
+
+    # 阶段 E: 合并后终检（在已转换的文件上执行）
+    print("\n[阶段 E] 合并后终检...")
+    e_pass = run_merged_check(args.output, script_dir)
+    if not e_pass:
+        print("  [WARN] 合并后终检未通过！请检查上述 FAIL 项。")
 
     print(f"\n=== 合并管道完成 ===")
     print(f"  输出: {args.output}")

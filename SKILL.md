@@ -48,7 +48,6 @@ description: >
 | `fact_verifier_agent` | 研究 | Opus | 3 | 事实核验台账，强表述降级 |
 | `outline_architect_agent` | 设计 | Opus | 4 | 产出 outline.md 叙事框架契约 |
 | `card_synthesizer_agent` | 设计 | Sonnet | 5 | 台账→结构化卡片 + 证据包 + card-index |
-| `diagram_agent` | 制图 | Haiku | 6+7 | 核心架构图（先于写作）+ 数据图表 |
 | `architecture_chart_agent` | 制图 | Sonnet | 6 | 核心架构图（总览图/架构图/流程图）批量产出，先于写作 |
 | `data_chart_agent` | 制图 | Sonnet | 7 | 数据图表（对比表/趋势图/份额图/雷达图等）随写作按章产出 |
 | `chapter_writer_agent` | 写作 | Sonnet | 7 | 逐章写作（生成半），卡片→叙事 |
@@ -56,6 +55,8 @@ description: >
 | `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份红队报告→统一风险清单 |
 | `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
+
+> **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表）。原有 `diagram_agent.md` 文件不再使用，勿重新添加到角色表。若发现旧版引用，应替换为对应的新角色。
 
 > **模型选型原则**（v4 §3.2）：按任务的**认知负荷类型**分级，不按角色"重要性"。强推理/强判断（审计、红队、核验、大纲）用 Opus；结构化生成（写作、卡片合成、红队综合）用 Sonnet；架构语义理解 + 编程（架构图、数据图表）用 Sonnet；机械/模板化（搜集、定稿）用 Haiku。非 Opus 角色必须显式传 `model` 参数，不依赖继承 orchestrator 的 Opus。
 
@@ -218,7 +219,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 - `agents/redteam_agent.md` — 红队 4 人格（异构 2×Opus+2×Sonnet）
 - `agents/redteam_synthesizer_agent.md` — 红队综合去重（Sonnet）
 - `agents/outline_architect_agent.md` — 大纲契约生产者（Opus）
-- `agents/source_collector_agent.md` / `fact_verifier_agent.md` / `card_synthesizer_agent.md` / `diagram_agent.md` / `finalizer_agent.md` — 阶段 2/3/5/6/9 角色
+- `agents/source_collector_agent.md` / `fact_verifier_agent.md` / `card_synthesizer_agent.md` / `architecture_chart_agent.md` / `data_chart_agent.md` / `finalizer_agent.md` — 阶段 2/3/5/6/7/9 角色
 - `agents/contracts/writer_contract.json` + `auditor_contract.json` — 生成/评估契约维度 schema
 - `scripts/contract_check.py` — 合约 C1-C9 + 量化 QS1-QS3 检查（审计 Agent 调用的确定性工具）
 	- `scripts/convert_references.py` — 引用格式转换工具 [SRC-XXX]→[N]（skill 内置，跨项目通用）

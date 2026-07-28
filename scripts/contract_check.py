@@ -246,7 +246,7 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C2_manual_number": {
                 "hits": c2_hits, "count": len(c2_hits),
                 "bold_pseudo_heading_hits": c2_bold_hits, "bold_pseudo_heading_count": len(c2_bold_hits),
-                "pass": c2_pass, "severity": "high"
+                "pass": c2_pass, "severity": "fatal" if (merged and stage == "stage9") else "high"
             },
             "C3_image_syntax": {"figure_count": img_count, "loose_image_count": img_count_loose,
                                  "expect": expect_figures, "pass": c3_pass, "severity": "mid"},
@@ -271,7 +271,13 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography"]
     if stage == "stage9":
         high_severity_keys.append("C7_src_residue")
+    # 致命级合约项（C2 在合并终稿模式下升级为 fatal）——失败直接阻断，不可降级
+    fatal_keys = []
+    for k in high_severity_keys:
+        if result["contract"][k].get("severity") == "fatal":
+            fatal_keys.append(k)
     result["overall_pass"] = all(result["contract"][k]["pass"] for k in high_severity_keys)
+    result["fatal_keys"] = fatal_keys
     return result
 
 
@@ -389,7 +395,10 @@ def format_text_report(r: dict) -> str:
     if r.get("stage") == "stage9":
         high_keys.append("C7_src_residue")
     failed = [k for k in high_keys if not c[k]["pass"]]
-    if failed:
+    fatal_failed = [k for k in (r.get("fatal_keys", [])) if not c[k]["pass"]]
+    if fatal_failed:
+        lines.append(f"=== 总判定: FATAL (致命项 {fatal_failed} 失败——合并终稿中不可降级放行) ===")
+    elif failed:
         lines.append(f"=== 总判定: FAIL (高严重度项 {failed} 存在失败) ===")
     else:
         lines.append(f"=== 总判定: PASS ===")
