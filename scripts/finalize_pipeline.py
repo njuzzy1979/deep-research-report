@@ -184,6 +184,24 @@ def run_finalize_pipeline(
 
     try:
         structure = parse_outline_yaml(outline_path)
+        # ── 键名适配：outline.md YAML 使用 section_no/section_title/subsections，
+        #     但 assemble_merged 期望 chapter_no/chapter_title/sections。
+        #     subections 为空列表时各章为单文件，需为其生成一个虚拟 section 条目
+        #     以便 find_draft_files 通过 ch{XX}-*.md 通配符匹配。
+        for item in structure.get("bodymatter", []):
+            item["chapter_no"] = int(item.get("section_no", "?"))
+            item["chapter_title"] = item.get("section_title", "")
+            if item.get("subsections"):
+                item["sections"] = item["subsections"]
+            else:
+                # 无小节时直接按章号匹配单文件
+                item["sections"] = [{"section_no": str(item["chapter_no"]), "section_title": item["chapter_title"]}]
+        for item in structure.get("frontmatter", []):
+            item["chapter_title"] = item.get("section_title", "")
+            if item.get("subsections"):
+                item["sections"] = item["subsections"]
+            else:
+                item["sections"] = []
     except SystemExit as e:
         # parse_outline_yaml 在 YAML 解析失败时直接 sys.exit(2)（内部已写降级
         # 台账）——此处捕获转换为结构化失败，不让整个管道进程被杀。
@@ -193,6 +211,17 @@ def run_finalize_pipeline(
 
     try:
         merged_content = assemble_merged(structure, drafts_dir)
+        # 合并后处理：C1 要求至多 1 个 H1（# 标题），但 assemble_merged 按
+        # frontmatter 条目生成了多个 H1（如"# 摘要"、"# 关键词与术语说明"）。
+        # md2docx 恰好需要一个 H1 作为报告主标题，保留第一个，其余降级为 H2。
+        lines = merged_content.split("\n")
+        h1_count = 0
+        for i, line in enumerate(lines):
+            if H1_LINE_PATTERN.match(line):
+                h1_count += 1
+                if h1_count > 1:
+                    lines[i] = "#" + line  # "# 标题" -> "## 标题"
+        merged_content = "\n".join(lines)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_text(merged_content, encoding="utf-8")
     except Exception as e:  # noqa: BLE001

@@ -91,7 +91,14 @@ def extract_manifest_from_yaml(outline_path: Path) -> Optional[dict]:
         return None
     if not isinstance(fm, dict):
         return None
-    return fm.get("figures_manifest")
+    manifest = fm.get("figures_manifest")
+    # figures_manifest 存在但格式不符合预期（如列表而非
+    # {architecture_figures: [...], data_figures: [...]} 字典结构），
+    # 回退到 Markdown 正文标记提取，避免下游 build_checklist_from_manifest
+    # 对非 dict 对象调用 .get() 导致 AttributeError。
+    if manifest is not None and not isinstance(manifest, dict):
+        return None
+    return manifest
 
 
 # ---------------------------------------------------------------------------

@@ -95,13 +95,7 @@ description: >
 
 **Claude 用户默认无需任何配置**：仓库自带 `model-profile.json`（tier A，全部特性 off），行为与本 skill 历史版本完全一致，字节级不变。
 
-**非 Claude 用户：一键自动配置**：Orchestrator 在阶段 1 初始化时执行：
-
-```bash
-python scripts/model_profile.py --model auto
-```
-
-脚本从环境变量自动探测当前模型标识符，匹配内置映射表（Claude→A、DeepSeek V4→B/380K、DeepSeek V3/GLM-4/Qwen3→B/8K、未知→C），生成 `.gitignore` 保护的 `model-profile.local.json`。用户**零人工干预**——不再需要手动复制 example 文件或修改 `model-profile.json`。
+**非 Claude 用户：一键自动配置**：Orchestrator 在阶段 1 初始化时，按 [`references/stage-1-init.md`](references/stage-1-init.md) §1.0 的强制流程执行模型能力档检测与配置——`model_profile.py --model auto` 自动探测并生成 `model-profile.local.json`，然后加载生效配置、交叉校验协同模式、在参数确认表中展示运行环境信息行。
 
 如需显式指定模型（环境变量探测失败时）：
 

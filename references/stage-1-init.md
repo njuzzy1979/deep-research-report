@@ -9,6 +9,96 @@ portability: core
 
 ---
 
+## 1.0 模型能力档检测与配置（强制执行，先于参数推断）
+
+**这是阶段 1 的第一个强制步骤——先知道跑在什么模型上，再做参数推断和协同模式选择。不可跳过。**
+
+### 为什么必须先做
+
+`model-profile.json` 声明的能力档（tier A/B/C）影响后续所有阶段的行为参数——红线条数限制、输出信封 nonce、填空骨架模式、phase_a_mode、协同模式的二维决策。如果跳过此步骤直接用默认假设（=Claude tier A），在 DeepSeek/GLM/Qwen 等非 Claude 模型上运行时会出现：
+
+- 协同模式与模型实际委派能力不匹配（agent_delegation 假设错误）
+- 红线预算错误（Tier A=不限 vs Tier B=5条 vs Tier C=保守档）
+- 输出信封 nonce 不一致（Tier A 不要求但 Tier B/C 强制 → 噪声检测误判）
+- 填空骨架模式偏移（Tier A=off 时 Writer 拿不到结构化段落骨架）
+
+### 执行流程
+
+**步骤 1：自动探测并配置**
+
+```bash
+python scripts/model_profile.py --model auto
+```
+
+脚本从环境变量（`CLAUDE_CODE_MODEL` / `LLM_MODEL`）自动探测当前模型标识符，匹配内置映射表，生成 `.gitignore` 保护的 `model-profile.local.json`。若该文件已存在则跳过（不覆盖已有配置）。
+
+**步骤 2：若自动探测失败（exit code ≠ 0）→ 显式传入模型名**
+
+从会话上下文（如系统提示中的 `You are powered by the model deepseek-v4-pro-guan-cc`）获取当前模型标识符，显式传入：
+
+```bash
+python scripts/model_profile.py --model "<实际模型名>"
+```
+
+**步骤 3：加载生效配置并验证**
+
+```bash
+python scripts/model_profile.py --json
+```
+
+解析 JSON 输出，提取以下关键字段并记录到阶段台账：
+
+| 字段 | 来源 | 用途 |
+|------|------|------|
+| `capability_tier` | 文件声明 | 决定 Tier A/B/C 行为参数 |
+| `host.agent_delegation` | 文件声明 | 若为 `false` → 强制降级为单 Agent 极速档 |
+| `limits.max_output_tokens` | 文件声明 | 派生 `phase_a_mode`（<16K→confirm，≥16K→free） |
+| `phase_a_mode` | 派生量 | 审计 Agent Phase A 书写形态 |
+| `policy.hard_rule_budget` | 文件声明 | Writer/Auditor 单次调用的红线数量上限 |
+| `policy.envelope_nonce` | 文件声明 | 子 Agent 输出是否强制带 nonce |
+| `policy.template_fill_mode` | 文件声明 | Writer 是否启用填空骨架 |
+| `_source` | 运行时标记 | 区分"文件正常加载"/"fallback 兜底" |
+
+**步骤 4：能力档 × 协同模式交叉校验**
+
+将步骤 3 加载的 `capability_tier` 与 1.1 参数推断后得出的协同模式（完整/分层/极速）做交叉校验。调用 `resolve_collaboration_mode()` 的硬规则逻辑（orchestrator 端手动执行，不调脚本）：
+
+- `agent_delegation == false` → 强制降级为"单 Agent 极速"，标注原因
+- `Tier C × 完整多 Agent` → 强制降级为"分层多 Agent"，写台账
+- `Tier B × 完整多 Agent` → ⚠️ 允许但标注"未经实测"风险
+- 其余组合 → 正交，不互相覆盖
+
+**步骤 5：在参数确认表中展示能力档信息**
+
+将模型能力档的**关键约束摘要**作为参数确认表的一个信息行展示（不是让用户确认，而是告知用户当前运行环境）：
+
+```
+| 运行环境 | DeepSeek V4 / Tier B / Agent委派=是 / max_tokens=380K | ℹ️ |
+```
+
+> ℹ️ 表示信息行，非确认项。用户不需要对此做选择——这是 orchestrator 自我感知的结果。
+
+### 输出要求
+
+本步骤完成后，orchestrator 在进入 1.1 之前必须在日志/台账中记录：
+
+1. **生效的能力档**（tier A/B/C + `_source` 来源标记）
+2. **协同模式交叉校验结果**（原始请求档位 → 实际生效档位，如有降级则记录降级原因）
+3. **Tier B × 完整档风险标记**（如适用）
+
+### 兜底行为速查
+
+| 情形 | 行为 |
+|------|------|
+| `model-profile.local.json` 已存在 | 跳过自动配置，直接加载生效配置 |
+| 自动探测 + 显式传入均失败 | fallback 到 tier A（=Claude 行为），写台账警告 |
+| 文件存在但 JSON 解析/schema 校验失败 | 降级到 tier C，写台账 + 显式告警 |
+| 文件存在且合法 | 按声明的 tier 运行 |
+
+> **与本步骤相关的代码与文档**：`scripts/model_profile.py`（加载器/自动配置器）、`references/multiagent-orchestration.md` §7.5（二维决策矩阵）、`SKILL.md` §模型能力档（总纲）。
+
+---
+
 ## 1.1 智能推断 + 快速确认
 
 从用户请求中提取已知信息，对未提供参数填入默认值。**一次性展示全部推断结果，只标出需要用户纠正的关键项。**
@@ -45,13 +135,14 @@ portability: core
 
 ### 展示格式
 
-收到用户请求后，用下表一次性展示推断结果：
+收到用户请求后，先执行 1.0 模型检测，然后**一次性展示**下表（运行环境行来自 1.0 检测结果，不单独展示）：
 
 ```
 📋 参数确认（直接回复"继续"用默认值启动，或指出需修改的项）
 
 | 参数 | 推断值 | |
 |------|--------|---|
+| 运行环境 | <模型名> / Tier <A/B/C> / Agent委派=<是/否> / max_tokens=<N> | ℹ️ |
 | 题名 | 《XX 深度分析报告》 | ✅ |
 | 受众 | 行业决策者 | ✅ |
 | 研究方法 | 文献研究法 + 比较研究法 | ✅ |
@@ -62,9 +153,11 @@ portability: core
 | 素材 | 从公开资料收集 | ⚠️ 如有内部资料请提供 |
 ```
 
+> ℹ️ = 信息行（orchestrator 自我感知结果，用户无需确认）。若有降级（如"Tier B × 完整多 Agent 未经实测"），在此行后追加降级提示。
+
 > **协同模式行**（v4 §7.3 / v5 #23）：协同模式由报告类型派生（见上方类型识别表的"协同模式"列 + SKILL.md"三档协同模式"表的完整阈值），在阶段 1.1 最早期就确定并对用户可见。用户说"继续"即用推断的协同模式启动——不新增用户交互负担。触发阈值：立项/≥40页/核心章≥3 → 完整多 Agent；研究报告 30-50 页/核心章 2-3 → 分层多 Agent（默认）；简报/<15页/≤2章/用户说"简报/快速" → 单 Agent 极速。
 
-> **规则**：默认 7 项中 ≤ 2 项标 ⚠️。标 ⚠️ 的项是"不说也能继续但说了更好"——不是阻塞条件。
+> **规则**：运行环境行为 ℹ️ 信息行（不参与计数），其余 7 项中 ≤ 2 项标 ⚠️。标 ⚠️ 的项是"不说也能继续但说了更好"——不是阻塞条件。若有降级（1.0 步骤 4 交叉校验结果），降级提示紧跟在运行环境行后展示。
 
 ### 快速启动
 
