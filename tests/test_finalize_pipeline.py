@@ -123,7 +123,12 @@ def test_success_path_all_steps_pass(tmp_path, monkeypatch):
     assert result["failure_step"] is None
     assert result["output_path"] is not None
     assert output.exists()
+    # verify_docx（第 7 步，D2-7）是可选步：只在传入 docx 路径时执行，
+    # 本用例不传，故不参与"每步都 pass"的断言。
     for step in fp.FAILURE_STEPS:
+        if step == "verify_docx":
+            assert step not in result["steps"]
+            continue
         assert result["steps"][step]["status"] == "pass"
 
 
@@ -629,3 +634,92 @@ def test_d2_8_stale_previous_output_is_renamed_on_failure(tmp_path, monkeypatch)
     assert not output.exists(), "旧产物须被改名，避免被当作本次结果"
     assert result["staled_previous_output"] is not None
     assert Path(result["staled_previous_output"]).exists()
+
+
+# ── D2-7：docx 回读校验 ──────────────────────────────────────
+
+pytest.importorskip("docx", reason="python-docx 未安装时跳过 D2-7 用例")
+
+
+def _mk_docx(path, paras):
+    from docx import Document
+    d = Document()
+    for text, style in paras:
+        d.add_paragraph(text, style=style) if style else d.add_paragraph(text)
+    d.save(str(path))
+    return str(path)
+
+
+def test_d2_7_catches_accident_form_h1_followed_by_h1(tmp_path):
+    """事故形态：章标题下 0 字符，正文全部过继给章内第一个小节标题。"""
+    p = _mk_docx(tmp_path / "a.docx", [
+        ("第 1 章：导论", "Heading 1"),
+        ("本章结论", "Heading 1"),
+        ("这里有几千字正文。", None),
+    ])
+    r = fp.verify_docx_structure(p, 1)
+    assert r["pass"] is False
+    assert "第 1 章：导论" in r["empty_headings"]
+
+
+def test_d2_7_catches_skeleton_only_form(tmp_path):
+    """D1 §9.4.4 发现的原设计漏检：只有 H1/H2、完全无正文的骨架 docx。
+
+    原实现 `elif prev is not None: buf.append(p.text)` 会把 Heading 2 的标题
+    文本当正文收集，实测得 pass=True。加 not startswith("Heading") 后修复。
+    """
+    p = _mk_docx(tmp_path / "b.docx", [
+        ("第 1 章", "Heading 1"),
+        ("1.1 某节", "Heading 2"),
+        ("第 2 章", "Heading 1"),
+        ("2.1 某节", "Heading 2"),
+    ])
+    r = fp.verify_docx_structure(p, 2)
+    assert r["pass"] is False, "只有骨架无正文的 docx 必须被判失败"
+    assert len(r["empty_headings"]) == 2
+
+
+def test_d2_7_catches_duplicate_chapter_headings(tmp_path):
+    p = _mk_docx(tmp_path / "c.docx", [
+        ("本章结论", "Heading 1"), ("正文若干。", None),
+        ("本章结论", "Heading 1"), ("正文若干。", None),
+    ])
+    r = fp.verify_docx_structure(p, 2)
+    assert r["pass"] is False
+    assert r["duplicate_headings"] == ["本章结论"]
+
+
+def test_d2_7_passes_healthy_docx(tmp_path):
+    p = _mk_docx(tmp_path / "d.docx", [
+        ("第 1 章：甲", "Heading 1"), ("1.1 节", "Heading 2"), ("本节正文内容。", None),
+        ("第 2 章：乙", "Heading 1"), ("2.1 节", "Heading 2"), ("本节正文内容。", None),
+    ])
+    r = fp.verify_docx_structure(p, 2)
+    assert r["pass"] is True
+    assert r["h1_count"] == 2
+
+
+def test_d2_7_catches_chapter_count_mismatch(tmp_path):
+    """A5：Heading 1 数量必须 == outline 声明章数（防伪章）。"""
+    p = _mk_docx(tmp_path / "e.docx", [
+        ("第 1 章：甲", "Heading 1"), ("正文。", None),
+    ])
+    r = fp.verify_docx_structure(p, 5)
+    assert r["pass"] is False
+    assert r["h1_count"] == 1 and r["expected"] == 5
+
+
+def test_d2_7_step_is_skipped_when_no_docx_path_given(tmp_path, monkeypatch):
+    """第 7 步为可选步：未传 verify_docx_path 时不执行、不影响 overall_pass。"""
+    monkeypatch.setenv("DRR_DEGRADATION_LOG", str(tmp_path / "empty-log.jsonl"))
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    result = fp.run_finalize_pipeline(
+        drafts_dir=str(drafts_dir),
+        outline_path=str(_write_outline(tmp_path)),
+        source_index_path=str(_write_source_index(tmp_path)),
+        output_path=str(tmp_path / "final-report.md"),
+    )
+    assert result["overall_pass"] is True
+    assert "verify_docx" not in result["steps"]

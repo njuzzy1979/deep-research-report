@@ -80,10 +80,11 @@ OK = "[OK]"
 FAIL = "[FAIL]"
 WARN = "[WARN]"
 
-# failure_step 枚举（方案 §D5 明确要求的 6 个固定值，顺序即执行顺序）
+# failure_step 枚举（方案 §D5 原有 6 个固定值 + D2-7 新增第 7 步 verify_docx，
+# 顺序即执行顺序）。verify_docx 只在传入 --verify-docx 时执行。
 FAILURE_STEPS = (
     "strip_markers", "h1_check", "merge", "convert_refs",
-    "contract_check", "delivery_checklist",
+    "contract_check", "delivery_checklist", "verify_docx",
 )
 
 # H1 检测正则：与 contract_check.py 的 C1 判定口径（`^#\s+\S`）逐字一致，
@@ -171,6 +172,60 @@ def _derive_run_id(outline_path: str, drafts_dir: str) -> str:
     return h.hexdigest()[:12]
 
 
+def verify_docx_structure(docx_path: str, expected_chapters: int) -> dict:
+    """打开生成的 docx 回读，断言结构不变量（D2-7）。
+
+    **为什么必须是 docx 层校验**：用户投诉的"章节都是空的"这一症状，在 md
+    层面**无法发现**——``## 第X章`` 紧跟 ``## 本章结论`` 在 Markdown 里是完全
+    合法的结构。只有渲染成 docx 才暴露为"Heading 1 下 0 字符"。
+
+    实测背景：``finalize_pipeline`` 第 6 步结束后直接 return，docx 生成完全在
+    管线之外（是 ``stage-9-finalize.md`` 里的一段 bash 示例），**最终交付物
+    从未被任何门禁检查过**。
+
+    ⚠ 正文收集**只累加非标题样式段落**：原设计的 ``elif prev is not None:``
+    会把 ``Heading 2`` 的标题文本当作正文收集（``"Heading 2" != "Heading 1"``
+    故走了 elif），后果是只要某个 ``Heading 1`` 后面跟着任一非空 ``Heading 2``，
+    该章即被判为"有正文"。实测把原版跑在一份"只有封面+TOC+H1/H2、完全无正文"
+    的骨架 docx 上得 ``pass=True``——即能捕获本次事故形态（H1 紧跟 H1），却
+    捕获不到"全文只有骨架"形态。加 ``not startswith("Heading")`` 后修复。
+    """
+    try:
+        from docx import Document
+    except ImportError as e:  # noqa: BLE001
+        return {"pass": False, "error": f"python-docx 不可用: {e}"}
+
+    try:
+        d = Document(docx_path)
+    except Exception as e:  # noqa: BLE001
+        return {"pass": False, "error": f"无法打开 docx: {e}"}
+
+    h1s: list = []
+    empty: list = []
+    prev = None
+    buf: list = []
+    for p in d.paragraphs:
+        style_name = p.style.name if p.style is not None else ""
+        if style_name == "Heading 1":
+            if prev is not None and not "".join(buf).strip():
+                empty.append(prev)
+            h1s.append(p.text)
+            prev, buf = p.text, []
+        elif prev is not None and not style_name.startswith("Heading"):
+            buf.append(p.text)
+    if prev is not None and not "".join(buf).strip():
+        empty.append(prev)
+
+    dup = sorted(t for t in set(h1s) if h1s.count(t) > 1)
+    return {
+        "pass": not empty and not dup and len(h1s) == expected_chapters,
+        "empty_headings": empty,          # ← 直接对应用户投诉"章节都是空的"
+        "duplicate_headings": dup,        # ← 13 个"本章结论"
+        "h1_count": len(h1s),
+        "expected": expected_chapters,
+    }
+
+
 def run_finalize_pipeline(
     drafts_dir: str,
     outline_path: str,
@@ -182,6 +237,7 @@ def run_finalize_pipeline(
     redteam_diff_path: Optional[str] = None,
     log_path: Optional[str] = None,
     delivery_dir: Optional[str] = None,
+    verify_docx_path: Optional[str] = None,
 ) -> dict:
     """执行 6 步定稿顺序管道，任一步失败立即提前 return（不同于
     precommit_consistency_check.py 的"最后统一 derive_overall"模式——本管道
@@ -409,6 +465,22 @@ def run_finalize_pipeline(
         )
     steps["delivery_checklist"] = {"status": "pass", "detail": checklist_result}
 
+    # ── 步骤 7: verify_docx —— 交付物结构回读校验（D2-7）─────────────────
+    # 只对**实际传入的 docx 路径**生效（即 emit_delivery 写出的产物）。
+    # 骨架 docx（D1-8）走独立入口、不经本管线，故天然不在检查范围内——
+    # **零新增豁免逻辑**，不得按文件名正则豁免（理由见 D3 §六：按文件名判定
+    # 会颠倒，违规的 SCIF_V1.0.docx 命中而合规的 final-report.docx 反而不被识别）。
+    if verify_docx_path:
+        expected_chapters = len(structure.get("bodymatter", []))
+        docx_result = verify_docx_structure(verify_docx_path, expected_chapters)
+        if not docx_result.get("pass"):
+            return _finish(
+                "verify_docx",
+                "docx 结构回读校验未通过（空章标题/重复章标题/章数不符）",
+                detail=docx_result,
+            )
+        steps["verify_docx"] = {"status": "pass", "detail": docx_result}
+
     # ── 全部通过：.partial 原子转正 ────────────────────────────────────────
     # 只有走到这一行才产生正式产物名，故"正式产物存在"即等价于 overall_pass。
     try:
@@ -438,7 +510,11 @@ def format_text_report(result: dict) -> str:
     for step in FAILURE_STEPS:
         info = result["steps"].get(step)
         if info is None:
-            lines.append(f"{WARN} {step}: 未执行（前序步骤已阻断）")
+            if step == "verify_docx":
+                # 第 7 步是可选步：未传 --verify-docx 时不算"被阻断"
+                lines.append(f"{WARN} {step}: 未执行（未传 --verify-docx，docx 未被回读校验）")
+            else:
+                lines.append(f"{WARN} {step}: 未执行（前序步骤已阻断）")
             continue
         mark = OK if info.get("status") == "pass" else FAIL
         lines.append(f"{mark} {step}: {info.get('status')}")
@@ -470,6 +546,11 @@ def main() -> None:
         "--output-dir", default=None,
         help="交付目录（如 output/），区别于 --output（合并后 Markdown 路径）",
     )
+    parser.add_argument(
+        "--verify-docx", dest="verify_docx", default=None,
+        help="已生成的交付 docx 路径。传入时执行第 7 步 verify_docx 结构回读校验"
+             "（D2-7：断言每个 Heading 1 下有非空正文、无重复章标题、章数与 outline 一致）",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -488,6 +569,7 @@ def main() -> None:
             redteam_diff_path=args.redteam_diff,
             log_path=args.log,
             delivery_dir=args.output_dir,
+            verify_docx_path=args.verify_docx,
         )
     except Exception as e:  # noqa: BLE001
         print(f"{FAIL} 执行失败: {e}", file=sys.stderr)
