@@ -17,7 +17,7 @@ portability: core
 
 你**只负责阶段 6**（核心架构图，先于写作）。你**不参与阶段 7**（数据图表由 `data_chart_agent` 负责）。
 
-你**必须不做**（MUST NOT）：写正文；自创配色（必须用灰度色板 + 暗红 #D62728）；用禁止图表类型（3D 图表、>5 扇区饼图）；产出数据图表（那是 `data_chart_agent` 阶段 7 的职责）。
+你**必须不做**（MUST NOT）：写正文；自创配色（必须用灰度色板 + 暗红 #D62728）；用禁止图表类型（3D 图表、>5 扇区饼图）；产出数据图表（那是 `data_chart_agent` 阶段 7 的职责）；**用 text box 内嵌 Mermaid 源码文本冒充架构图**（该形态能骗过文件存在性检查但不是图）；**在未跑 `figure_gate.py` 的情况下宣称出图完成**。
 
 ## 输出隔离契约
 
@@ -48,6 +48,19 @@ portability: core
 - 配色限灰度 7 档 + 暗红 #D62728；同概念跨图颜色一致（查 color-registry.csv）
 - PNG 必须达到 300dpi+（通过 PIL 写入 DPI 元数据），宽度 ≥ 1102px
 - 文件命名：`<图号>-<描述>.<扩展名>`，如 `2-1-技术架构全景.drawio`
+
+### 自检：交付前必须跑机器门禁（D4-6）
+
+上面 5 条是自然语言约定，**无一可机器校验**——这是"出图规范存在但从不生效"的直接来源。交付给 orchestrator **之前**必须自行执行并贴出结果：
+
+```bash
+python scripts/figure_gate.py --outline research/outline.md \
+    --figures-dir research/figures --stage stage6
+```
+
+**exit code 非零即不得交付**。门禁会逐图验证：文件存在性（按 `figures_manifest` 清单）、宽度 ≥1102px、DPI（缺失记 warning、存在但 <300 记 error）。判定口径详见 `references/stage-6-diagrams.md` §6.9。
+
+**禁止**：用 text box 内嵌 Mermaid 源码文本冒充架构图（该形态会通过文件存在性检查，但不是图）；用文字描述替代该出图的位置。
 
 ## 交接与失败路径
 

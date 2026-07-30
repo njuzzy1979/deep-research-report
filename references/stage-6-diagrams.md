@@ -204,5 +204,30 @@ print('PNG 300dpi OK, size:', img.size)
 - [ ] **颜色映射注册表已创建**：`research/figures/color-registry.csv` 已建立，至少覆盖本报告所有核心分析章对应的架构图首张图。每个节点/实体的颜色登记后，后续出图直接复用，确保同一概念的跨图一致性
 - [ ] **配色符合灰度色板**：所有架构图仅在灰度色板（#000000 / #333333 / #555555 / #777777 / #999999 / #BBBBBB / #DDDDDD / #F2F2F2 / #FFFFFF）中选择颜色。如使用强调色，仅限暗红 #D62728 且全图 ≤3 处。抽查 2 张图确认无违规彩色
 - [ ] **PNG 分辨率达标**：所有 PNG 宽度 ≥1102px（对应 14cm 宽、~9pt 文字在 200dpi 下的最低打印可读阈值，与阶段 9 转换器已有的 W-IMG-02 检查一致）
+- [ ] **已运行 `figure_gate.py` 且 exit code 为 0**（见下方 §6.9，机器校验，非人眼勾选）
 
-🔴 CHECKPOINT · 🛑 STOP：总览图和核心章架构图就位后进入阶段 7。总览图未完成或核心章缺架构图 → 回到阶段 6.1 补充。
+### 6.9 figure_gate.py 机器门禁（D3-1/D4-6，**必须实际执行**）
+
+**为什么单独立节**：此前 `figure_gate` 在本文件中**只出现在 §一的表格单元格里**（一个"门禁名"字符串），全文 6 处 `python` 调用无一是 figure_gate——**有门禁名、无可执行调用点**。这正是"最强措辞 + 零可执行调用点 = 零效果"的实例：反例清单第 20 条已写"exit code 非零即阻断，零人工干预"，但被约束的脚本从来没被调用过。
+
+CHECKPOINT 之前**必须实际执行**：
+
+```bash
+python scripts/figure_gate.py --outline research/outline.md \
+    --figures-dir research/figures --stage stage6
+```
+
+**exit code 非零即阻断，零人工干预。** 不得以"图都在目录里、我看过了"替代本命令。
+
+门禁的判定口径（D3-1 修复后）：
+
+| 项 | 行为 |
+|---|---|
+| manifest 解析 | 同时支持 **list 形态**（`- fig_id: ...`）与 dict 形态；list 条目键名自动映射 `fig_id`→`figure_id`、`fig_title`→`title`、`fig_type` 含"架构"→`architecture` |
+| **清单为空** | 若 outline 声明了 `core_architecture_figures > 0` 而解析出的清单为空 → **判 FAIL**（此前无条件 `passed: True` + exit 0，导致"声明 15 张图、一张都没检查过"） |
+| 宽度 / 尺寸 | `< 1102px` 或尺寸异常 → 计入 `errors`，阻断 |
+| DPI | 缺少 DPI 元数据 → 计入 `warnings`，**不阻断**（实测真实项目 15/15 架构图均无 dpi 元数据，若计入硬失败会使门禁全红、验收永不通过，反向逼迫放宽门禁）；DPI 存在但 `< 300` → 计入 `errors`，阻断 |
+
+> **诚实标注**：`fontSize < 12` 与"内嵌题注"两项检查在真实项目上实测 **0 命中**（实际最小字号 12/14/16，题注统一写在 Markdown 而非图内），属"为不存在的问题写代码"，故**不作为阻断依据**。以 0 命中的检查充当门禁核心是虚假保证。
+
+🔴 CHECKPOINT · 🛑 STOP：总览图和核心章架构图就位、且 `figure_gate.py` exit code 为 0 后进入阶段 7。总览图未完成、核心章缺架构图、或门禁未通过 → 回到阶段 6.1 补充。

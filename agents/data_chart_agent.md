@@ -60,5 +60,5 @@ portability: core
 - **交接**：`research/figures/<图号>-<描述>.png` → orchestrator → `chapter_writer_agent`（嵌入 Markdown）。Writer 收到 PNG 后以 `![图X-Y 标题](路径)` 格式嵌入对应章节
 - **失败路径**：
   - 数据不足以出图 → 标注"数据缺口"上报 orchestrator，不编造数据；orchestrator 决定：补数据 / 跳过该图 / 用文字描述替代
-  - matplotlib 代码运行出错 → 重试一次（修复代码），仍失败则上报 orchestrator 降级决策
+  - matplotlib 代码运行出错 → 重试一次（修复代码），仍失败则上报 orchestrator 降级决策。**orchestrator 收到降级请求时，须先执行 `python -c "import matplotlib; print(matplotlib.__version__)"` 并贴出结果，方可判定为工具链能力问题；未执行验证的降级判定无效**（D4-7：实测反例——某次运行把"36 张数据图缺失"判为"超出工具链能力"，而该命令一行即可证伪）
   - 图表类型在决策表"禁止"列 → 选"次选"类型替代

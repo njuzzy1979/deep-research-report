@@ -43,7 +43,7 @@ portability: core
 | 5 | `publish_date` | **工具提取**：从元数据的 `date`/`pubdate` 字段提取；无明确日期时使用页面中最早的年份标记；完全无日期时填 `未知` | 搜索工具 / 页面内容 |
 | 6 | `access_date` | **自动：当日日期**：填执行搜集的当天日期，格式 `YYYY-MM-DD`。永不手工估算 | 系统日期 |
 | 7 | `source_type` | **自动检测**：根据来源 MIME 类型和 URL 路径推断——`.pdf` → `report`；学术数据库 DOI → `journal`；政府域名 `.gov` → `official`；新闻站点 → `news`；GitHub → `code`；其余 → `M`（默认专著）| URL/文件扩展名推断 |
-| 8 | `credibility_level` | **自动默认 + 后期复核**：初次登记统一填 `D`（未评估）；`fact_verifier_agent`（阶段 3）根据内容质量升级为 A/B/C。Source Collector 不做可信度判断 | 默认值 |
+| 8 | `credibility_level` | **自动默认 + 后期复核**：无法判定时填 `C` 并在 `notes` 标注"待阶段 3 判定"，**不得默认全填 `D`**——D 级材料按定义"仅作线索、不直接入正文"，全 D 会导致下游全面阻塞（D4-9）。能从来源类型明确判定的直接按 §2.1 标准填（如 `.gov` 官方文件 → A、Reuters → B）。`fact_verifier_agent`（阶段 3）按 §2.1.1 升级路径复核并回写。Source Collector 不做超出来源类型的实质判断 | 来源类型推断 + 默认 C |
 | 9 | `language` | **自动检测**：根据来源文本语言自动判断——中文内容填 `zh`，英文填 `en`，其他按 ISO 639-1 代码填。无法判断时填 `unknown` | 搜索工具 / 文本内容检测 |
 | 10 | `url_or_path` | **工具提取**：从搜索工具返回的 URL 或本地文件路径直接填入。网页填完整 URL，本地文件填相对项目根目录路径（如 `research/sources/SRC-xxx.pdf`）。多媒体/在线资源保留原始 URL | 搜索工具 / 文件系统 |
 | 11 | `relevant_chapters` | **留空 + 后期回填**：阶段 2 搜集时暂留空（尚不知道哪些章会用到）。后续阶段（大纲确认后）由 orchestrator 或 `chapter_writer_agent` 回填，格式为分号分隔的章号（如 `第1章;第3章`）| 后续阶段回填 |
