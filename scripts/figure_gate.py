@@ -92,13 +92,56 @@ def extract_manifest_from_yaml(outline_path: Path) -> Optional[dict]:
     if not isinstance(fm, dict):
         return None
     manifest = fm.get("figures_manifest")
-    # figures_manifest 存在但格式不符合预期（如列表而非
-    # {architecture_figures: [...], data_figures: [...]} 字典结构），
-    # 回退到 Markdown 正文标记提取，避免下游 build_checklist_from_manifest
-    # 对非 dict 对象调用 .get() 导致 AttributeError。
-    if manifest is not None and not isinstance(manifest, dict):
+    if manifest is None:
+        return None
+    # D3-1 入口修复：真实 outline.md 的 figures_manifest 是 **YAML 列表**
+    # （`- fig_id: ...`），条目键名为 fig_id/fig_title/fig_type/chapter/
+    # description；而本函数原先 `not isinstance(manifest, dict) -> return None`
+    # 把 list 判为格式不符直接丢弃 → 清单 total=0 → 下游返回 passed:True →
+    # exit 0。真实项目声明了 15 张图，**一张都没检查过**。
+    if isinstance(manifest, list):
+        return {"architecture_figures": _normalize_list_manifest(manifest, outline_path)}
+    if not isinstance(manifest, dict):
         return None
     return manifest
+
+
+def _normalize_list_manifest(entries: list, outline_path=None) -> list[dict]:
+    """把 list 形态 figures_manifest 的条目键名映射为本脚本的内部权威键名。
+
+    映射：``fig_id``→``figure_id``、``fig_title``→``title``、
+    ``fig_type`` 含"架构"→``architecture``（否则 ``data``）。
+    ``figure_no`` 取 ``fig_id`` 中的 ``N-M`` 形状编号（真实数据形如 ``fig-3-1``
+    或直接 ``3-1``），取不到则回落原值——glob_pattern 依赖它。
+    """
+    import re as _re
+
+    out: list[dict] = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        # 已是权威键名的条目原样通过（混合形态兼容）
+        fid = e.get("figure_id") or e.get("fig_id") or "?"
+        title = e.get("title") or e.get("fig_title") or ""
+        raw_type = str(e.get("fig_type") or e.get("type") or "")
+        fno = e.get("figure_no")
+        if not fno:
+            m = _re.search(r"(\d+-\d+)", str(fid))
+            fno = m.group(1) if m else str(fid)
+        out.append({
+            "figure_id": fid,
+            "figure_no": fno,
+            "title": title,
+            "type": "architecture" if "架构" in raw_type else (
+                e.get("type") if e.get("type") in ("architecture", "data") else "data"
+            ),
+            "tool": e.get("tool", "drawio"),
+            "priority": e.get("priority", "required"),
+            "chapter": e.get("chapter"),
+            "description": e.get("description", ""),
+            "source": "figures_manifest_list",
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +210,33 @@ def extract_figures_from_markdown_body(outline_text: str) -> list[dict]:
 # 从 figures_manifest YAML 生成扁平文件检查清单
 # ---------------------------------------------------------------------------
 
+def _declared_architecture_figure_count(outline_path) -> int:
+    """读取 outline.md YAML 中声明的核心架构图张数（``core_architecture_figures``）。
+
+    供"空清单判 FAIL"使用：只有 outline 自己声明了要出图，空清单才是缺陷；
+    确实不需要图表的项目不应被误伤。解析不出一律返回 0（宽松侧）。
+    """
+    try:
+        import yaml as _yaml
+        text = outline_path.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            return 0
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return 0
+        fm = _yaml.safe_load(parts[1])
+        if not isinstance(fm, dict):
+            return 0
+        raw = fm.get("core_architecture_figures")
+        if isinstance(raw, bool):
+            return 0
+        if isinstance(raw, int):
+            return raw
+        return int(str(raw).strip())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def build_checklist_from_manifest(manifest: dict, stage: str) -> list[dict]:
     """从 figures_manifest 结构生成统一的文件检查清单。
 
@@ -209,6 +279,43 @@ def build_checklist_from_manifest(manifest: dict, stage: str) -> list[dict]:
 # 文件系统检查
 # ---------------------------------------------------------------------------
 
+def _validate_png(png_path: Path) -> tuple:
+    """校验单个 PNG，返回 ``(errors, warnings)`` 两个描述列表。
+
+    D3 §3.6：此逻辑原先在 ``check_figure_exists()`` 内**出现两遍**（主 glob 分支
+    与模糊回退分支）且**不等价**——主分支多一个 ``w<1 or h<1`` 尺寸异常检查。
+    只改一处则另一处成为绕过路径，故抽为单一函数。合并口径取**较严的主分支**。
+
+    dpi 处置：原 ``if dpi[0] and dpi[0] < 300`` 的短路使 dpi 元数据为 ``(0,0)``
+    的 PNG 被**静默放行**（真实项目 11/19 张如此）。现改为进入 ``warnings``
+    通道——**刻意不进 errors**：实测真实项目 15/15 架构图均无 dpi 元数据，
+    若计入硬失败会使门禁 15/15 全红，验收永不通过，反向逼迫实施者放宽门禁
+    （D3 §3.4 明确警示的反模式）。warnings 只提升可观测性，不改变 pass/fail。
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    try:
+        img = Image.open(png_path)
+        img.verify()
+        # verify 后需要重新打开才能读取 size/info
+        img = Image.open(png_path)
+        w, h = img.size
+        dpi = img.info.get("dpi", (0, 0))
+    except Exception as e:  # noqa: BLE001
+        return [f"{png_path.name}: PIL 无法打开 - {e}"], warnings
+
+    if w < 1 or h < 1:
+        errors.append(f"{png_path.name}: 尺寸异常 ({w}x{h})")
+    elif w < 1102:
+        errors.append(f"{png_path.name}: 宽度 {w}px < 1102px 最低要求")
+
+    if not dpi or not dpi[0]:
+        warnings.append(f"{png_path.name}: 缺少 DPI 元数据，无法核验 300dpi 要求")
+    elif dpi[0] < 300:
+        errors.append(f"{png_path.name}: DPI={dpi[0]} < 300")
+    return errors, warnings
+
+
 def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
     """检查单个图表条目对应的文件是否存在且有效。
 
@@ -224,6 +331,7 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
         "files": [],
         "valid": False,
         "errors": [],
+        "warnings": [],
     }
 
     pattern = entry.get("glob_pattern")
@@ -232,29 +340,12 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
         if matches:
             result["found"] = True
             result["files"] = [m.name for m in matches]
-            # 验证找到的 PNG 文件
             for png_path in matches:
                 if png_path.suffix.lower() != ".png":
                     continue
-                try:
-                    img = Image.open(png_path)
-                    img.verify()
-                    # 重新打开（verify 后需要重新加载）
-                    img = Image.open(png_path)
-                    w, h = img.size
-                    dpi = img.info.get("dpi", (0, 0))
-                    if w < 1 or h < 1:
-                        result["errors"].append(f"{png_path.name}: 尺寸异常 ({w}x{h})")
-                    elif w < 1102:
-                        result["errors"].append(
-                            f"{png_path.name}: 宽度 {w}px < 1102px 最低要求"
-                        )
-                    if dpi[0] and dpi[0] < 300:
-                        result["errors"].append(
-                            f"{png_path.name}: DPI={dpi[0]} < 300"
-                        )
-                except Exception as e:
-                    result["errors"].append(f"{png_path.name}: PIL 无法打开 - {e}")
+                errs, warns = _validate_png(png_path)
+                result["errors"].extend(errs)
+                result["warnings"].extend(warns)
         else:
             # 尝试模糊匹配（按图号部分匹配）
             fno = entry["figure_no"]
@@ -266,26 +357,14 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
                     result["found"] = True
                     result["files"] = [m.name for m in fuzzy]
                     for png_path in fuzzy:
-                        try:
-                            img = Image.open(png_path)
-                            img.verify()
-                            img = Image.open(png_path)
-                            w, h = img.size
-                            dpi = img.info.get("dpi", (0, 0))
-                            if w < 1102:
-                                result["errors"].append(
-                                    f"{png_path.name}: 宽度 {w}px < 1102px"
-                                )
-                            if dpi[0] and dpi[0] < 300:
-                                result["errors"].append(
-                                    f"{png_path.name}: DPI={dpi[0]} < 300"
-                                )
-                        except Exception as e:
-                            result["errors"].append(f"{png_path.name}: 无效 - {e}")
-    else:
-        # 无明确文件模式（如阶段4只写方向的数据图）
-        result["found"] = True  # 标记为"未规划具体文件"
-        result["valid"] = True
+                        errs, warns = _validate_png(png_path)
+                        result["errors"].extend(errs)
+                        result["warnings"].extend(warns)
+    # D3-5：删除原 `else: result["found"]=True; result["valid"]=True` 无条件放行分支。
+    # 无 glob_pattern 的条目不再被视为"已通过"——它只是"无法定位文件"，
+    # 应保持 found=False 由汇总逻辑按 priority 处置。
+    # （对真实项目 0 影响：build_checklist_from_manifest 对架构图无条件生成
+    #  f"*{fno}*.png"，归一化后 15/15 条目全都有 glob_pattern。）
 
     result["valid"] = result["found"] and len(result["errors"]) == 0
     return result
@@ -355,13 +434,32 @@ def run_figure_gate(
         source = "markdown_body"
 
     if not checklist:
+        # D3-1 第 2 条：清单为空时**不再一律 PASS**。原先无条件返回
+        # passed:True → exit 0，是"门禁存在但从不生效"的典型形态：真实项目
+        # outline 明写 core_architecture_figures: 15，却因入口解析失败得到
+        # 空清单并静默放行。stage9 且 outline 声明了图表数 > 0 时判 FAIL。
+        declared = _declared_architecture_figure_count(outline_path)
+        if declared > 0:
+            return {
+                "passed": False,
+                "total": 0, "found": 0, "missing": declared, "invalid": 0,
+                "items": [],
+                "stage": stage,
+                "source": source,
+                "error": (
+                    f"outline.md 声明了 {declared} 张核心架构图"
+                    f"（core_architecture_figures），但解析出的图表检查清单为空——"
+                    f"figures_manifest 键名/结构与本脚本预期不符，门禁实际未检查任何图表。"
+                    f"请检查 outline.md 的 figures_manifest 格式"
+                ),
+            }
         return {
             "passed": True,
             "total": 0, "found": 0, "missing": 0, "invalid": 0,
             "items": [],
             "stage": stage,
             "source": source,
-            "note": "未找到图表规划清单（outline.md 中无 figures_manifest 且 Markdown 正文中无图表标记）",
+            "note": "未找到图表规划清单（outline.md 中无 figures_manifest 且 Markdown 正文中无图表标记），且 outline 未声明图表数",
         }
 
     # 3. 逐项检查
