@@ -209,7 +209,9 @@ def check_density(text: str) -> dict:
 # ── E2：标准 18 章间/节间过渡存在性检查 ──────────────────────────
 
 CHAPTER_HEADING_PATTERN = re.compile(
-    r"^#{1,2}\s*第[0-9一二三四五六七八九十百]+章\S*", re.MULTILINE
+    # 「第」「章」两侧各允许空白：merge_drafts.assemble_merged() 产出的章容器
+    # 形如 "##  第 1 章：导论"（数字两侧带空格），无 \s* 时对所有合并终稿恒零命中
+    r"^#{1,2}\s*第\s*[0-9一二三四五六七八九十百]+\s*章\S*", re.MULTILINE
 )
 SECTION_HEADING_PATTERN = re.compile(r"^###\s+\S.*$", re.MULTILINE)
 APPENDIX_HEADING_PATTERN = re.compile(r"^#{1,2}\s*附录", re.MULTILINE)

@@ -310,9 +310,20 @@ def run_delivery_checklist(
     figures_dir: Optional[str] = None,
     redteam_diff_path: Optional[str] = None,
     log_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    delivery_paths: Optional[list] = None,
 ) -> dict:
     """执行 13 项交付清单聚合检查，返回结构化结果。不重新实现检查逻辑
-    （见模块 docstring），只做调用 + 汇总。"""
+    （见模块 docstring），只做调用 + 汇总。
+
+    ``output_dir`` / ``delivery_paths``（D3-0）：交付目录感知入参。此前本脚本
+    七个入参全部指向 research 侧，对交付目录零感知，导致 output 相关门禁
+    （D3-2 provenance / D3-4 归档报告）无处落脚。``delivery_paths`` 为本次
+    ``emit_delivery`` 实际写出的路径清单——D3-4 的 ``_is_skill_artifact``
+    只能基于该清单或 sidecar provenance 判定，**禁止基于文件名正则**
+    （按文件名判定会颠倒：违规的 SCIF_V1.0.docx 命中而合规的
+    final-report.docx 反而不被识别）。
+    """
     text = read_text(merged_file)
     contract_result = check_contract(text, merged=True, expect_figures=None, stage="stage9")
 
@@ -366,6 +377,8 @@ def run_delivery_checklist(
 
     return {
         "merged_file": str(Path(merged_file).resolve()),
+        "output_dir": str(Path(output_dir).resolve()) if output_dir else None,
+        "delivery_paths": [str(Path(p).resolve()) for p in (delivery_paths or [])],
         "items": items,
         "failed_items": failed_keys,
         "manual_required_items": manual_required_keys,
@@ -412,6 +425,10 @@ def main() -> None:
         help="research/redteam-resolution-diff.md 路径（红队风险确认项存在性检查用，可选）",
     )
     parser.add_argument("--log", default=None, help="降级台账文件路径（覆盖环境变量与默认路径，可选）")
+    parser.add_argument(
+        "--output-dir", default=None,
+        help="交付目录（如 output/）。注意与 research 侧入参区分：本参数指最终交付物目录（可选）",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -428,6 +445,7 @@ def main() -> None:
             figures_dir=args.figures_dir,
             redteam_diff_path=args.redteam_diff,
             log_path=args.log,
+            output_dir=args.output_dir,
         )
     except Exception as e:
         print(f"{FAIL} 执行失败: {e}", file=sys.stderr)

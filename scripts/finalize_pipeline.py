@@ -119,6 +119,7 @@ def run_finalize_pipeline(
     figures_dir: Optional[str] = None,
     redteam_diff_path: Optional[str] = None,
     log_path: Optional[str] = None,
+    delivery_dir: Optional[str] = None,
 ) -> dict:
     """执行 6 步定稿顺序管道，任一步失败立即提前 return（不同于
     precommit_consistency_check.py 的"最后统一 derive_overall"模式——本管道
@@ -330,6 +331,7 @@ def run_finalize_pipeline(
             figures_dir=figures_dir,
             redteam_diff_path=redteam_diff_path,
             log_path=log_path,
+            output_dir=delivery_dir,
         )
     except Exception as e:  # noqa: BLE001
         return _finish("delivery_checklist", f"交付清单聚合检查执行异常: {e}")
@@ -386,6 +388,12 @@ def main() -> None:
     parser.add_argument("--figures-dir", default=None, help="research/figures/ 目录（可选，传给 delivery_checklist）")
     parser.add_argument("--redteam-diff", default=None, help="research/redteam-resolution-diff.md 路径（可选）")
     parser.add_argument("--log", default=None, help="降级台账文件路径（可选，覆盖环境变量与默认路径）")
+    # 注意与既有 --output 区分：--output 是合并后 Markdown 路径，--output-dir 是
+    # 最终交付物目录（docx/转换报告落位处）。符号一律用 delivery_ 前缀承接。
+    parser.add_argument(
+        "--output-dir", default=None,
+        help="交付目录（如 output/），区别于 --output（合并后 Markdown 路径）",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -403,6 +411,7 @@ def main() -> None:
             figures_dir=args.figures_dir,
             redteam_diff_path=args.redteam_diff,
             log_path=args.log,
+            delivery_dir=args.output_dir,
         )
     except Exception as e:  # noqa: BLE001
         print(f"{FAIL} 执行失败: {e}", file=sys.stderr)

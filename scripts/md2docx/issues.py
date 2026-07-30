@@ -97,8 +97,6 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
     "W-HDR-01": IssueCodeInfo(Level.WARNING, "章/节原手动编号与重编结果不一致（跳号/重复/乱序）", "02 §0.3"),
     "W-HDR-02": IssueCodeInfo(Level.WARNING, "附录原字母与重编字母不一致", "02 §0.3"),
     "W-HDR-03": IssueCodeInfo(Level.WARNING, "出现多个 H1（首个为主标题，其余降级为章处理）", "02 §0.3"),
-    "W-HDR-04": IssueCodeInfo(Level.WARNING, "md H5/H6 标题疑似带手动编号（不剥离，提示人工）", "02 §0.3"),
-    "W-HDR-05": IssueCodeInfo(Level.WARNING, "前置件（摘要等）内出现下级标题（不编号渲染）", "02 §0.3"),
     "W-CLN-01": IssueCodeInfo(Level.WARNING, "密级弱信号命中（仅提示，不改正文）", "02 §0.3"),
     "I-CLN-02": IssueCodeInfo(Level.INFO, "密级强信号已过滤（记录原文）", "02 §0.3"),
     "W-CLN-03": IssueCodeInfo(Level.WARNING, "文末孤立斜体说明段，疑似过程残留（保留渲染）", "02 §0.3"),

@@ -398,6 +398,10 @@ def _write_local_override(config: dict, target_dir: Optional[Path] = None) -> Pa
         encoding="utf-8",
     )
     return out_path
+
+
+def format_text_report(profile: dict) -> str:
+    """把生效的 profile 渲染为人类可读的多行文本报告（无 --json 时的默认输出）。"""
     lines = [
         "=== model-profile 生效配置 ===",
         f"来源(_source): {profile['_source']}",
