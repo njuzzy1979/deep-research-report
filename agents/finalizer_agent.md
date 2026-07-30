@@ -46,20 +46,37 @@ python scripts/finalize_pipeline.py \
   --json
 ```
 
-脚本内部已按顺序执行 6 步（剥离标记→H1检测替换→结构驱动合并→引用转换→合约终检 `--merged --stage stage9`→13项交付清单），你**不需要**、也**不应该**自己手动执行这些步骤或改动其顺序。
+脚本内部已按顺序执行 6 步（剥离标记→H1检测替换→结构驱动合并→引用转换→合约终检 `--merged --stage stage9`→13项交付清单），外加可选的第 7 步 `verify_docx`（传 `--verify-docx` 时执行 docx 结构回读校验，D2-7），你**不需要**、也**不应该**自己手动执行这些步骤或改动其顺序。
 
-**退出码语义**：`0` = 六步全部通过（`overall_pass: true`），进入 CP6 人工确认环节；`1` = 某一步内容层面失败，`failure_step` 字段指出具体哪一步；`2` = 用法错误（`--drafts-dir` 不存在等）或未预期异常，直接回报 orchestrator，不要重试。
+**退出码语义**：`0` = 全部步骤通过（`overall_pass: true`），进入 CP6 人工确认环节；`1` = 某一步内容层面失败，`failure_step` 字段指出具体哪一步；`2` = 用法错误（`--drafts-dir` 不存在等）或未预期异常，直接回报 orchestrator，不要重试。
+
+**产物存在性即成功判据（D2-8）**：管线全程写 `<output>.partial`，只有全部步骤通过才原子转正为正式产物名。因此**正式产物名的存在本身即等价于 `overall_pass: true`**，不需要任何人去判断。失败时 `.partial` 保留供诊断（`partial_path` 字段给出路径），且若上次成功的正式产物仍在，会被改名为 `.stale-<run_id>`——**不要把 `.partial` 或 `.stale-*` 文件当作交付物**。
 
 **`failure_step` 固定路由表**（读 JSON 后按此表路由，不需要自己诊断原因）：
 
-| `failure_step` 值 | 含义 | 路由动作 |
-| --- | --- | --- |
-| `strip_markers` | drafts-dir 不存在 / 标记剥离执行异常 | 回报 orchestrator，检查 drafts 目录是否已生成 |
-| `h1_check` | H1 检测替换执行异常（罕见，脚本内部错误） | 回报 orchestrator |
-| `merge` | outline.md 解析失败（YAML 缺 structure 节点/语法错误）或结构驱动合并异常 | 回炉 `outline_architect_agent` 修正 outline.md |
-| `convert_refs` | source-index.csv 缺失/格式错误，或检测到不支持的斜杠分隔 `[SRC-001/026]` 引用 | 回炉 `source_collector_agent`（source-index）或对应 `chapter_writer_agent`（斜杠引用改为逗号分隔） |
-| `contract_check` | 合约终检未通过（`detail.contract` 中列出具体命中项） | 见下方"合约终检失败已知冲突"专项路由，不要笼统回炉 |
-| `delivery_checklist` | 13 项交付清单中可脚本化项未通过（`detail.failed_items` 列出具体项） | 按 `failed_items` 对照 13 项清单表逐项回炉对应环节（见下方清单表） |
+> **为什么要按调用点行号做二级键**：同一个 `failure_step` 枚举值下，不同调用点的**根因完全不同**，笼统按枚举路由会把人导向错误的修复对象。最典型的是 `merge`——它有 4 个调用点，其中"键名适配层异常"要改的是**脚本**，而旧路由表统一指向"回炉 `outline_architect_agent` 改 outline.md"，方向是反的。先看 `failure_reason` 文案定位到二级行，再取路由动作。
+
+| `failure_step` 值 | 二级判据（看 `failure_reason` 文案） | 真实根因 | 路由动作 |
+| --- | --- | --- | --- |
+| `strip_markers` | `drafts-dir 不存在` | 目录未生成/路径错 | 回报 orchestrator，检查 drafts 目录是否已生成 |
+| `strip_markers` | `merge_drafts 模块不可用（import 失败）` | Python 环境/路径问题 | 回报 orchestrator，检查 Python 环境与 `scripts/` 是否在 sys.path |
+| `strip_markers` | `标记剥离执行异常` | 单个草稿文件读写失败 | 回报 orchestrator，附异常文案 |
+| `h1_check` | `H1 检测替换执行异常` | 罕见，脚本内部错误 | 回报 orchestrator |
+| `merge` | `merge_drafts 模块不可用（import 失败）` | Python 环境/路径问题 | **检查 Python 环境/路径，不要改 outline.md** |
+| `merge` | `outline.md 解析失败（parse_outline_yaml sys.exit=2）` | YAML 语法错误或缺 `structure` 节点 | 回炉 `outline_architect_agent` 修正 outline.md 语法 |
+| `merge` | `outline.md 结构读取/键名归一化异常` | **脚本侧缺陷**（键名归一化/解析代码） | **改脚本，不是改 outline**。若 outline.md 语法正常，缺陷在 `parse_outline_yaml`/`normalize_outline_structure`，超出本 Agent 权限 → 原样回报 orchestrator |
+| `merge` | `结构驱动合并执行异常` | `assemble_merged` 内部异常 | 回报 orchestrator，附异常文案 |
+| `convert_refs` | `convert_references 模块不可用` | Python 环境/路径问题 | 检查 Python 环境 |
+| `convert_refs` | `source-index.csv 加载失败/异常` | CSV 缺失或格式错误 | 回炉 `source_collector_agent` |
+| `convert_refs` | `检测到斜杠分隔 SRC 引用` | 草稿里写了 `[SRC-001/026]` | 回炉对应 `chapter_writer_agent`，改为逗号分隔 |
+| `convert_refs` | `引用转换执行异常` | 转换编排内部异常 | 回报 orchestrator |
+| `contract_check` | `contract_check 模块不可用` | Python 环境/路径问题 | 检查 Python 环境 |
+| `contract_check` | `合约终检未通过` | 见下方专项 | 见下方"合约终检失败已知冲突"专项路由，**不要笼统回炉** |
+| `delivery_checklist` | `交付清单聚合检查存在可脚本化项失败` | 见 `detail.failed_items` | 按 `failed_items` 对照 13 项清单表逐项回炉对应环节（见下方清单表） |
+| `delivery_checklist` | `产物转正失败` | 目标 docx/md 被占用或跨卷 | 按报错文案处置（关闭占用程序 / 改输出路径到同盘），**不要重跑整条管线** |
+| `verify_docx` | `docx 结构回读校验未通过` | 交付 docx 存在空章标题/重复章标题/章数不符 | 看 `detail.empty_headings`：非空即为"章节是空的"这一形态，回报 orchestrator；**不要手动改 docx** |
+
+**失败时允许与禁止的动作（闭集，D2-2）**：允许的只有四件——读取错误输出、查本路由表、回炉对应 Agent、升级呈报用户。严禁六件——自行编写替代实现、在违规产物上打补丁、把半成品当成品交付、静默改判、跳过失败步骤、用"超出工具链能力"免责。
 
 **⚠️ 合约终检（`contract_check`）失败的已知系统性冲突**（实现阶段实测确认，非 `finalize_pipeline.py` 本身缺陷，是 `merge_drafts.py`/`contract_check.py` 两个既有脚本组件间的既有矛盾，详见实现报告）：
 

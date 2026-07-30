@@ -54,7 +54,7 @@ description: >
 | `chapter_auditor_agent` | 审计 | Opus | 7 | 逐章独立审计（评估半，R3 的解） |
 | `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份红队报告→统一风险清单 |
-| `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
+| `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、13 项交付清单 |
 
 > **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表）。原文件已移入 `agents/deprecated/diagram_agent.md`，不再计入角色表，勿重新添加。若发现旧版引用，应替换为对应的新角色。
 
@@ -138,7 +138,7 @@ python scripts/model_profile.py --model "deepseek-v4-pro-guan-cc"
 > **多 Agent 档**：8 维度聚为 **4 个红队人格并行**（`redteam_agent` ×4，异构 2×Opus+2×Sonnet）审查全报告，再由 `redteam_synthesizer_agent` 合并去重为统一风险清单，走 CP5。红队只找跨章/对抗性问题，接收阶段 7 审计报告避免重复逐章打分。详见 [`references/workflow-stage8.md`](references/workflow-stage8.md)。
 
 ### [阶段 9：定稿整合](references/stage-9-finalize.md)
-术语/引用/编号/交叉引用统一（正文上标 `[N]` + GB/T 7714-2015 参考文献列表），全章合并为 final-report.md，md→docx 转换器自动生成符合 V3.2 格式规范的 Word 文档，12 项交付清单逐项确认。
+术语/引用/编号/交叉引用统一（正文上标 `[N]` + GB/T 7714-2015 参考文献列表），全章合并为 final-report.md，md→docx 转换器自动生成符合 V3.2 格式规范的 Word 文档，13 项交付清单逐项确认。
 
 ---
 
@@ -214,6 +214,18 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 | 18 | **图表规划与执行脱节**——阶段4规划了5张图，阶段6实际产出3张且图号不匹配 | 阶段4产出 figures_manifest 结构清单，阶段6 architecture_chart_agent 严格按此清单逐项产出；任何偏差必须回写 figures_manifest status 并上报 orchestrator |
 | 19 | **用 Haiku 做架构设计**——用低配模型产出架构图和复杂数据图表 | 架构图需要理解分析框架语义层次（用 Sonnet），数据图表需要非平凡 matplotlib 编程（用 Sonnet）；Haiku 仅限于搜集和定稿等机械任务 |
 | 20 | **质量门槛全靠人眼**——没有文件系统级自动检查就宣布"全部图表就位" | 阶段6 CHECKPOINT 和阶段9转换前必须运行 `python scripts/figure_gate.py` 做全自动文件存在性检查；exit code 非零即阻断，零人工干预 |
+| 21 | **脚本/Agent 失败后自行编写替代代码绕过管线**——`finalize_pipeline.py` 报错就自己写正则合并 13 章，或绕过 md2docx 直接 `from docx import Document` 生成交付 docx | 脚本失败**不授权**任何替代实现。管线是唯一交付路径：合并只能由 `finalize_pipeline.py` 做，docx 只能由 `md2docx` 生成。失败时执行下方第 22 条的查表动作；确实无法推进则**停机呈报用户**，不得以"工具链不支持"为由自行降级——判断工具链能力前必须先跑最小验证命令并贴出结果（如 `python -c "import matplotlib; print(matplotlib.__version__)"`），未经验证的能力边界判定无效 |
+| 22 | **失败时不查 `failure_step` 路由表即自主决策**——拿到非零退出码后直接凭判断行动，不读 JSON 的 `failure_step`/`failure_reason` | 任何管线失败**第一动作**是读 JSON 的 `failure_step` + `failure_reason`，再查 `agents/finalizer_agent.md` 的固定路由表（按调用点二级键）取路由动作。**orchestrator 亲自执行阶段 9 脚本时同样适用**——该路由表虽写在子 Agent 定义文件里，但它是全局权威表，自己跑脚本前必须先读它 |
+
+> **失败处置红线（闭集定义，D2-2）**——脚本或 Agent 失败时：
+>
+> **允许的动作只有四件**：① 读取错误输出（JSON / stderr）；② 查 `failure_step` 路由表；③ 回炉路由表指定的对应 Agent；④ 升级呈报用户并停机。
+>
+> **严禁六件**：① 自行编写替代实现绕过管线；② 在违规产物上打补丁（正则修修补补）；③ 把半成品当成品交付；④ 静默改判（自行把 fail 认定为可接受）；⑤ 跳过失败步骤继续后续阶段；⑥ 用"超出工具链能力"免责而不先跑验证命令。
+>
+> **产物层面的机器判据（不依赖上述条文被遵守）**：管线全程写 `.partial`，只有全部步骤通过才原子转正。**正式产物名的存在本身即等价于 `overall_pass: true`**——不需要任何人去判断，也无法靠自陈绕过。`.partial` 与 `.stale-*` 文件一律不是交付物。
+>
+> **本节效力的诚实标注**：以上均为 prompt-level 约束，**预期效力接近零**。本 skill 真正有效的护栏是产物层面的机器门禁（`.partial` 转正机制、`verify_docx` 回读校验、`figure_gate.py`、`outline_structure_gate.py`）。"20 条反例没拦住第 21 条凭什么能拦住"这一质疑成立——列出本节的目的是提供**可引用的判据**，不是指望条文自身产生强制力。
 
 ---
 

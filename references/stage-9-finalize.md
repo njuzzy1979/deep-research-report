@@ -22,7 +22,23 @@ python scripts/finalize_pipeline.py \
   --redteam-diff research/redteam-resolution-diff.md --json
 ```
 
-JSON 输出含 `failure_step` 枚举字段（`strip_markers`/`h1_check`/`merge`/`convert_refs`/`contract_check`/`delivery_checklist`），标出六步中具体哪一步失败，退出码 0/1/2 语义见脚本内 docstring（`agents/finalizer_agent.md` 中有按 `failure_step` 查表的固定路由说明）。
+JSON 输出含 `failure_step` 枚举字段（`strip_markers`/`h1_check`/`merge`/`convert_refs`/`contract_check`/`delivery_checklist`，外加可选第 7 步 `verify_docx`），标出具体哪一步失败，退出码 0/1/2 语义见脚本内 docstring。
+
+**权威路由表在 `agents/finalizer_agent.md`**（唯一副本，含按调用点行号的二级键；此处**不做副本**——两处副本必然漂移）。本节只给出可直接执行的路由动作摘要：
+
+| `failure_step` | 立即可执行的动作 |
+| --- | --- |
+| `strip_markers` | 检查 `research/drafts/` 是否存在且含 `ch*.md`；模块 import 失败则检查 Python 环境 |
+| `h1_check` | 回报 orchestrator（脚本内部错误） |
+| `merge` | 先读 `failure_reason`：含"解析失败"→ **回炉 `outline_architect_agent`** 修 outline.md 语法；含"键名归一化异常"→ **改脚本不改 outline**，回报 orchestrator |
+| `convert_refs` | CSV 问题 → **回炉 `source_collector_agent`**；斜杠引用 → **回炉对应 `chapter_writer_agent`** 改逗号分隔 |
+| `contract_check` | 先比对下方"已知系统性冲突"两条；确系内容违规才**回炉对应写作环节** |
+| `delivery_checklist` | 按 `detail.failed_items` 对照 13 项清单**回炉对应环节** |
+| `verify_docx` | `detail.empty_headings` 非空即"章节是空的"形态 → 回报 orchestrator，**禁止手动改 docx** |
+
+**失败时的动作闭集**：允许——读错误输出、查路由表、**回炉**对应 Agent、升级呈报用户。禁止——自行编写替代实现、在违规产物上打补丁、把半成品当成品交付、静默改判、跳过失败步骤、用"超出工具链能力"免责。
+
+**不要把 `.partial` / `.stale-*` 当交付物**：管线全程写 `.partial`，全部步骤通过才原子转正（D2-8）。正式产物名存在即等价 `overall_pass: true`。
 
 > **⚠️ 已知系统性冲突（实现阶段实测确认，详见实现报告）**：`contract_check` 步骤在真实报告场景下可能因两处既有脚本组件间的矛盾而失败——(1) `merge_drafts.assemble_merged()` 按规范插入的标准章容器 `## 第 X 章：<chapter_title>` 会被 `contract_check.py` 的 C2（手动编号检测）判为 `fatal`；(2) `convert_references.py` 转换出的正常纯数字引用 `[N]` 会被 C6 判负。这两处不是 `finalize_pipeline.py` 的实现缺陷，是 `contract_check.py` 既有判定规则与 stage9 合并产物格式之间此前从未被真正验证过的冲突（此前 `merge_drafts.py` 自身的阶段 E/F 校验只 WARN 不阻断，从未让这一冲突真正生效过）。命中时不应回炉重写章节内容，应回报 orchestrator 决定人工豁免或另行修订 `contract_check.py`（后者超出阶段9执行者权限）。
 
@@ -106,7 +122,7 @@ python scripts/contract_check.py research/drafts/final-report.md --merged --stag
 - 页眉页脚（页眉右对齐含 1pt 黑色底线、摘要罗马数字页码、正文阿拉伯数字页码）
 - 封面设计、参考文献格式（GB/T 7714-2015，上标编号，按首次出现顺序排列）、特殊元素（定义框/案例框/趋势提示）
 - Word 技术实现规范（TOC 域、多级列表、交叉引用、样式继承）
-- 输出检查清单（12 项，§10.3）
+- 输出检查清单（13 项，§10.3）
 
 使用本 skill 内置的一体化转换脚本（整合了 Markdown 清理、Word 生成、图片嵌入、表题注匹配）：
 
@@ -167,4 +183,4 @@ python -m md2docx \
 - [ ] 目录自动生成且可跳转
 - [ ] 文末参考文献完整，按 GB/T 7714-2015 格式，首次出现顺序编号，无信源分级标注
 
-🔴 CHECKPOINT · 🛑 STOP：全部 12 项交付清单确认通过后，报告正式定稿。任一项未通过 → 对照症状回到对应阶段修复（封面/字体 → 阶段9 整合；编号/图表 → 阶段7 写作；表格/页码/页眉 → 重新运行阶段9 转换脚本）。
+🔴 CHECKPOINT · 🛑 STOP：全部 13 项交付清单确认通过后，报告正式定稿。任一项未通过 → 对照症状回到对应阶段修复（封面/字体 → 阶段9 整合；编号/图表 → 阶段7 写作；表格/页码/页眉 → 重新运行阶段9 转换脚本）。

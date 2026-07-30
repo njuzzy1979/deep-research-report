@@ -53,7 +53,7 @@
 | 6 核心架构图 | 架构图/流程图（.drawio + .svg + .png） | 图号、图名、核心要素齐全 + 颜色注册表 | 先于写作完成——架构图是报告的骨架；统一灰度色板 + 暗红强调 |
 | 7 分章写作 | 正文 Markdown + 随写作产出的数据图表 | 6 条内容质量 + 13 项逐章自查 + 写审对抗通过 | 多 Agent 档：writer+auditor 盲态预承诺 pipeline；论点骨架先行→回填证据→查后台外泄 |
 | 8 红队审查 | 红队风险清单 → 逐项处理后更新为最终版 | 高风险 100% 处理，中风险 ≥80% | 8 维度 / 4 人格并行（异构模型）；极速档压缩为 3 维度 |
-| 9 定稿整合 | 终稿 Markdown + 标准格式 `.docx` | 12 项交付清单逐项确认 | md→docx 转换器：41 模块 / ~10K 行 / 6 阶段管道 + Word 原生动态编号 + SEQ 域 + 反硬编码 AST 扫描 |
+| 9 定稿整合 | 终稿 Markdown + 标准格式 `.docx` | 13 项交付清单逐项确认 | md→docx 转换器：41 模块 / ~10K 行 / 6 阶段管道 + Word 原生动态编号 + SEQ 域 + 反硬编码 AST 扫描 |
 
 > **🚫 严禁标密**：本 skill 产出的所有研究报告均基于互联网公开资料。报告的任何位置（封面、页眉、页脚、正文、附录）禁止标注密级。
 
@@ -78,7 +78,7 @@
 | `chapter_auditor_agent` | 审计 | Opus | 7 | 逐章独立审计（R3 的解），真跑 4 个检查脚本 |
 | `redteam_agent`（×4 人格） | 红队 | 2×Opus+2×Sonnet | 8 | 全报告对抗审查，异构模型防同质化 |
 | `redteam_synthesizer_agent` | 红队 | Sonnet | 8 | 合并去重 4 份报告→统一风险清单 |
-| `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、12 项交付清单 |
+| `finalizer_agent` | 格式 | Haiku | 9 | 合并、合约终检、转换器、13 项交付清单 |
 
 > **废弃角色说明**：`diagram_agent`（原制图角色，Haiku，阶段 6+7）已于 2026-07-28 废弃，拆分为 `architecture_chart_agent`（阶段 6 核心架构图）+ `data_chart_agent`（阶段 7 数据图表），均升级为 Sonnet。原文件已移入 `agents/deprecated/diagram_agent.md`，不计入上表 11 个角色。
 >
@@ -230,7 +230,7 @@ deep-research-report/
 │   ├── phase_a_to_json.py               # Phase A 确认式 Markdown → JSON 落盘
 │   ├── precommit_consistency_check.py    # Phase A/B 承诺一致性机械校验（红线 A5）
 │   ├── writing_quality_check.py          # 写作质量 Lint（缩写 + 信息密度）
-│   ├── delivery_checklist_check.py       # 12 项交付清单逐项机械检查
+│   ├── delivery_checklist_check.py       # 13 项交付清单逐项机械检查
 │   ├── finalize_pipeline.py              # 定稿管道编排
 │   ├── degradation_log.py                # 降级事件台账写入
 │   ├── degradation_report.py             # 降级台账聚合报告
