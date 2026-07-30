@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -541,3 +542,90 @@ def test_cli_exit_1_when_step_fails(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc_info:
         fp.main()
     assert exc_info.value.code == 1
+
+
+# ── D2-8：失败时不留半成品 ───────────────────────────────────
+
+
+def test_d2_8_failure_leaves_no_official_output_but_keeps_partial(tmp_path, monkeypatch):
+    """核心不变量：正式产物名的存在本身即等价于 overall_pass=True。
+
+    事故第 2 步留下 388 字符的空 final-report.md，直接诱发第 3 步"我来手动
+    修一下"。此用例断言失败时正式产物名**不存在**、而 .partial **保留**供诊断。
+    """
+    monkeypatch.setenv("DRR_DEGRADATION_LOG", str(tmp_path / "empty-log.jsonl"))
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    outline = _write_outline(tmp_path)
+    output = tmp_path / "final-report.md"
+
+    # source-index 缺失 → convert_refs 步失败（此时 merge 已写出 .partial）
+    result = fp.run_finalize_pipeline(
+        drafts_dir=str(drafts_dir),
+        outline_path=str(outline),
+        source_index_path=str(tmp_path / "no-such-index.csv"),
+        output_path=str(output),
+    )
+
+    assert result["overall_pass"] is False
+    assert not output.exists(), "失败时不得留下正式产物名的半成品"
+    partial = tmp_path / "final-report.md.partial"
+    assert partial.exists(), ".partial 失败时须保留供诊断"
+    assert result["partial_path"] is not None
+
+
+def test_d2_8_success_promotes_partial_and_removes_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("DRR_DEGRADATION_LOG", str(tmp_path / "empty-log.jsonl"))
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    outline = _write_outline(tmp_path)
+    source_index = _write_source_index(tmp_path)
+    output = tmp_path / "final-report.md"
+
+    result = fp.run_finalize_pipeline(
+        drafts_dir=str(drafts_dir),
+        outline_path=str(outline),
+        source_index_path=str(source_index),
+        output_path=str(output),
+    )
+
+    assert result["overall_pass"] is True
+    assert output.exists()
+    assert not (tmp_path / "final-report.md.partial").exists(), "转正后 .partial 应已消失"
+
+
+def test_d2_8_run_id_is_deterministic(tmp_path):
+    """run_id 必须由内容派生、不含随机数/时间戳（否则打破 md2docx G-11 幂等）。"""
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    outline = _write_outline(tmp_path)
+    a = fp._derive_run_id(str(outline), str(drafts_dir))
+    b = fp._derive_run_id(str(outline), str(drafts_dir))
+    assert a == b
+    assert len(a) == 12 and all(c in "0123456789abcdef" for c in a)
+
+
+def test_d2_8_stale_previous_output_is_renamed_on_failure(tmp_path, monkeypatch):
+    """失败且上次成功产物仍在时，主动改名为 .stale-<run_id>，而非仅告警。"""
+    monkeypatch.setenv("DRR_DEGRADATION_LOG", str(tmp_path / "empty-log.jsonl"))
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    outline = _write_outline(tmp_path)
+    output = tmp_path / "final-report.md"
+    output.write_text("上一次成功的正式产物", encoding="utf-8")
+
+    result = fp.run_finalize_pipeline(
+        drafts_dir=str(drafts_dir),
+        outline_path=str(outline),
+        source_index_path=str(tmp_path / "no-such-index.csv"),
+        output_path=str(output),
+    )
+
+    assert result["overall_pass"] is False
+    assert not output.exists(), "旧产物须被改名，避免被当作本次结果"
+    assert result["staled_previous_output"] is not None
+    assert Path(result["staled_previous_output"]).exists()

@@ -59,6 +59,7 @@ sys.exit 陷阱规避（两处，均已捕获为 failure_step 而非让进程被
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -109,6 +110,67 @@ def _replace_h1_with_h2(text: str) -> tuple:
     return "\n".join(new_lines), count
 
 
+def _promote_partial(partial_path: Path, final_path: Path) -> None:
+    """把 ``.partial`` 原子转正。必须与最终目标同目录（避免跨卷 rename）。
+
+    D2-8 核心不变量：**正式产物名的存在本身即等价于 overall_pass=True**，
+    不需要任何人去判断。事故中管线失败却留下 388 字符的空 final-report.md，
+    直接诱发了下游"我来手动修一下"的绕行行为。
+    """
+    try:
+        os.replace(partial_path, final_path)  # 同盘原子，无中间态
+    except PermissionError as e:
+        # WinError 5：目标被占用（用户正开着 Word/VSCode 看上一版报告）
+        raise RuntimeError(
+            f"无法覆盖 {final_path}：文件正被其他程序占用。"
+            f"请关闭后重跑。半成品已保留在 {partial_path}"
+        ) from e
+    except OSError as e:
+        # EXDEV：跨卷 rename
+        raise RuntimeError(
+            f"跨卷移动失败（{partial_path} 与 {final_path} 不在同一磁盘）。"
+            f"请将输出路径指向与草稿同盘的路径"
+        ) from e
+
+
+def _partial_path_for(output_path: str) -> Path:
+    """``.partial`` 必须与最终目标**同目录**生成（否则转正时跨卷 rename 失败）。"""
+    p = Path(output_path)
+    return p.with_name(p.name + ".partial")
+
+
+def _mark_stale_output(final_path: Path, run_id: str) -> Optional[str]:
+    """失败且上次成功的正式产物仍在时，**主动改名**为 .stale-<run_id>。
+
+    仅告警不够：用户不一定会去读告警，仍会拿旧产物当本次结果交付
+    （事故中 output/ 下两个 docx 混放正是此形态）。
+    """
+    if not final_path.exists():
+        return None
+    stale = final_path.with_name(f"{final_path.name}.stale-{run_id}")
+    try:
+        os.replace(final_path, stale)
+        return str(stale)
+    except OSError:
+        return None
+
+
+def _derive_run_id(outline_path: str, drafts_dir: str) -> str:
+    """由 outline + drafts 文件名派生 12 位 hex，**确定性、不用随机数/时间戳**。
+
+    非确定性 run_id 会打破 md2docx 的 G-11 幂等要求
+    （``00-master-design.md:202``）。
+    """
+    h = hashlib.sha1()
+    try:
+        h.update(Path(outline_path).read_bytes())
+    except OSError:
+        h.update(outline_path.encode("utf-8"))
+    for fp in sorted(Path(drafts_dir).glob("ch*.md")):
+        h.update(fp.name.encode("utf-8"))
+    return h.hexdigest()[:12]
+
+
 def run_finalize_pipeline(
     drafts_dir: str,
     outline_path: str,
@@ -125,18 +187,28 @@ def run_finalize_pipeline(
     precommit_consistency_check.py 的"最后统一 derive_overall"模式——本管道
     6 步顺序强依赖，后续步骤依赖前面步骤产出的文件，continue 没有意义）。"""
     steps: dict = {}
+    run_id = _derive_run_id(outline_path, drafts_dir)
+    # D2-8：全程写 .partial，6 步全通过后才原子 rename 转正。失败时 .partial
+    # **保留不删**（供诊断与断点续传），正式产物名永不出现半成品。
+    partial_path = _partial_path_for(output_path)
+    work_path = str(partial_path)
 
     def _finish(failure_step: str, reason: str, detail: Optional[dict] = None) -> dict:
         entry = {"status": "fail", "reason": reason}
         if detail is not None:
             entry["detail"] = detail
         steps[failure_step] = entry
+        # 失败时把上次成功的正式产物改名为 .stale-<run_id>，避免被当作本次结果
+        stale = _mark_stale_output(Path(output_path), run_id)
         return {
             "overall_pass": False,
             "failure_step": failure_step,
             "failure_reason": reason,
             "steps": steps,
             "output_path": None,
+            "run_id": run_id,
+            "partial_path": str(partial_path) if partial_path.exists() else None,
+            "staled_previous_output": stale,
         }
 
     if not os.path.isdir(drafts_dir):
@@ -216,13 +288,14 @@ def run_finalize_pipeline(
                 if h1_count > 1:
                     lines[i] = "#" + line  # "# 标题" -> "## 标题"
         merged_content = "\n".join(lines)
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(merged_content, encoding="utf-8")
+        Path(work_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(work_path).write_text(merged_content, encoding="utf-8")
     except Exception as e:  # noqa: BLE001
         return _finish("merge", f"结构驱动合并执行异常: {e}")
     steps["merge"] = {
         "status": "pass",
         "output_path": str(Path(output_path).resolve()),
+        "partial_path": str(partial_path),
         "chapters": len(structure.get("bodymatter", [])),
     }
 
@@ -250,9 +323,9 @@ def run_finalize_pipeline(
         # （与 convert_references.py main() 第 281-292 行 in-place 模式同款约定），
         # 用于构建"按首次出现顺序"的全局编号；但只对 output_path 做实际替换。
         scan_files = scan_drafts(drafts_dir)
-        output_abs = os.path.abspath(output_path)
+        output_abs = os.path.abspath(work_path)
         if output_abs not in [os.path.abspath(f) for f in scan_files]:
-            scan_files.append(output_path)
+            scan_files.append(work_path)
 
         slash_hits = []
         for fp in scan_files:
@@ -272,7 +345,7 @@ def run_finalize_pipeline(
 
         if refs_by_file:
             src_to_num, num_to_src, missing = build_numbering(refs_by_file, source_index)
-            replace_refs_in_file(output_path, src_to_num, in_place=True)
+            replace_refs_in_file(work_path, src_to_num, in_place=True)
             bib_text = generate_bibliography(num_to_src, source_index, missing)
             bib_path = os.path.join(str(Path(output_path).parent), "bibliography.md")
             Path(bib_path).write_text(bib_text, encoding="utf-8")
@@ -297,7 +370,7 @@ def run_finalize_pipeline(
         return _finish("contract_check", f"contract_check 模块不可用（import 失败）: {e}")
 
     try:
-        merged_text = read_text(output_path)
+        merged_text = read_text(work_path)
         contract_result = check_contract(merged_text, merged=True, expect_figures=None, stage="stage9")
     except Exception as e:  # noqa: BLE001
         return _finish("contract_check", f"合约终检执行异常: {e}")
@@ -317,7 +390,7 @@ def run_finalize_pipeline(
 
     try:
         checklist_result = run_delivery_checklist(
-            merged_file=output_path,
+            merged_file=work_path,
             glossary_path=glossary_path,
             drafts_dir=drafts_dir,
             outline_path=outline_path,
@@ -336,12 +409,22 @@ def run_finalize_pipeline(
         )
     steps["delivery_checklist"] = {"status": "pass", "detail": checklist_result}
 
+    # ── 全部通过：.partial 原子转正 ────────────────────────────────────────
+    # 只有走到这一行才产生正式产物名，故"正式产物存在"即等价于 overall_pass。
+    try:
+        _promote_partial(partial_path, Path(output_path))
+    except RuntimeError as e:
+        return _finish("delivery_checklist", f"产物转正失败: {e}")
+
     return {
         "overall_pass": True,
         "failure_step": None,
         "failure_reason": None,
         "steps": steps,
         "output_path": str(Path(output_path).resolve()),
+        "run_id": run_id,
+        "partial_path": None,
+        "staled_previous_output": None,
     }
 
 
