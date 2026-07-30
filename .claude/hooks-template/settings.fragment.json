@@ -1,0 +1,18 @@
+{
+  "_marker": "deep-research-report/guard_docx_bypass@v1",
+  "_note": "本片段由 scripts/install_project_hooks.py 合并写入项目级 .claude/settings.json。合并语义：hooks 数组去重追加，严禁整文件覆盖（否则会静默清除用户已有的项目配置）。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_docx_bypass.py\"",
+            "_marker": "deep-research-report/guard_docx_bypass@v1"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -56,6 +56,7 @@ _SMOKE_COMMANDS = (
     ("finalize_pipeline --help", ["scripts/finalize_pipeline.py", "--help"]),
     ("figure_gate --help", ["scripts/figure_gate.py", "--help"]),
     ("delivery_checklist_check --help", ["scripts/delivery_checklist_check.py", "--help"]),
+    ("install_project_hooks --help", ["scripts/install_project_hooks.py", "--help"]),
 )
 
 

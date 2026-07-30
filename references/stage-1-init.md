@@ -217,6 +217,29 @@ research/
 
 > **示例**：如果 MinerU 安装在 `D:\tools\mineru\scripts\mineru_parse.py`，则将 `"absolute_path": ""` 改为 `"absolute_path": "D:\\\\tools\\\\mineru\\\\scripts\\\\mineru_parse.py"`（注意 JSON 中转义反斜杠）。
 
+### 项目级护栏 hook 下发（D2-9）
+
+与上面的 `model-profile.local.json` 下发同一环节、同一模式（探测 → 写入项目根 → **已存在则跳过不覆盖**）：
+
+```bash
+python scripts/install_project_hooks.py --project-root .
+```
+
+这会向**当前项目工作空间**写入两个文件：
+
+| 文件 | 作用 |
+|---|---|
+| `.claude/hooks/guard_docx_bypass.py` | hook 脚本副本（**复制而非引用** skill 目录路径——skill 被移动/重装/多版本共存时，路径引用会静默失效且无告警） |
+| `.claude/settings.json` | PreToolUse hooks 配置段（**JSON 层面合并、去重追加，严禁整文件覆盖**，否则会清除用户已有的项目配置） |
+
+两条规则：① 禁止绕过 md2docx 直接调用 python-docx 生成交付 docx；② 禁止在报告编写会话中修改 skill 脚本本体（`scripts`/`agents`/`references`）。
+
+**为什么是项目级而非用户级**：Claude Code 的项目级 `.claude/settings.json` 只在该项目目录被打开为工作区时加载生效，天然把作用范围收窄到"每次写报告的工作空间"，**不影响其他项目、其他 skill**。这是机制自带的隔离边界，不需要 hook 自己判断"当前是不是这个 skill"。
+
+> **⚠ 已知未闭环局限（不予粉饰）**：orchestrator 在报告编写会话中对 `project_root/.claude/settings.json` 有 Write/Edit 权限，理论上可编辑该文件删掉 hooks 段以绕过上述两条规则本身（**递归漏洞**）。要堵住需把 `project_root/.claude/**` 也加进规则二黑名单，但那会连带挡住用户手动调整项目 hooks 配置的正常需求，故默认不含该层。
+>
+> 因此 hook 属于**纵深防御的加强层，不是唯一防线**——真正不可绕过的是产物层面的机器门禁（`.partial` 转正、`verify_docx` 回读、`figure_gate`、`outline_structure_gate`）。
+
 ### 封面生成
 
 参数确认后，自动生成 `research/cover.md`，格式为纯 YAML frontmatter。
