@@ -160,6 +160,32 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
         "存在但正文中没有匹配的 heading）",
         "report-generation-flow-optimization.md §3.5",
     ),
+    "E-OL-03": IssueCodeInfo(
+        Level.ERROR,
+        "outline.md 声明了 N 个结构条目，但展平后查找表为空——键名契约不匹配，"
+        "结构注入已失效（此前 headings.py 的 `if not lookup: return results` "
+        "静默返回，三个诊断码 W-HDR-04/05、I-HDR-07 全在该行之后，永不触发；"
+        "属「门禁存在但从不生效」，比没有门禁更危险）",
+        "D1-2（skill优化方案-D1标题体系修复.md §五）",
+    ),
+    "I-OL-04": IssueCodeInfo(
+        Level.INFO,
+        "outline.md 未声明结构条目，跳过结构注入（合理场景，区别于 E-OL-03 "
+        "的「声明了但展平为空」）",
+        "D1-2（skill优化方案-D1标题体系修复.md §五）",
+    ),
+    "I-HDR-08": IssueCodeInfo(
+        Level.INFO,
+        "在已声明的节之下新增了 outline 未声明的 SUBSECTION 级标题（研究深化的"
+        "正常产物，放行并记录；区别于 E-HDR-09 的章/节级结构锁定违规）",
+        "D1-8（skill优化方案-D1标题体系修复.md §9.4.2）",
+    ),
+    "E-HDR-09": IssueCodeInfo(
+        Level.ERROR,
+        "检出 outline 未声明的 CHAPTER/SECTION 级标题，违反阶段 4 已确认的 "
+        "H1/H2 结构锁定（strict 模式下阻断；warn 模式下降为 W-HDR-04）",
+        "D1-8（skill优化方案-D1标题体系修复.md §9.4.2/§9.4.3）",
+    ),
     "I-OL-01": IssueCodeInfo(
         Level.INFO,
         "outline.md YAML 结构清单解析成功：M 个 frontmatter 标题、N 章、"
@@ -253,7 +279,12 @@ ISSUE_CODE_REGISTRY: dict[str, IssueCodeInfo] = {
 # W-OL-02（G1 交叉验证 O1 裁决新增：outline.md 文件不存在/不可读）与 W-OL-01
 # 是同一类"outline.md SSOT 降级"信号，语义上同样应走延迟阻断而非立即阻断，
 # 故一并纳入豁免集——否则 O1 的拆分会在这条新 code 上重现 D1 同款回归。
-STRICT_ESCALATION_EXEMPT_CODES: frozenset[str] = frozenset({"W-OL-01", "W-OL-02"})
+# E-OL-03（D1-2 新增：outline 声明了结构条目但展平后 lookup 为空，即键名契约
+# 不匹配导致结构注入失效）与 W-OL-01/02 同族——都是"outline.md SSOT 降级"信号，
+# 语义上同样应走延迟阻断而非在 --strict 下升 FATAL 短路渲染，故一并纳入豁免集。
+STRICT_ESCALATION_EXEMPT_CODES: frozenset[str] = frozenset(
+    {"W-OL-01", "W-OL-02", "E-OL-03"}
+)
 
 
 # ---------------------------------------------------------------------------

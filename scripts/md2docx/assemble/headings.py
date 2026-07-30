@@ -30,6 +30,15 @@ from ..issues import Issue, IssueCollector, Level
 from ..textstage.tokens import HeadingToken
 from .outline_reader import build_structure_manifest, _build_structure_lookup
 
+# 降级台账：headings.py 位于 scripts/md2docx/assemble/ 包内，degradation_log.py
+# 在 scripts/ 下。照抄 builder.py 的 import 兜底块——否则 md2docx 作为包被独立
+# 调用时 ImportError（D1-2 实施注意明确要求）。
+try:
+    from degradation_log import record_degradation
+except ImportError:
+    def record_degradation(**kwargs):  # type: ignore[no-redef]
+        pass
+
 # ---------------------------------------------------------------------------
 # 编译正则（来自 config.py 的单一事实来源）
 # ---------------------------------------------------------------------------
@@ -440,12 +449,37 @@ def _strip_subsection(raw_text: str, source_line: int, issues: IssueCollector) -
 # ---------------------------------------------------------------------------
 
 
+def _count_declared_entries(structure: dict) -> int:
+    """统计 structure 中**声明**的结构条目总数（与实际入表数无关）。
+
+    供 D1-2 区分 E-OL-03（声明了却展平为空 = 键名契约断裂）与
+    I-OL-04（本就未声明 = 合理场景）。刻意只数条目个数、不校验字段内容——
+    "声明了但字段读不出来"正是要被 E-OL-03 抓住的形态。
+    """
+    if not isinstance(structure, dict):
+        return 0
+    total = 0
+    for key in ("frontmatter", "bodymatter", "appendix"):
+        items = structure.get(key) or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            total += 1
+            if isinstance(item, dict):
+                for sub_key in ("sections", "subsections"):
+                    sub = item.get(sub_key) or []
+                    if isinstance(sub, list):
+                        total += len(sub)
+    return total
+
+
 def apply_structure_overlay(
     results: list[HeadingIR],
     structure: dict,
     issues: IssueCollector,
     outline_path: str | None = None,
     lookup: dict | None = None,
+    overlay_mode: str = "warn",
 ) -> list[HeadingIR]:
     """用 outline.md 结构清单覆盖 HeadingIR 的分类和编号。
 
@@ -468,10 +502,23 @@ def apply_structure_overlay(
             转换中 builder.py 会先算一次 manifest，这里若再算一次 lookup，
             `_build_structure_lookup()` 内部的逐条 stderr 诊断会重复打印）。
             不传时（默认 None）内部自行计算，行为与旧版本一致。
+        overlay_mode: 三态开关（D1-6）``off`` / ``warn``（默认）/ ``strict``。
+            ``off`` 完全跳过结构覆盖（存量项目行为反转的逃生阀）；
+            ``warn`` 未命中只告警、不改分类（存量项目口径，与 U3/U4/U6 一致）；
+            ``strict`` 下未命中的 CHAPTER/SECTION 级标题升为 ``E-HDR-09``
+            结构锁定违规（D1-8 §9.4.2 按 kind 分级裁决）。
+
+            ⚠ 诚实标注（D1 §9.4.3/§9.6）：本函数的机器强制力上限止于"strict
+            模式下报 ERROR"，**无法阻止调用方改用 warn/off 绕过**——这与 D2-9
+            的递归漏洞（可编辑 settings.json 关掉 hook）是同一类未闭环问题。
 
     Returns:
         修改后的 results（原地修改并返回同一列表引用）
     """
+    if overlay_mode == "off":
+        # 存量项目逃生阀：完全跳过结构覆盖，行为等价于未传 --outline。
+        return results
+
     if not isinstance(structure, dict) or not results:
         return results
 
@@ -480,6 +527,49 @@ def apply_structure_overlay(
         lookup = _build_structure_lookup(structure, outline_path)
 
     if not lookup:
+        # D1-2：原为 `return results` 无声返回——三个诊断码 W-HDR-04/05、
+        # I-HDR-07 全在此行之后，**永不触发**。这是"门禁存在但从不生效"
+        # 的典型形态，比没有门禁更危险（提供虚假保证）。
+        # 区分两种情形：声明了却展平为空 = 键名契约断裂（ERROR）；
+        # 本就没声明 = 合理场景（INFO）。
+        declared = _count_declared_entries(structure)
+        if declared > 0:
+            issues.append(
+                Issue(
+                    level=Level.ERROR,
+                    code="E-OL-03",
+                    stage="assemble",
+                    message=(
+                        f"outline 声明了 {declared} 个结构条目，但展平后查找表为空"
+                        f"——键名契约不匹配，结构注入已失效"
+                    ),
+                    suggestion=(
+                        "检查 outline.md 是否使用 schema 权威键名"
+                        "（chapter_no/chapter_title/sections）"
+                    ),
+                )
+            )
+            record_degradation(
+                stage="assemble",
+                component="headings",
+                reason="structure_lookup_empty_despite_declarations",
+                level="L-显著",
+                fallback_used="heuristic_text_match",
+                impact=(
+                    f"outline 声明 {declared} 个结构条目但 lookup 为空，"
+                    f"heading 分类/编号全部回退到推断模式"
+                ),
+                input_path=outline_path if outline_path is not None else "outline.md",
+            )
+        else:
+            issues.append(
+                Issue(
+                    level=Level.INFO,
+                    code="I-OL-04",
+                    stage="assemble",
+                    message="outline 未声明结构条目，跳过结构注入（合理场景）",
+                )
+            )
         return results
 
     # 统计
@@ -529,19 +619,86 @@ def apply_structure_overlay(
             )
         )
 
+    # ── D1-6：W-HDR-04 按 kind 聚合 + D1-8：按 kind 分级裁决 ──────────────
+    # 白名单生效后 W-HDR-04 从 0 暴增至 126 条（113 个 SECTION 级 + 13 个
+    # "本章结论"）。转换报告原有 67 条 WARNING，翻到 190+ 会使人工复核清单
+    # 直接失效——故按 kind 聚合成一条，而非逐条 113 行刷屏。
+    #
+    # 分级语义（D1-8 §9.4.2 表；本项**不新增开关**，复用 D1-6 的三态）：
+    #   CHAPTER/SECTION → warn: W-HDR-04 聚合告警；strict: E-HDR-09 锁定违规
+    #   SUBSECTION      → 两种模式均 I-HDR-08 INFO 放行（研究深化的正常产物）
+    #   APPENDIX        → 两种模式均 WARNING（不参与 H1/H2 锁定）
+    by_kind: dict[HeadingKind, list[HeadingIR]] = {}
     for ir in unmatched_headings:
+        by_kind.setdefault(ir.kind, []).append(ir)
+
+    _LOCKED_KINDS = (HeadingKind.CHAPTER, HeadingKind.SECTION)
+
+    for kind, irs in by_kind.items():
+        sample = "、".join(f"「{i.text}」(行{i.source_line})" for i in irs[:5])
+        if len(irs) > 5:
+            sample += f" 等 {len(irs)} 项"
+
+        if kind is HeadingKind.SUBSECTION:
+            # 放行：其前提是能被 _find_parent_section_idx() 归属到已声明父节；
+            # 归属失败的"孤儿 subsection"已由 outline_reader 侧写台账。
+            issues.append(
+                Issue(
+                    level=Level.INFO,
+                    code="I-HDR-08",
+                    stage="assemble",
+                    message=(
+                        f"{len(irs)} 个 SUBSECTION 级 heading 未在 outline 声明"
+                        f"（已声明节之下的深化新增，放行）：{sample}"
+                    ),
+                    element_ref=f"unmatched_kind:SUBSECTION,count={len(irs)}",
+                )
+            )
+            continue
+
+        if kind in _LOCKED_KINDS and overlay_mode == "strict":
+            for ir in irs:
+                issues.append(
+                    Issue(
+                        level=Level.ERROR,
+                        code="E-HDR-09",
+                        stage="assemble",
+                        message=(
+                            f"检出 outline 未声明的 {kind.name} 级标题"
+                            f"「{ir.text}」（行 {ir.source_line}）。"
+                            f"这违反了阶段 4 已确认的 H1/H2 结构锁定。"
+                        ),
+                        source_line=ir.source_line,
+                        element_ref=f"heading:{ir.text}",
+                        # 报错文案必须逐字给出可执行动作，否则会重演 D2 §四对
+                        # D2-5 的批评："路由表给不出有效动作时，自写代码在模型
+                        # 看来是唯一剩余选项"。
+                        suggestion=(
+                            "允许的动作只有两个："
+                            "(a) 若该节确应存在 → 回到阶段 4：更新 "
+                            "research/outline.md 的 structure.bodymatter[章号].sections，"
+                            "重跑 outline_structure_gate.py，重新生成骨架 docx "
+                            "并请用户重新确认 CP3；"
+                            "(b) 若该节不应存在 → 将其降为 H4（小节）并挂到已声明的"
+                            "父节之下。"
+                            "禁止的动作：放宽门禁、删除本告警、"
+                            "改用 --structure-overlay=off 绕过。"
+                        ),
+                    )
+                )
+            continue
+
         issues.append(
             Issue(
                 level=Level.WARNING,
                 code="W-HDR-04",
                 stage="assemble",
                 message=(
-                    f"heading「{ir.text}」（行{ir.source_line}）在 outline.md "
-                    f"结构清单中未找到精确匹配，保持原推断分类为 "
-                    f"{ir.kind.name}，编号={ir.display_number!r}"
+                    f"{len(irs)} 个 {kind.name} 级 heading 在 outline.md 结构清单中"
+                    f"未找到精确匹配，保持原推断分类与编号：{sample}"
                 ),
-                source_line=ir.source_line,
-                element_ref=f"heading:{ir.text}",
+                source_line=irs[0].source_line,
+                element_ref=f"unmatched_kind:{kind.name},count={len(irs)}",
                 suggestion="请确认标题文本与 outline.md 中的声明完全一致（含标点、空格）",
             )
         )

@@ -244,6 +244,7 @@ def build(
                 heading_irs = apply_structure_overlay(
                     heading_irs, structure, issues,
                     outline_path=outline_path, lookup=overlay_lookup,
+                    overlay_mode=getattr(flags, "structure_overlay", "warn"),
                 )
             else:
                 # 跨模型兼容性优化方案 §二 A2：outline.md SSOT 三处延迟阻断

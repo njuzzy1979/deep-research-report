@@ -415,6 +415,11 @@ class BehaviorFlags:
     generate_figures_table_toc: str = "auto"  # "auto" | "always" | "never"
     claim_evidence_box: bool = False
     body_alignment: str = "justify"  # "justify" | "left"（04 §2.2 决策说明开关）
+    # D1-6 三态开关："off" 跳过结构覆盖 | "warn"（默认，存量口径）未命中只告警
+    # | "strict" 未命中的章/节级标题升为 E-HDR-09 结构锁定违规（D1-8 §9.4.2）。
+    # 默认 warn 的理由：白名单生效后存量项目会得到不同的 docx 结构（U3 裁决），
+    # 不应被直接阻断。
+    structure_overlay: str = "warn"
 
 
 # ===========================================================================
@@ -455,6 +460,7 @@ BEHAVIOR_ENUM_FIELDS: dict[str, tuple[str, ...]] = {
     "caption_field_mode": ("text", "field"),  # "field" 为默认；"text" 已废弃——仍接受但不改变行为
     "generate_figures_table_toc": ("auto", "always", "never"),
     "body_alignment": ("justify", "left"),
+    "structure_overlay": ("off", "warn", "strict"),  # D1-6 三态
 }
 BEHAVIOR_STR_FIELDS = frozenset({"figures_dir"})  # 自由文本路径，仅校验类型
 BEHAVIOR_FLOAT_RANGE_FIELDS: dict[str, tuple[float, float]] = {

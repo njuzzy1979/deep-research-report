@@ -55,6 +55,10 @@ class RunOptions:
     verbose: bool
     quiet: bool
 
+    # D1-6 三态开关。放在末尾并带默认值：本 dataclass 前面的字段均无默认值，
+    # 中途插入带默认值的字段会破坏 dataclass 的字段顺序约束。
+    structure_overlay: str | None = None
+
     def behavior_cli_overrides(self) -> dict:
         """喂给 config.resolve_behavior_flags() 的 cli_values 参数。"""
         return {
@@ -66,6 +70,7 @@ class RunOptions:
             "figures_dir": self.figures_dir,
             "figure_max_width_cm": self.figure_max_width_cm,
             "generate_figures_table_toc": self.generate_figures_table_toc,
+            "structure_overlay": self.structure_overlay,
         }
 
     def metadata_cli_overrides(self) -> dict:
@@ -179,6 +184,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "覆盖 heading 分类/编号推断，用声明式结构替代启发式文本模式匹配",
     )
 
+    parser.add_argument(
+        "--structure-overlay", dest="structure_overlay",
+        choices=("off", "warn", "strict"), default=None,
+        help="结构注入三态（D1-6）：off 跳过结构覆盖 | warn（默认）未命中只告警 | "
+        "strict 未命中的章/节级标题报 E-HDR-09 结构锁定违规。"
+        "存量项目走 warn，新项目建议 strict。"
+        "default=None 是为了保留 CLI > YAML > 内置默认 的三态可辨识性",
+    )
+
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument("-v", "--verbose", action="store_true", default=False, help="控制台输出提升到 DEBUG 级")
     verbosity.add_argument("-q", "--quiet", action="store_true", default=False, help="控制台仅在非 0 退出码时输出")
@@ -234,4 +248,5 @@ def parse_args(argv: list[str] | None = None) -> RunOptions:
         outline_path=os.path.abspath(ns.outline_path) if ns.outline_path else None,
         verbose=ns.verbose,
         quiet=ns.quiet,
+        structure_overlay=ns.structure_overlay,
     )
