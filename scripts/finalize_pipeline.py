@@ -226,6 +226,220 @@ def verify_docx_structure(docx_path: str, expected_chapters: int) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# D3-2：provenance sidecar + emit_delivery 命名下沉
+# ---------------------------------------------------------------------------
+
+# provenance 记录的载体是**旁路 sidecar**（append-only JSONL），与既有的
+# research/.degradation-log.jsonl 是同款成熟机制。
+#
+# 【重要】内嵌 HTML 注释方案已被否决，三条独立实测破坏面：
+#   1. 会渲染进 docx——textstage/clean.py 对 <!-- --> 零处理，注释原样穿过，
+#      parse() 把它变成普通 ParagraphToken 出现在 docx 正文第一段；且
+#      contract_check.py 的 C5 BANNED_PATTERNS 不匹配 <!--，门禁全程沉默。
+#   2. 会打掉 YAML——若写在 front matter 之前，extract_yaml_front_matter 因
+#      `if not text.startswith("---")` 返回 (None, 原文) → 整份 outline 结构
+#      清单失效，与 D1 修复直接对冲。
+#   3. 存量全灭——research/ 与 output/ 下无任何文件含 produced-by。
+# sidecar 方案：零渲染风险、零 YAML 风险。
+_PROVENANCE_FILENAME = ".provenance.jsonl"
+
+# 抗伪造 nonce 复用 output_envelope_check.py 已实现的原语格式（十六进制
+# [0-9a-f]{6,16}）——**不另起炉灶发明新格式**，现成原语就在同一目录。
+_RE_PROVENANCE_NONCE = re.compile(r"^[0-9a-f]{6,16}$")
+
+
+def _provenance_path(research_dir: Path) -> Path:
+    return research_dir / _PROVENANCE_FILENAME
+
+
+def append_provenance(
+    research_dir: Path,
+    run_id: str,
+    delivery_paths: list,
+    merged_path: str,
+) -> Optional[str]:
+    """向 research/.provenance.jsonl 追加一条本次交付的出处记录（append-only）。
+
+    目标：使"这份产物是否走了规范管线"从人工判断变成一行校验。事故中
+    ``SCIF_V1.0.docx``（手写）与 ``final-report.docx``（合规）在文件系统层面
+    **完全无法区分**，而且违规产物的命名看起来**更像**正式交付物。
+
+    ``run_id`` 由内容派生、确定性（见 ``_derive_run_id``），不用随机数/时间戳，
+    否则打破 md2docx 的 G-11 幂等要求。
+    """
+    if not _RE_PROVENANCE_NONCE.match(run_id):
+        return None
+    record = {
+        "run_id": run_id,
+        "produced_by": "finalize_pipeline.py",
+        "merged_file": str(Path(merged_path).resolve()),
+        "delivery_paths": [str(Path(p).resolve()) for p in delivery_paths],
+        "pipeline_steps": list(FAILURE_STEPS),
+    }
+    try:
+        research_dir.mkdir(parents=True, exist_ok=True)
+        with open(_provenance_path(research_dir), "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        return None
+    return str(_provenance_path(research_dir))
+
+
+def load_provenance_paths(research_dir: Path) -> set:
+    """读取 sidecar 中记录过的全部交付路径，供 D3-4 判定"哪些是本 skill 产物"。
+
+    ``_is_skill_artifact`` **只能**基于本清单或 emit_delivery 的实际写出清单
+    判定，**绝对禁止**基于文件名正则——按文件名判定会**颠倒**：违规的
+    ``SCIF_V1.0.docx`` 命中 ``*_v*.docx`` 而被静默归档，合规的
+    ``final-report.docx`` 反而不被识别（D3 §六实测）。
+    """
+    known: set = set()
+    p = _provenance_path(research_dir)
+    if not p.exists():
+        return known
+    try:
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            for dp in rec.get("delivery_paths", []) or []:
+                known.add(str(Path(dp)))
+    except OSError:
+        pass
+    return known
+
+
+def sanitize_filename_stem(raw: str, max_gbk_bytes: int = 120) -> str:
+    """把报告题名净化为可用的文件名主干。
+
+    实测真实 report_title（38 字符）：Windows 非法字符 ``<>:"/\\|?*`` 命中 0 个，
+    完整路径 86 字符、归档路径 111 字符，**远低于 MAX_PATH 260**——原方案担心的
+    中文非法字符/超长是被夸大的风险。故本函数保留但作用有限。
+
+    截断阈值按 **GBK 字节数** 而非字符数：中文在 GBK 下占 2 字节，按字符数截断
+    会在中文题名上失准。
+    """
+    stem = re.sub(r'[<>:"/\\|?*]', "_", str(raw or "")).strip().rstrip(".")
+    stem = re.sub(r"\s+", " ", stem)
+    if not stem:
+        return "report"
+    while len(stem.encode("gbk", errors="replace")) > max_gbk_bytes and len(stem) > 1:
+        stem = stem[:-1]
+    return stem
+
+
+def emit_delivery(
+    docx_src: str,
+    delivery_dir: str,
+    report_title: str,
+    doc_version: str = "1.0",
+    conversion_report_src: Optional[str] = None,
+) -> dict:
+    """把 docx 与转换报告按规范命名落位到交付目录，返回实际写出的路径清单。
+
+    命名规范此前的执行者是 **LLM 读提示词后手打路径**——``stage-9-finalize.md``
+    的 CLI 示例写 ``output/报告题名_v1.0.docx``，"报告题名"是**占位字面量**
+    不是变量；``md2docx/cli.py`` 的 ``_default_output_path()`` 只是输入路径换
+    扩展名，**md2docx 对"报告题名"和"版本号"一无所知**。这是"凡依赖人工执行
+    的规范必被违反"的教科书案例，故把命名下沉到脚本。
+
+    **docx 与 conversion-report 的 stem 必须严格一致**：真实风险不是中文非法
+    字符，而是 ``output\\SCIF_V1.0.conversion-report.md`` 内部有两处硬编码
+    绝对路径引用 docx，一旦重命名立即失效——故两者同时重命名且回写路径。
+    """
+    out: dict = {"delivery_paths": [], "warnings": []}
+    ddir = Path(delivery_dir)
+    ddir.mkdir(parents=True, exist_ok=True)
+    stem = f"{sanitize_filename_stem(report_title)}_v{doc_version}"
+
+    docx_dst = ddir / f"{stem}.docx"
+    try:
+        docx_dst.write_bytes(Path(docx_src).read_bytes())
+        out["delivery_paths"].append(str(docx_dst))
+    except OSError as e:
+        out["warnings"].append(f"docx 落位失败: {e}")
+        return out
+
+    if conversion_report_src and Path(conversion_report_src).exists():
+        report_dst = ddir / f"{stem}.conversion-report.md"
+        try:
+            text = Path(conversion_report_src).read_text(encoding="utf-8", errors="replace")
+            # 回写报告内对 docx 的路径引用，使其指向重命名后的实际文件
+            text = text.replace(str(Path(docx_src).resolve()), str(docx_dst.resolve()))
+            text = text.replace(Path(docx_src).name, docx_dst.name)
+            report_dst.write_text(text, encoding="utf-8")
+            out["delivery_paths"].append(str(report_dst))
+        except OSError as e:
+            out["warnings"].append(f"转换报告落位失败: {e}")
+
+    # 骨架 docx（D1-8）若仍在，只 WARNING 交人判断，**不自动删除/归档**
+    # ——与 D3 §六第 3 条对 SCIF_V1.0.docx 的处置口径一致。
+    return out
+
+
+def archive_stale_outputs(
+    delivery_dir: str,
+    research_dir: str,
+    current_delivery_paths: list,
+    archive_stale: bool = False,
+) -> dict:
+    """报告交付目录中"疑似陈旧/来源不明"的产物（D3-4，**首版只报告不移动**）。
+
+    **致命陷阱与定案**：若按文件名模式（如 ``*_v*.docx``）判定，结果与事实
+    **完全颠倒**——违规手写的 ``SCIF_V1.0.docx``（整个事故的物证）会命中而被
+    静默归档移走，而真正合规的 ``final-report.docx`` 不匹配 ``_v<版本>``
+    反而不被识别。
+
+    因此判定依据**只有两个**：本次 ``emit_delivery`` 实际写出的路径清单，
+    或 sidecar provenance 记录。**无记录的一律视为用户文件，不动、只列出**。
+    """
+    result: dict = {
+        "delivery_dir": str(Path(delivery_dir).resolve()),
+        "archive_stale_enabled": archive_stale,
+        "known_artifacts": [],
+        "unknown_files": [],
+        "archived": [],
+        "warnings": [],
+    }
+    ddir = Path(delivery_dir)
+    if not ddir.is_dir():
+        return result
+
+    known = load_provenance_paths(Path(research_dir))
+    known |= {str(Path(p).resolve()) for p in (current_delivery_paths or [])}
+
+    for f in sorted(ddir.iterdir()):
+        if not f.is_file():
+            continue
+        rp = str(f.resolve())
+        if rp in known:
+            result["known_artifacts"].append(rp)
+        else:
+            # 无 provenance 记录 → 视为用户文件，只列出交人判断
+            result["unknown_files"].append(rp)
+
+    if result["unknown_files"]:
+        result["warnings"].append(
+            f"交付目录中有 {len(result['unknown_files'])} 个文件无 provenance 记录，"
+            f"无法确认是否为本 skill 的规范产物。请人工判断后处置——"
+            f"**本脚本不会自动移动或删除任何文件**"
+            f"（按文件名判定会颠倒，见 D3 §六）"
+        )
+
+    # 移动需 --archive-stale 显式开启；首版即使开启也只归档"有 provenance
+    # 记录但不在本次清单内"的旧产物，绝不动 unknown_files。
+    if archive_stale:
+        result["warnings"].append(
+            "--archive-stale 已开启，但首版仅报告不移动（D3-4 定案）"
+        )
+    return result
+
+
 def run_finalize_pipeline(
     drafts_dir: str,
     outline_path: str,
@@ -238,6 +452,7 @@ def run_finalize_pipeline(
     log_path: Optional[str] = None,
     delivery_dir: Optional[str] = None,
     verify_docx_path: Optional[str] = None,
+    delivery_paths: Optional[list] = None,
 ) -> dict:
     """执行 6 步定稿顺序管道，任一步失败立即提前 return（不同于
     precommit_consistency_check.py 的"最后统一 derive_overall"模式——本管道
@@ -454,6 +669,7 @@ def run_finalize_pipeline(
             redteam_diff_path=redteam_diff_path,
             log_path=log_path,
             output_dir=delivery_dir,
+            delivery_paths=delivery_paths,
         )
     except Exception as e:  # noqa: BLE001
         return _finish("delivery_checklist", f"交付清单聚合检查执行异常: {e}")
@@ -488,6 +704,15 @@ def run_finalize_pipeline(
     except RuntimeError as e:
         return _finish("delivery_checklist", f"产物转正失败: {e}")
 
+    # D3-2：转正成功后写 provenance sidecar（append-only），使"这份产物是否
+    # 走了规范管线"从人工判断变成一行校验。首版只记录，门禁强度为 WARN。
+    provenance_file = append_provenance(
+        research_dir=Path(output_path).parent,
+        run_id=run_id,
+        delivery_paths=[output_path] + list(delivery_paths or []),
+        merged_path=output_path,
+    )
+
     return {
         "overall_pass": True,
         "failure_step": None,
@@ -497,6 +722,7 @@ def run_finalize_pipeline(
         "run_id": run_id,
         "partial_path": None,
         "staled_previous_output": None,
+        "provenance_file": provenance_file,
     }
 
 

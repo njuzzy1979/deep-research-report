@@ -723,3 +723,114 @@ def test_d2_7_step_is_skipped_when_no_docx_path_given(tmp_path, monkeypatch):
     )
     assert result["overall_pass"] is True
     assert "verify_docx" not in result["steps"]
+
+
+# ── D3-2：provenance sidecar + emit_delivery 命名下沉 ────────
+
+
+def test_d3_2_provenance_written_on_success(tmp_path, monkeypatch):
+    monkeypatch.setenv("DRR_DEGRADATION_LOG", str(tmp_path / "empty-log.jsonl"))
+    drafts_dir = tmp_path / "drafts"
+    drafts_dir.mkdir()
+    _write_clean_draft(drafts_dir)
+    output = tmp_path / "final-report.md"
+    result = fp.run_finalize_pipeline(
+        drafts_dir=str(drafts_dir),
+        outline_path=str(_write_outline(tmp_path)),
+        source_index_path=str(_write_source_index(tmp_path)),
+        output_path=str(output),
+    )
+    assert result["overall_pass"] is True
+    sidecar = tmp_path / ".provenance.jsonl"
+    assert sidecar.exists(), "成功交付后须写 provenance sidecar"
+    rec = json.loads(sidecar.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["produced_by"] == "finalize_pipeline.py"
+    assert rec["run_id"] == result["run_id"]
+
+
+def test_d3_2_provenance_is_append_only(tmp_path):
+    """sidecar 是 append-only，多次运行累积而非覆盖（同 .degradation-log.jsonl）。"""
+    fp.append_provenance(tmp_path, "abc123", [str(tmp_path / "a.docx")], str(tmp_path / "m.md"))
+    fp.append_provenance(tmp_path, "def456", [str(tmp_path / "b.docx")], str(tmp_path / "m.md"))
+    lines = (tmp_path / ".provenance.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2
+
+
+def test_d3_2_provenance_rejects_non_hex_run_id(tmp_path):
+    """抗伪造：run_id 须符合既有 nonce 原语格式 [0-9a-f]{6,16}。"""
+    assert fp.append_provenance(tmp_path, "NOT-A-NONCE!", [], "m.md") is None
+    assert not (tmp_path / ".provenance.jsonl").exists()
+
+
+def test_d3_2_sanitize_filename_stem_truncates_by_gbk_bytes(tmp_path):
+    """截断阈值按 GBK 字节而非字符数——中文在 GBK 下占 2 字节。"""
+    stem = fp.sanitize_filename_stem("中" * 200)
+    assert len(stem.encode("gbk", errors="replace")) <= 120
+    # Windows 非法字符被替换
+    assert fp.sanitize_filename_stem('a<b>c:d"e/f\\g|h?i*j') == "a_b_c_d_e_f_g_h_i_j"
+
+
+def test_d3_2_emit_delivery_keeps_docx_and_report_stem_identical(tmp_path):
+    """真风险不是中文字符，而是转换报告内硬编码引用 docx 路径——两者 stem 须严格一致。"""
+    src_docx = tmp_path / "final-report.docx"
+    src_docx.write_bytes(b"PK\x03\x04fake")
+    src_report = tmp_path / "final-report.conversion-report.md"
+    src_report.write_text(f"转换产物: {src_docx.resolve()}\n文件名: final-report.docx", encoding="utf-8")
+    ddir = tmp_path / "output"
+
+    r = fp.emit_delivery(str(src_docx), str(ddir), "空间态势认知智能框架研究", "1.0",
+                         conversion_report_src=str(src_report))
+    names = sorted(Path(p).name for p in r["delivery_paths"])
+    assert names == [
+        "空间态势认知智能框架研究_v1.0.conversion-report.md",
+        "空间态势认知智能框架研究_v1.0.docx",
+    ]
+    # 报告内的路径引用已回写为重命名后的文件
+    txt = (ddir / "空间态势认知智能框架研究_v1.0.conversion-report.md").read_text(encoding="utf-8")
+    assert "空间态势认知智能框架研究_v1.0.docx" in txt
+    assert "final-report.docx" not in txt
+
+
+# ── D3-4：归档机制（首版只报告不移动）────────────────────────
+
+
+def test_d3_4_never_judges_by_filename_pattern(tmp_path):
+    """核心陷阱：按文件名判定会**颠倒**——违规的 SCIF_V1.0.docx 看起来更像正式
+    交付物，合规的 final-report.docx 反而不匹配 *_v<版本>*。"""
+    ddir = tmp_path / "output"
+    ddir.mkdir()
+    violating = ddir / "SCIF_V1.0.docx"      # 违规手写产物，事故物证
+    violating.write_bytes(b"fake")
+    compliant = ddir / "final-report.docx"    # 真正的合规产物
+    compliant.write_bytes(b"fake")
+
+    # 只有 compliant 有 provenance 记录
+    fp.append_provenance(tmp_path, "abc123def", [str(compliant)], str(tmp_path / "m.md"))
+
+    r = fp.archive_stale_outputs(str(ddir), str(tmp_path), [], archive_stale=False)
+    assert str(compliant.resolve()) in r["known_artifacts"]
+    assert str(violating.resolve()) in r["unknown_files"], (
+        "违规产物必须落在 unknown_files（交人判断），不得因文件名像正式产物而被归档"
+    )
+    assert r["archived"] == [], "首版只报告不移动"
+    assert violating.exists() and compliant.exists(), "不得移动或删除任何文件"
+
+
+def test_d3_4_archive_stale_flag_still_does_not_move(tmp_path):
+    ddir = tmp_path / "output"
+    ddir.mkdir()
+    f = ddir / "some.docx"
+    f.write_bytes(b"fake")
+    r = fp.archive_stale_outputs(str(ddir), str(tmp_path), [], archive_stale=True)
+    assert r["archived"] == []
+    assert f.exists()
+
+
+def test_d3_4_current_delivery_paths_count_as_known(tmp_path):
+    ddir = tmp_path / "output"
+    ddir.mkdir()
+    f = ddir / "cur.docx"
+    f.write_bytes(b"fake")
+    r = fp.archive_stale_outputs(str(ddir), str(tmp_path), [str(f)], archive_stale=False)
+    assert str(f.resolve()) in r["known_artifacts"]
+    assert r["unknown_files"] == []
