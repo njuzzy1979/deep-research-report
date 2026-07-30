@@ -61,6 +61,19 @@ try:
 except ImportError:
     RE_ENVELOPE_MARKER = re.compile(r"\[AGENT-OUTPUT-(?:START|END)(?::[0-9a-f]{6,16})?\]")
 
+# outline 键名归一化（D1-1）：权威实现在 md2docx.assemble.outline_reader，此处
+# import 复用而**不另写一份**——D1 §3.2 已判定"第二处适配层"是反模式（两处适配
+# 必然漂移，且 finalize_pipeline.py 的旧适配层对合规输入 int("?") 必崩）。
+# import 失败时降级为 None，parse_outline_yaml 跳过归一化：此时旧键名 outline
+# 会回到"lookup 落空"的既有行为，属可观测的功能退化而非静默错误结果
+# （merge 阶段随即会因 chapter_no 缺失产出可见的 WARN）。
+try:
+    from md2docx.assemble.outline_reader import (
+        normalize_outline_structure as _normalize_outline_structure,
+    )
+except ImportError:
+    _normalize_outline_structure = None  # type: ignore[assignment]
+
 
 # ── 阶段 A：解析 outline.md 结构清单 ────────────────────────
 
@@ -106,7 +119,15 @@ def parse_outline_yaml(outline_path: str) -> dict:
     if not isinstance(data, dict) or "structure" not in data:
         print("[ERROR] outline.md YAML 中缺少 structure 节点", file=sys.stderr)
         sys.exit(2)
-    return data["structure"]
+
+    # D1-1 调用点 3：键名归一化。本调用点同时覆盖 CLI 路径与
+    # finalize_pipeline.py 的 import 路径——原先 finalize_pipeline.py:191-204
+    # 自己抄了一份就地 mutate 的适配层（且 int("?") 对合规输入必崩），两处
+    # 适配必然漂移，故统一下沉到此处。
+    structure = data["structure"]
+    if _normalize_outline_structure is not None:
+        structure = _normalize_outline_structure(structure, outline_path)
+    return structure
 
 
 # ── 阶段 B：逐文件清洗 ────────────────────────────────────
@@ -220,6 +241,55 @@ def find_draft_files(drafts_dir: str, chapter_no: int, section_no: str) -> list:
     return matches
 
 
+def _demote_headings(content: str, levels: int = 1) -> str:
+    """把分章草稿正文中的标题整体下沉 N 级（H2->H3, H3->H4 ...），跳过代码块。
+
+    D1-5：治愈"章节都是空的"用户投诉的关键单点。分章草稿的首个 H2 逐字为
+    ``## 本章结论``（``stage-7-writing.md`` R1 红线），而 assemble_merged 插入的
+    章容器**同为 H2**，于是产出"两个相邻 H2"——md2docx 把两者都渲染成
+    ``Heading 1``，正文全部过继给章内第一个小节标题，章标题下 0 字符。
+
+    下沉一级后章容器 H2 成为该章唯一 H2，作者的笔物理上无法触达 docx 的
+    ``Heading 1``。修的是合并器而非 R1 红线本体：R1 的立法目的是"章首唯一
+    入口"而非"H2 = 章"，且改写作阶段会连带打断 7 处文件的对称结构。
+
+    ``#`` 上限为 6（Markdown 最深级别），超出则钳制在 H6。
+    """
+    out: list = []
+    in_fence = False
+    for line in content.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence:
+            m = re.match(r"^(#{2,5})(\s+.*)$", line)
+            if m:
+                out.append("#" * min(len(m.group(1)) + levels, 6) + m.group(2))
+                continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _chapter_section_entries(chapter: dict) -> list:
+    """返回用于查找分章草稿文件的 section 条目列表。
+
+    章声明了 ``sections`` 时直接用；**未声明或为空时**回落到一个"虚拟条目"
+    （section_no 为章号），使 find_draft_files 能通过 ``ch{XX}-*.md`` 章级
+    通配符找到该章草稿。
+
+    这段兜底原先长在 ``finalize_pipeline.py`` 的适配层里（且把虚拟条目写进
+    ``structure["sections"]``，污染了 md2docx 的 lookup——虚拟 section 标题
+    与章标题相同，而 lookup 以标题文本为键，会把 CHAPTER 条目覆盖成
+    SECTION）。此处只在**合并期局部**构造，不回写 structure。
+    """
+    sections = chapter.get("sections") or []
+    if sections:
+        return sections
+    c_no = chapter.get("chapter_no", "?")
+    return [{"section_no": str(c_no), "section_title": chapter.get("chapter_title", "")}]
+
+
 def assemble_merged(structure: dict, drafts_dir: str) -> str:
     """按 structure 拼接全报告，生成 final-report.md 内容。"""
     lines = []
@@ -251,7 +321,11 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
         lines.append("")
 
         # 按 sections 列表依次查找并拼接分章文件
-        for s in chapter.get("sections", []):
+        # 同一章内已拼接过的文件记录：sections 声明多条而草稿文件回落到章级
+        # 通配符时，同一份 ch{XX}-*.md 会被每个 section 各命中一次，导致同章
+        # 正文重复拼接 N 遍（D1 §3.4）。以章为作用域去重。
+        emitted_in_chapter: set = set()
+        for s in _chapter_section_entries(chapter):
             if isinstance(s, dict):
                 s_no = s.get("section_no", "")
                 s_title = s.get("section_title", "")
@@ -263,6 +337,9 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
             draft_files = find_draft_files(drafts_dir, c_no, s_no)
             if draft_files:
                 for df in draft_files:
+                    if str(df) in emitted_in_chapter:
+                        continue
+                    emitted_in_chapter.add(str(df))
                     try:
                         with open(df, "r", encoding="utf-8") as f:
                             content = f.read()
@@ -270,7 +347,9 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
                         if content.startswith("---"):
                             parts = content.split("---", 2)
                             content = parts[-1] if len(parts) >= 3 else content
-                        lines.append(content.strip())
+                        # D1-5 层级下沉：使章容器 H2 成为该章唯一 H2
+                        content = _demote_headings(content.strip())
+                        lines.append(content)
                         lines.append("")
                     except Exception as e:
                         seen_warnings.append(f"无法读取 {df}: {e}")

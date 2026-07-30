@@ -65,6 +65,7 @@ if sys.platform == "win32":
 from md2docx.assemble.outline_reader import (
     _find_parent_section_idx,
     extract_yaml_front_matter,
+    normalize_outline_structure,
 )
 from md2docx.assemble.headings import (
     _strip_appendix,
@@ -146,6 +147,11 @@ def build_title_tree(
 
     if not isinstance(structure, dict):
         return tree
+
+    # D1-1 调用点 4：第四消费端。原先直接按权威键名读取，对旧键名 outline
+    # 产出 13/13 空标题且 EXIT=0（静默成功）——这正是"今天搓一个骨架生成器会
+    # 得到 16 个空白标题"的实证来源。
+    structure = normalize_outline_structure(structure)
 
     # ── frontmatter（chapter_no 过滤时不含前置件，只关心目标章） ──
     if chapter_no is None:

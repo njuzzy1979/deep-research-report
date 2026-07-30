@@ -99,6 +99,144 @@ def extract_yaml_front_matter(
 
 
 # ---------------------------------------------------------------------------
+# 键名归一化（D1-1）
+# ---------------------------------------------------------------------------
+
+
+def _coerce_chapter_no(raw) -> int:
+    """把 '1' / '1.0' / 1 / '0.1' 等安全转为 int；不可解析返回 0（不抛异常）。
+
+    历史缺陷背景：``finalize_pipeline.py`` 曾用 ``int(item.get("section_no", "?"))``
+    做适配，对**已合规**的输入（含 chapter_no 而无 section_no）会 ``int("?")``
+    抛 ValueError——即"修好上游反而崩溃"的反模式。本函数一律不抛异常。
+    """
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        return raw
+    try:
+        return int(str(raw).strip().split(".")[0])
+    except (ValueError, AttributeError, TypeError):
+        return 0
+
+
+def normalize_outline_structure(
+    structure: dict, outline_path: str | None = None
+) -> dict:
+    """将旧键名 outline 归一化为 schema 权威键名（非破坏性，返回新 dict）。
+
+    ``schemas/outline-structure.schema.json`` 是权威契约：
+    ``bodymatter`` 的 items required = ``['chapter_no', 'chapter_title']``，
+    ``appendix`` 的 items required = ``['appendix_letter', 'appendix_title']``。
+    真实产出端曾写成 ``section_no``/``section_title``，导致
+    ``_build_structure_lookup()`` 按权威键名读取时全部落空（lookup size = 0），
+    结构注入静默失效。本函数在**消费端入口**统一把旧键名补齐为权威键名。
+
+    映射规则（**按层级映射，不做全局替换**——``sections[*].section_no`` 是
+    合法的节编号，不能被误改）：
+
+    ==================  ====================================================
+    层级                 映射
+    ==================  ====================================================
+    ``bodymatter[*]``    ``section_no``→``chapter_no``、
+                         ``section_title``→``chapter_title``
+    ``appendix[*]``      ``section_no``→``appendix_letter``、
+                         ``section_title``→``appendix_title``
+    ``frontmatter[*]``   ``section_title``→``chapter_title``
+    ==================  ====================================================
+
+    **``subsections`` 刻意不映射为 ``sections``**（D1 §十第 4 条裁决）：
+    schema 中二者内层键名不同（``sections`` 为 ``{section_no, section_title}``，
+    ``subsections`` 为 ``{parent_section_no, subsection_no, subsection_title}``），
+    且 ``_build_structure_lookup()``（本文件 sections 分支 vs subsections 分支）
+    与 ``outline_title_extract.build_title_tree()`` 都把二者当作**独立层级**
+    分别消费。若按原设计整体赋值 ``c["sections"] = c["subsections"]``，非空时
+    会把 subsection 结构塞进 sections 位置，``section_title`` 取到 ``None``。
+
+    "章无 sections 时如何找到该章草稿文件"属于**合并期**的兜底语义，不是
+    结构归一化的职责，已下沉到 ``merge_drafts.assemble_merged()`` 处理——
+    在此注入虚拟 section 会污染 lookup（虚拟 section 的标题与章标题相同，
+    而 lookup 以标题文本为键，会把 CHAPTER 条目覆盖成 SECTION）。
+
+    双向兼容：权威键优先，缺失才回落旧键；回落事实写降级台账，**不静默接受**。
+    对已合规的 outline 是**恒等变换**（幂等）。
+
+    Args:
+        structure: YAML 解析后的 ``structure`` 节点。
+        outline_path: 真实 outline.md 路径，透传给降级台账的 input_path。
+
+    Returns:
+        归一化后的**新** dict（不就地 mutate 入参——原实现的就地 mutate 使
+        同一份 structure 被多个消费端反复改写，难以定位状态来源）。
+    """
+    if not isinstance(structure, dict):
+        return structure
+
+    _input_path = outline_path if outline_path is not None else "outline.md"
+    legacy_hits: list[str] = []
+    out = {k: v for k, v in structure.items()}
+
+    body: list = []
+    for ch in structure.get("bodymatter", []) or []:
+        if not isinstance(ch, dict):
+            continue
+        c = dict(ch)
+        if "chapter_no" not in c and "section_no" in c:
+            c["chapter_no"] = _coerce_chapter_no(c.get("section_no"))
+            legacy_hits.append("bodymatter.section_no->chapter_no")
+        if "chapter_title" not in c and "section_title" in c:
+            c["chapter_title"] = c.get("section_title") or ""
+            legacy_hits.append("bodymatter.section_title->chapter_title")
+        body.append(c)
+    if "bodymatter" in structure or body:
+        out["bodymatter"] = body
+
+    apx: list = []
+    for a in structure.get("appendix", []) or []:
+        if not isinstance(a, dict):
+            continue
+        x = dict(a)
+        if "appendix_letter" not in x and "section_no" in x:
+            x["appendix_letter"] = str(x.get("section_no") or "").strip()
+            legacy_hits.append("appendix.section_no->appendix_letter")
+        if "appendix_title" not in x and "section_title" in x:
+            x["appendix_title"] = x.get("section_title") or ""
+            legacy_hits.append("appendix.section_title->appendix_title")
+        apx.append(x)
+    if "appendix" in structure or apx:
+        out["appendix"] = apx
+
+    front: list = []
+    for f in structure.get("frontmatter", []) or []:
+        if not isinstance(f, dict):
+            continue
+        y = dict(f)
+        if "chapter_title" not in y and "section_title" in y:
+            y["chapter_title"] = y.get("section_title") or ""
+            legacy_hits.append("frontmatter.section_title->chapter_title")
+        front.append(y)
+    if "frontmatter" in structure or front:
+        out["frontmatter"] = front
+
+    if legacy_hits:
+        record_degradation(
+            stage="assemble",
+            component="outline_reader",
+            reason="outline_legacy_key_names_normalized",
+            level="L-记录",
+            fallback_used="normalize_outline_structure",
+            impact=(
+                "outline.md 使用了非权威键名，已在消费端归一化为 schema 权威键名"
+                f"（命中: {sorted(set(legacy_hits))}）。建议产出端直接输出 "
+                "chapter_no/chapter_title/appendix_letter/appendix_title"
+            ),
+            input_path=_input_path,
+        )
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 结构展平
 # ---------------------------------------------------------------------------
 
@@ -191,6 +329,10 @@ def _build_structure_lookup(
     lookup: dict[str, tuple[HeadingKind, HeadingNumber]] = {}
     if not isinstance(structure, dict):
         return lookup
+
+    # D1-1 调用点 1：先归一化键名，再按 schema 权威键名读取。本函数对字段的
+    # 读取语义**完全符合权威契约、不得修改**；违规方是产出端与适配层，故修在入口。
+    structure = normalize_outline_structure(structure, outline_path)
 
     # 真实 outline 路径优先；未传入时回退旧字面量，保证既有调用方行为不变。
     _input_path = outline_path if outline_path is not None else "outline.md"
@@ -426,6 +568,10 @@ def build_structure_manifest(
     }
     if not isinstance(structure, dict):
         return manifest
+
+    # D1-1 调用点 2：台账路径同样先归一化，否则 chapter_count 等统计会与
+    # lookup（已归一化）口径不一致，manifest 再次沦为"谎报"。
+    structure = normalize_outline_structure(structure, outline_path)
 
     front: list = structure.get("frontmatter", [])
     if isinstance(front, list):

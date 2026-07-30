@@ -184,31 +184,24 @@ def run_finalize_pipeline(
         return _finish("merge", f"merge_drafts 模块不可用（import 失败）: {e}")
 
     try:
+        # 键名归一化已下沉到 merge_drafts.parse_outline_yaml()（D1-1 调用点 3）。
+        # 原先此处有一份就地 mutate 的适配层（int(item.get("section_no","?"))
+        # 对**已合规**输入必抛 ValueError，且适配结果只喂给 assemble_merged、
+        # 没有流到 md2docx 的 lookup），两处适配必然漂移，已整段删除。
         structure = parse_outline_yaml(outline_path)
-        # ── 键名适配：outline.md YAML 使用 section_no/section_title/subsections，
-        #     但 assemble_merged 期望 chapter_no/chapter_title/sections。
-        #     subections 为空列表时各章为单文件，需为其生成一个虚拟 section 条目
-        #     以便 find_draft_files 通过 ch{XX}-*.md 通配符匹配。
-        for item in structure.get("bodymatter", []):
-            item["chapter_no"] = int(item.get("section_no", "?"))
-            item["chapter_title"] = item.get("section_title", "")
-            if item.get("subsections"):
-                item["sections"] = item["subsections"]
-            else:
-                # 无小节时直接按章号匹配单文件
-                item["sections"] = [{"section_no": str(item["chapter_no"]), "section_title": item["chapter_title"]}]
-        for item in structure.get("frontmatter", []):
-            item["chapter_title"] = item.get("section_title", "")
-            if item.get("subsections"):
-                item["sections"] = item["subsections"]
-            else:
-                item["sections"] = []
     except SystemExit as e:
         # parse_outline_yaml 在 YAML 解析失败时直接 sys.exit(2)（内部已写降级
         # 台账）——此处捕获转换为结构化失败，不让整个管道进程被杀。
         return _finish("merge", f"outline.md 解析失败（parse_outline_yaml sys.exit={e.code}）")
     except Exception as e:  # noqa: BLE001
-        return _finish("merge", f"outline.md 解析异常: {e}")
+        # 文案须区分"outline 内容有问题"与"键名适配/归一化脚本有问题"：原文案
+        # 统一写"outline.md 解析异常"，而 int("?") 实际崩在适配层代码里，
+        # 用户照文案只会去改 outline，缺陷却在脚本（D2-5 同步修正项）。
+        return _finish(
+            "merge",
+            f"outline.md 结构读取/键名归一化异常（若 outline.md 语法正常，"
+            f"则缺陷在 parse_outline_yaml/normalize_outline_structure 而非 outline 内容）: {e}",
+        )
 
     try:
         merged_content = assemble_merged(structure, drafts_dir)
