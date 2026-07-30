@@ -1,0 +1,5 @@
+source_id,title,author,year,publisher,url,source_type,credibility_level,access_date,notes
+SRC-001,空间智能技术代际演化研究,张三,2025,某某出版社,https://example.org/a,PDF,A,2026-01-15,
+SRC-002,认知层次模型综述,李四,2025,某某学报,https://example.org/b,PDF,B,2026-01-16,
+SRC-003,多维问题空间的形式化描述,王五,2024,某某会议,https://example.org/c,PDF,B,2026-01-17,
+SRC-004,不确定性在层次模型中的传播,赵六,2025,某某期刊,https://example.org/d,PDF,A,2026-01-18,
