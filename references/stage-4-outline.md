@@ -314,6 +314,38 @@ figures_manifest:
 
 **数据图表的图号在阶段 7 出图时分配**，不在阶段 4 锁定。阶段 4 只确保"不临时加图"——每章需要什么类型的数据可视化、数据从哪来，心里有数即可。
 
+### ▶ 阶段 4 结构完整性门禁（D1-9，机器校验）
+
+**为什么需要这一步**：本阶段的质量门槛此前**全部是人工勾选的复选框**，阶段 4 全文零脚本调用。实测后果——某次运行中"大纲含三级标题"被勾选通过，而实际 `subsections` **16/16 全为空列表**、YAML 声明 0 个 section，终稿却产出了 113 个 `Heading 2`。节标题全靠 Writer 在阶段 7 即兴补齐，结构与大纲不可核对。
+
+进入 CP3 之前**必须运行**：
+
+```bash
+python scripts/outline_structure_gate.py --outline research/outline.md
+```
+
+六项检查（S1-S4 为 FATAL 级、S5-S6 为 WARNING 级）：
+
+| 编号 | 判据 | 级别 |
+|---|---|---|
+| S1 | YAML `structure` 存在且归一化后 `bodymatter` 非空 | FATAL |
+| S2 | 每个 `bodymatter[*]` 有非空 `chapter_title` | FATAL |
+| S3 | 每个 `bodymatter[*].sections` **条目数 ≥ 2** | FATAL |
+| S4 | 每个 `sections[*]` 有非空 `section_no` 与 `section_title` | FATAL |
+| S5 | YAML 声明的章标题集合 == Markdown 正文 `##` 标题集合（去编号后） | WARNING |
+| S6 | `section_title` 不含编号前缀 | WARNING |
+
+**S3 阈值为 ≥2 而非 ≥1 的理由**：只有 1 个节的章，其节标题必然与章标题语义重复，是"为过门禁而填一行"的典型形态。
+
+**三态开关与首版默认值**：`--structure-gate=off|warn|strict`，**首版默认 `warn`**（只报告不阻断）。理由：存量项目的 outline 当前 100% 无法通过 S3，直接 `strict` 会使既有项目全部卡死在 CP3。
+
+> **切换到 `strict` 的客观触发判据**（不是"待定后再切"这种无法验证的口头承诺）：
+> **连续 3 个新项目的 `outline.md` 在未经人工补写的情况下自然通过 S1-S4**（即 `outline_architect_agent` 按已补齐的 section 级产出要求自然产出非空 `sections`），即可将默认值切换为 `strict`。
+> 判定方法：每个新项目在阶段 4 首次运行本脚本时记录 JSON 输出中的 `s1_s4_passed`；连续 3 次为 `true` 即满足条件。
+> 判据同时写入 `scripts/outline_structure_gate.py` 的 `STRICT_SWITCH_CONSECUTIVE_PROJECTS` 常量注释，两处口径一致。
+
+**呈报给用户时须附机器判据数字**（如"13 章 / 87 节已声明"），使 CP3 的确认对象是**数字**而非印象——否则用户确认疲劳后草率点过，门禁反而提供虚假安全感。
+
 ### ▶ 阶段 4 质量门槛
 
 - [ ] 章节结构（必选骨架 + 可选模块）已依据 1.3 的研究方法、分析框架、报告目的选定，非固定套用模板
@@ -321,6 +353,8 @@ figures_manifest:
 - [ ] 核心架构图清单完整（每张有图号/图名/核心要素）
 - [ ] 数据图表方向清单完整（每章标注需要什么类型的图 + 数据来源）
 - [ ] 每章有明确的"本章结论"占位
+- [ ] 已运行 `outline_structure_gate.py`，S1-S4 全部通过（D1-9）
+- [ ] 已生成 `research/outline-skeleton-preview.docx`，用户在 Word 中确认了章节框架（D1-8）
 - [ ] 用户确认了大纲结构
 
-🔴 CHECKPOINT · 🛑 STOP：用户确认大纲结构（含章标题/篇幅建议/证据源/图表规划）后进入阶段 5。未确认 → 回到阶段 4.1 调整大纲结构或补充证据源。
+🔴 CHECKPOINT · 🛑 STOP：用户确认大纲结构（含章标题/**节标题**/篇幅建议/证据源/图表规划）**及骨架 docx 的标题框架**后进入阶段 5。未确认 → 回到阶段 4.1 调整大纲结构或补充证据源。

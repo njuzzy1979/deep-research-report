@@ -46,6 +46,17 @@ portability: core
 
 **outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。**可选：figures_manifest 字段**——若报告超过 3 个核心架构图则强烈建议产出（格式见 stage-4-outline.md §4.1.z），为阶段6/7/9各方提供机器可读的图表清单权威来源。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。
 
+**YAML `structure.bodymatter[*].sections` 必须逐章产出，不得留空（D1-9 硬性要求）**：
+
+这是本契约此前的一个**产出端缺口**——旧版只规定了 `section_title` 的**格式**（不许带编号前缀），却**从未要求必须产出 section 级条目**。实测后果：某次真实运行中 16 个章的 `subsections` **16/16 全为空列表**、YAML 声明 0 个 section，而终稿实际产出了 113 个 `Heading 2`——节标题全部由 Writer 在阶段 7 即兴补齐，结构与大纲无法核对，图表章号与分页规划也随之失准。
+
+- 每个 `bodymatter[*]` **必须**声明 `sections` 列表，且**条目数 ≥ 2**
+  - 阈值是 2 而非 1：只有 1 个节的章，其节标题必然与章标题语义重复，属"为过门禁而填一行"
+  - 若某章确实无法拆出 2 个节，说明该章的篇幅预算或定位需要重新审视——**回到章节划分本身，而不是填一个凑数的节**
+- 每个 `sections[*]` 必须同时有非空的 `section_no`（如 `"1.1"`）与 `section_title`（纯文字）
+- `sections`（节，对应 docx `Heading 2`）与 `subsections`（小节，对应 docx `Heading 3`）是**两个独立层级**，内层键名不同（`sections` 用 `{section_no, section_title}`，`subsections` 用 `{parent_section_no, subsection_no, subsection_title}`），**不要把 subsections 当作 sections 使用**
+- 阶段 4 CP3 之前会运行 `python scripts/outline_structure_gate.py --outline research/outline.md` 做机器校验（S1-S4 为 FATAL 级）。**首版为 warn 模式只报告不阻断**，但产出端应按上述要求直接产出合规结构，而不是依赖门禁宽容
+
 **YAML `section_title` 纯文字要求（关键——这是消除编号污染的源头约束）**：
 - `section_title` / `subsection_title` 字段**只写纯文字标题**，不得包含任何编号前缀（如 `"1.1 标题"` 是错的，正确是 `"标题"`）
 - 编号信息**只写在 `section_no` / `subsection_no` 字段**（如 `"1.1"`），这些是元数据，不是标题文本的一部分
