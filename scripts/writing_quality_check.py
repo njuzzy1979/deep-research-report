@@ -215,8 +215,9 @@ CHAPTER_HEADING_PATTERN = re.compile(
 )
 SECTION_HEADING_PATTERN = re.compile(r"^###\s+\S.*$", re.MULTILINE)
 APPENDIX_HEADING_PATTERN = re.compile(r"^#{1,2}\s*附录", re.MULTILINE)
-# 过渡块格式与 writing-standards.md 标准 18 原文逐字一致：
-#   "在 Markdown 中以 `> **本章小结与过渡**：...` 引用块形式书写"
+# 过渡块格式（可选保留形态）：writing-standards.md 标准 18 允许保留引用块排版，
+# 但不再强制——2026-08-02 起该格式仅作为"若命中则优先采信"的可选信号，
+# 未命中时退化为对最后一节收尾段落的句数代理检测（见 check_transitions）。
 TRANSITION_BLOCK_PATTERN = re.compile(r"^>\s*\*\*本章小结与过渡\*\*[：:]", re.MULTILINE)
 
 
@@ -258,22 +259,34 @@ def check_transitions(text: str) -> dict:
         is_last = (i == len(chapter_heads) - 1)
         title = m.group(0).strip()
 
-        # 章间过渡
+        # 章间过渡——优先识别可选的引用块格式（若报告写法偏好保留）；
+        # 未命中时按新骨架（2026-08-02 起标准18/写作模板已取消强制容器），
+        # 退化为对本章最后一个正文小节收尾段落的句数代理检测，不再判 missing。
         tmatches = list(TRANSITION_BLOCK_PATTERN.finditer(span_text))
-        if not tmatches:
-            issues.append({
-                "level": "chapter", "chapter": title,
-                "issue": "missing_transition_block", "is_last": is_last,
-            })
-        else:
+        required = 1 if is_last else 2
+        if tmatches:
             quote_text = _extract_blockquote(span_text, tmatches[-1].start())
             sentences = _split_sentences(quote_text)
-            required = 1 if is_last else 2
             if len(sentences) < required:
                 issues.append({
                     "level": "chapter", "chapter": title,
                     "issue": "insufficient_sentences",
                     "found": len(sentences), "required": required, "is_last": is_last,
+                })
+        else:
+            # 代理检测：取最后一个 H3 节内的最后一个自然段作为"收尾段落"
+            section_heads_all = list(SECTION_HEADING_PATTERN.finditer(span_text))
+            closing_start = section_heads_all[-1].end() if section_heads_all else 0
+            closing_paras = split_paragraphs(span_text[closing_start:])
+            closing_text = closing_paras[-1] if closing_paras else ""
+            sentences = _split_sentences(closing_text)
+            if len(sentences) < required:
+                issues.append({
+                    "level": "chapter", "chapter": title,
+                    "issue": "closing_paragraph_transition_thin",
+                    "found": len(sentences), "required": required, "is_last": is_last,
+                    "note": "未检测到引用块格式，已退化为收尾段落句数代理检测；"
+                            "该检测无法判断句子是否语义上属于过渡内容，仅供参考，非阻断",
                 })
 
         # 节间过渡（同章内相邻 H3 之间，存在性代理：区间内是否有非空自然段）

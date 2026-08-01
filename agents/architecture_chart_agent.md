@@ -17,7 +17,7 @@ portability: core
 
 你**只负责阶段 6**（核心架构图，先于写作）。你**不参与阶段 7**（数据图表由 `data_chart_agent` 负责）。
 
-你**必须不做**（MUST NOT）：写正文；自创配色（必须用灰度色板 + 暗红 #D62728）；用禁止图表类型（3D 图表、>5 扇区饼图）；产出数据图表（那是 `data_chart_agent` 阶段 7 的职责）；**用 text box 内嵌 Mermaid 源码文本冒充架构图**（该形态能骗过文件存在性检查但不是图）；**在未跑 `figure_gate.py` 的情况下宣称出图完成**。
+你**必须不做**（MUST NOT）：写正文；自创配色（必须用灰度色板 + 暗红 #D62728）；用禁止图表类型（3D 图表、>5 扇区饼图）；产出数据图表（那是 `data_chart_agent` 阶段 7 的职责）；**用 text box 内嵌 Mermaid 源码文本冒充架构图**（该形态能骗过文件存在性检查但不是图）；**在未跑两级门禁（`drawio_layout_validator.py` 源文件层几何校验 + `figure_gate.py` PNG产物层校验）的情况下宣称出图完成**；**在画布内绘制"图N-N 标题文字"或"图注：说明文字"这类题注型文本节点**（题注统一由 docx 渲染层通过 Markdown 图题机制生成，画布只承载图的内容本体，不含图号/标题/图注文字）；**用管道或重定向吞掉门禁退出码**（如 `... | tail -40; echo $?` 取到的是 `tail` 的退出码，PowerShell 里 `if ($?) {...}` 判断的是布尔值不是原生 exe 退出码——`figure_gate.py` 实跑已证实这是门禁失效仍交付废图的真实路径，不是假设风险；正确做法：bash 用 `if [ $? -ne 0 ]`，PowerShell 用 `if ($LASTEXITCODE -ne 0)`）。
 
 ## 输出隔离契约
 
@@ -49,9 +49,19 @@ portability: core
 - PNG 必须达到 300dpi+（通过 PIL 写入 DPI 元数据），宽度 ≥ 1102px
 - 文件命名：`<图号>-<描述>.<扩展名>`，如 `2-1-技术架构全景.drawio`
 
-### 自检：交付前必须跑机器门禁（D4-6）
+### 自检：交付前必须跑两级机器门禁（D4-6 / D5-B3）
 
-上面 5 条是自然语言约定，**无一可机器校验**——这是"出图规范存在但从不生效"的直接来源。交付给 orchestrator **之前**必须自行执行并贴出结果：
+上面 5 条是自然语言约定，**无一可机器校验**——这是"出图规范存在但从不生效"的直接来源。交付给 orchestrator **之前**必须自行执行两级门禁，**且门禁1必须先于门禁2执行**：门禁2只读 PNG 产物层，诊断具有误导性——已实测证实 3-1 文件 6 个 vertex 的 `x`/`width` 字面值是字符串 `"None"`（XML 合法但语义已损坏），`figure_gate.py` 对此只能报"宽度不足"，若照此提示放大导出 scale 只会得到更大尺寸的同样残缺图，真因只在源文件层可见（详见 `design/architecture-diagram-layout/00-overview-and-rulings.md` D5-R6「两级门禁，源文件层先行」）。
+
+**门禁1（源文件层几何/语义校验）**：
+
+```bash
+python scripts/drawio_layout_validator.py --figures-dir research/figures --mode warn
+```
+
+当前为 `--mode warn`，exit code 恒为 0，但**必须阅读输出中的 `summary.errors`/`summary.warnings` 与各文件 `issues[].feedback`**——warn 模式的设计意图是"降级但不清零"，不是"跑了就算过"。如果新出的图触发了 G1（几何完整性）/G6（内嵌图注）/G7（伪图检测）/G10a（拓扑-模式一致性）任一判据的错误，即使 exit=0 也不得视为"自检通过"，必须按对应 feedback 处理后才能进入门禁2。当前尚未满足 blocking 切换条件（`design/architecture-diagram-layout/04-workflow-integration.md` §5.1：需连续 2 次运行同时满足 `summary.vertex_geometry_broken == 0`、G6 命中数 == 0、无 `retryable=false` 类 error）——因 3-1（`vertex_geometry_broken=6`）与 12-1（`bottomNote` 内嵌图注）两个历史遗留问题尚未清零，故暂不能升级为 block/strict 模式（G6 历史上曾在 12-1/4-1/4-2 三处命中，其中 4-1/4-2 已随确定性重排推广解决，当前仅 12-1 的 `bottomNote` 残留，详见 SKILL.md 反例 24）。
+
+**门禁2（PNG产物层校验）**：
 
 ```bash
 python scripts/figure_gate.py --outline research/outline.md \
@@ -60,7 +70,14 @@ python scripts/figure_gate.py --outline research/outline.md \
 
 **exit code 非零即不得交付**。门禁会逐图验证：文件存在性（按 `figures_manifest` 清单）、宽度 ≥1102px、DPI（缺失记 warning、存在但 <300 记 error）。判定口径详见 `references/stage-6-diagrams.md` §6.9。
 
-**禁止**：用 text box 内嵌 Mermaid 源码文本冒充架构图（该形态会通过文件存在性检查，但不是图）；用文字描述替代该出图的位置。
+**门禁失败路由**（摘自 `design/architecture-diagram-layout/04-workflow-integration.md` §3.2 路由表，仅列已实现的 4 个判据）：
+
+- `GEOMETRY_INVALID`（G1）：不可重试，直接上报 orchestrator 并停机（属生成器缺陷）
+- `EMBEDDED_CAPTION`（G6）：不可重试，移除画布内图注 mxCell，文本移入 Markdown 正文题注
+- `FLOW_RECONVERGENT`/`GRID_HAS_CONNECTED_STRUCTURE`/`STAR_NO_UNIQUE_HUB`/`STAR_HUB_NOT_DOMINANT`/`STAR_NO_EDGES`（G10a）：不可重试，禁止改模式重试（等于穷举绕过语义检查），必须强制转 `layout_mode: manual`
+- `FAKE_DIAGRAM`（G7）：可重试，重新出图，禁止 text box 内嵌 Mermaid 源码
+
+**禁止**：用 text box 内嵌 Mermaid 源码文本冒充架构图（该形态会通过文件存在性检查，但不是图）；用文字描述替代该出图的位置；**仅跑门禁2而跳过门禁1**（门禁1诊断源文件层问题，门禁2查不出"XML合法但语义损坏"的废图，如 3-1 类故障）。
 
 ## 交接与失败路径
 

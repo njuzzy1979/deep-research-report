@@ -55,6 +55,7 @@ _SMOKE_COMMANDS = (
     ("outline_skeleton --help", ["scripts/outline_skeleton.py", "--help"]),
     ("finalize_pipeline --help", ["scripts/finalize_pipeline.py", "--help"]),
     ("figure_gate --help", ["scripts/figure_gate.py", "--help"]),
+    ("drawio_layout_validator --help", ["scripts/drawio_layout_validator.py", "--help"]),
     ("delivery_checklist_check --help", ["scripts/delivery_checklist_check.py", "--help"]),
     ("install_project_hooks --help", ["scripts/install_project_hooks.py", "--help"]),
 )

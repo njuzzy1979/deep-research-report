@@ -53,11 +53,7 @@ hard_rules_count: 5
 
 [<FILL_SECTION_TITLE_N —— 重复以上 主张→证据→推理 三角结构，直至覆盖大纲全部节>]
 
-### 本章对主论点的贡献
-
-**局限说明**：<FILL_LIMITATION —— 至少 1 句，本章分析的边界/未覆盖维度/假设脆弱性>
-
-> **本章小结与过渡**：<FILL_TRANSITION —— 至少 2 句，总结本章落脚点并以内容衔接下一章>
+<FILL_CLOSING —— 最后一个正文节的收尾段落：在该节论证内容的自然延伸中融入 <FILL_LIMITATION（至少 1 句，本章分析的边界/未覆盖维度/假设脆弱性）> 与 <FILL_TRANSITION（至少 2 句，总结本章落脚点并以内容衔接下一章）>，不另起 H3，不强制 blockquote 字面标签>
 ```
 
 > 骨架中每个 `<FILL_*>` 占位符对应一个必须填写的结构位置；`[SRC-XXX]` 引用格式见红线 R3。骨架本身即"论点→证据→推理"三角结构（细则 G1 转写铁律的执行落点），不得增删骨架中的结构性元素（对应 writer-template §1 骨架要素清单）。
@@ -80,6 +76,8 @@ hard_rules_count: 5
 - 标准 19 读者层次校准 → `{skill路径}/references/writing-standards.md` 标准 19
 - 标准 20 段落长度与信息密度 → `{skill路径}/references/writing-standards.md` 标准 20
 - 标准 0 前台/后台分离 → `{skill路径}/references/writing-standards.md` 标准 0
+- 标准 23 直接陈述语气（禁自述开头/自我辩护式元评论/术语编号堆砌）→ `{skill路径}/references/writing-standards.md` 标准 23
+- 标准 24 正面论证优先（禁以消极性证据/文献空白作为宏观理论贡献判断的核心支撑）→ `{skill路径}/references/writing-standards.md` 标准 24
 - GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
 - 术语表（原创概念 preferred_form / aliases / banned_forms）→ `{skill路径}/research/glossary.md`（阶段 5 产出，术语统一参考）
 - 转换器合约 C1-C9（标题/图片/表格/禁止内容/引用格式）→ `{skill路径}/references/appendix-converter-contract.md`
@@ -193,7 +191,7 @@ Orchestrator 提取:       提取标记内的内容，落盘为 research/drafts/
 
 ### G3 其余写作标准（外部 SSOT 引用，见上方"规则锚点摘要"，不在此重复展开）
 
-标准 0 前后台分离、标准 18 章节与节间过渡、标准 19 读者层次校准、标准 20 段落长度与信息密度（150-400字/每300字1数据点）、缩写首次展开、跨章禁令、素材缺口标注 `[素材缺口]`——以上均已在"职责边界"节或"规则锚点摘要"中标注为细则 G 或指向对应 SSOT 文件，完整定义以对应文件为准。
+标准 0 前后台分离、标准 18 章节与节间过渡、标准 19 读者层次校准、标准 20 段落长度与信息密度（150-400字/每300字1数据点）、标准 23 直接陈述语气（禁自述开头/自我辩护式元评论/术语编号堆砌）、缩写首次展开、跨章禁令、素材缺口标注 `[素材缺口]`——以上均已在"职责边界"节或"规则锚点摘要"中标注为细则 G 或指向对应 SSOT 文件，完整定义以对应文件为准。
 
 ### G4 上下文预算提醒（长章场景）
 

@@ -3,7 +3,7 @@
 
 覆盖：
 - confirm/adjust 两种形态的转换正确性
-- 未知维度 id 报错（不在 auditor_contract.json 声明的 29 个 id 内）
+- 未知维度 id 报错（不在 auditor_contract.json 声明的 30 个 id 内）
 - 产出通过 ``schemas/auditor-phase-a.schema.json`` 校验
 - 分批合并 + 批次不完整（缺批次/dims 数不符/id 集合与 batch_grouping 不符）报错
 """
@@ -87,9 +87,9 @@ def test_parse_duplicate_dimension_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_known_dimension_ids_count_is_29():
+def test_known_dimension_ids_count_is_30():
     ids = p.load_known_dimension_ids()
-    assert len(ids) == 29
+    assert len(ids) == 30
 
 
 def test_parse_single_file_rejects_unknown_id(tmp_path):
@@ -109,11 +109,11 @@ def test_parse_single_file_accepts_known_id(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 产出通过 schema 校验（全量 29 维度 + 单维度）
+# 产出通过 schema 校验（全量 30 维度 + 单维度）
 # ---------------------------------------------------------------------------
 
 
-def test_build_output_full_29_dims_passes_schema():
+def test_build_output_full_30_dims_passes_schema():
     ids = sorted(p.load_known_dimension_ids())
     dims = {i: {"mode": "confirm"} for i in ids}
     output = p.build_output("ch01", dims)
@@ -182,7 +182,7 @@ def test_merge_batch_files_complete_succeeds(tmp_path):
     known_ids = p.load_known_dimension_ids()
     batch_grouping = p.load_batch_grouping()
     merged = p.merge_batch_files(paths, "ch04", known_ids, batch_grouping)
-    assert len(merged) == 29
+    assert len(merged) == 30
     assert set(merged) == known_ids
 
 

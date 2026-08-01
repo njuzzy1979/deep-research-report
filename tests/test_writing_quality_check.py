@@ -78,6 +78,9 @@ def test_e1_density_ok_when_dense_enough():
 # ── E2：章间/节间过渡存在性 ────────────────────────────────────
 
 def test_e2_missing_chapter_transition_detected():
+    """2026-08-02 起标准18/写作模板取消强制引用块容器，过渡检测退化为
+    收尾段落句数代理检测（非阻断）——不再有 missing_transition_block，
+    未命中引用块格式时应产出 closing_paragraph_transition_thin。"""
     text = """## 第一章 测试章节
 
 本章正文内容，没有过渡块。
@@ -86,7 +89,7 @@ def test_e2_missing_chapter_transition_detected():
 """
     result = wq.check_transitions(text)
     chapter_issues = [i for i in result["issues"] if i["level"] == "chapter"]
-    assert any(i["issue"] == "missing_transition_block" for i in chapter_issues)
+    assert any(i["issue"] == "closing_paragraph_transition_thin" for i in chapter_issues)
 
 
 def test_e2_transition_block_format_matches_standard_18_exactly():

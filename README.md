@@ -94,7 +94,7 @@
 
 > 非 Claude 宿主（DeepSeek V4/V3、GLM-4、Qwen3 等）通过 `model-profile.json` 声明能力档。若 `host.agent_delegation=false`（无 depth-1 委派底座），`model_profile.py` 的 C2 二维矩阵硬规则强制降级为单 Agent 极速档。完整可移植性声明见 [PORTABILITY.md](PORTABILITY.md)。
 
-## 写作标准体系（23 条）
+## 写作标准体系（25 条）
 
 | 编号 | 标准 | 作用域 |
 |------|------|--------|
@@ -117,8 +117,10 @@
 | 标准 20 | 段落长度与信息密度 | 全类型 |
 | 标准 21 | 表格写作规范 | 全类型 |
 | 标准 22 | 术语一致性 | 全类型 |
+| 标准 23 | 直接陈述语气——禁自述开头与自我辩护式元评论 | 全类型 |
+| 标准 24 | 正面论证优先——禁以消极性证据/文献空白作为宏观理论贡献判断的核心支撑 | 全类型 |
 
-> 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)（标准 0-22，共 23 条）。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
+> 详细示例与反例见 [`references/writing-standards.md`](references/writing-standards.md)（标准 0-24，共 25 条）。标准 7-12 即旧版 A-F 标签，已于 2026-07-26 统一为数字编号。
 
 ## 自动化检查脚本（15 个）
 

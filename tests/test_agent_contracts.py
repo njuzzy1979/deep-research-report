@@ -256,14 +256,14 @@ def _load_auditor_contract() -> dict:
 
 
 def test_auditor_contract_dimension_count_unchanged():
-    """dimensions=24、proposal_extra=5，共 29——本批不改变维度总量。"""
+    """dimensions=25、proposal_extra=5，共 30——2026-08-02 新增 negative_evidence_check 维度。"""
     contract = _load_auditor_contract()
-    assert len(contract["dimensions"]) == 24
+    assert len(contract["dimensions"]) == 25
     assert len(contract.get("proposal_extra", [])) == 5
 
 
 def test_auditor_contract_all_dimensions_have_three_hints():
-    """核心交付断言：全部 29 个维度条目都具备 3 个 hint 字段。"""
+    """核心交付断言：全部 30 个维度条目都具备 3 个 hint 字段。"""
     contract = _load_auditor_contract()
     required_hints = {
         "what_to_look_for_hint",
@@ -271,7 +271,7 @@ def test_auditor_contract_all_dimensions_have_three_hints():
         "what_triggers_block_hint",
     }
     all_entries = contract["dimensions"] + contract.get("proposal_extra", [])
-    assert len(all_entries) == 29
+    assert len(all_entries) == 30
 
     missing = []
     for entry in all_entries:

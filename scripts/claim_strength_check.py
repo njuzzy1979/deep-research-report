@@ -70,8 +70,9 @@ def scan_file(filepath: str, ledger: dict) -> list[dict]:
             for match in pattern.finditer(line):
                 word = match.group()
                 # 检查是否有来源引用在同一行或前后行
-                # 匹配 [S123] 及 claims-ledger.csv 实际使用的双字母前缀格式 [CA017]/[CM021]/[CO012]/[CP015]
-                has_citation = bool(re.search(r"\[S\d+\]|\[C[AMOP]?\d+\]", line))
+                # 匹配 [S123]、claims-ledger.csv 双字母前缀格式 [CA017]/[CM021]/[CO012]/[CP015]、
+                # 以及正文写作阶段起统一采用的规范引用格式 [SRC-XXX]（含逗号分隔的多来源合并引用）
+                has_citation = bool(re.search(r"\[S\d+\]|\[C[AMOP]?\d+\]|\[SRC-\d+", line))
 
                 findings.append({
                     "file": os.path.basename(filepath),

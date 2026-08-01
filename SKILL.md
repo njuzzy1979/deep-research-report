@@ -216,6 +216,9 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 | 20 | **质量门槛全靠人眼**——没有文件系统级自动检查就宣布"全部图表就位" | 阶段6 CHECKPOINT 和阶段9转换前必须运行 `python scripts/figure_gate.py` 做全自动文件存在性检查；exit code 非零即阻断，零人工干预 |
 | 21 | **脚本/Agent 失败后自行编写替代代码绕过管线**——`finalize_pipeline.py` 报错就自己写正则合并 13 章，或绕过 md2docx 直接 `from docx import Document` 生成交付 docx | 脚本失败**不授权**任何替代实现。管线是唯一交付路径：合并只能由 `finalize_pipeline.py` 做，docx 只能由 `md2docx` 生成。失败时执行下方第 22 条的查表动作；确实无法推进则**停机呈报用户**，不得以"工具链不支持"为由自行降级——判断工具链能力前必须先跑最小验证命令并贴出结果（如 `python -c "import matplotlib; print(matplotlib.__version__)"`），未经验证的能力边界判定无效 |
 | 22 | **失败时不查 `failure_step` 路由表即自主决策**——拿到非零退出码后直接凭判断行动，不读 JSON 的 `failure_step`/`failure_reason` | 任何管线失败**第一动作**是读 JSON 的 `failure_step` + `failure_reason`，再查 `agents/finalizer_agent.md` 的固定路由表（按调用点二级键）取路由动作。**orchestrator 亲自执行阶段 9 脚本时同样适用**——该路由表虽写在子 Agent 定义文件里，但它是全局权威表，自己跑脚本前必须先读它 |
+| 23 | **用管道/重定向吞掉门禁退出码**——`figure_gate.py ... \| tail -40; echo $?` 取到的是 `tail` 的退出码而非门禁本身；PowerShell 里 `if ($?) {...}` 判断的是布尔量不是原生 exe 的整数退出码 | bash 用 `if [ $? -ne 0 ]; then ...`；PowerShell 用 `if ($LASTEXITCODE -ne 0) { ... }`；已实证 `figure_gate.py` 对废图正确判定 `exit 1`，但吞码写法会让门禁失效仍交付废图——这是被实测证实的真实故障路径，不是假设风险 |
+| 24 | **画布内嵌图注**——在画布内绘制"图注：说明文字"或以 id 命名为 `note`/`caption`/`title`/`bottomNote` 等的文本节点直接承载图注/说明性文字（真实项目中曾实测命中三处：12-1 的 `bottomNote`、4-1 的 `note1`、4-2 的 `note2`，其中 2 处同时是画布溢出源） | 图注/说明文字统一写入报告正文的 Markdown 图题机制（由 docx 渲染层生成），画布 mxCell 只承载图的内容本体，不含图号/标题/图注文字；出图后应跑 `scripts/drawio_layout_validator.py` 的 G6 判据（`EMBEDDED_CAPTION`）核实无内嵌图注命中 |
+| 25 | **伪图冒充 / 拓扑与声明模式不符**——(a) 用 text box 在画布内嵌入 Mermaid 源码文本（含 `flowchart`/`graph TD`/`subgraph`/`-->` 等关键字）冒充架构图，这类"伪图"能通过文件存在性检查，但内容根本不是图形元素；(b) 出图时选定了某种布局模式（如 flow/star/grid），但实际画出的边集拓扑与该模式的结构性定义不符——如声明 flow 却存在多路分支重新汇合（真实案例：4-2 图的 s3 节点出度 3、三路预测汇合到 s4「Decision」节点入度 3；8-2「三流合一」图的 merge 节点入度 3，且该图幅面几何全绿——"模式选错但几何全绿"的失效模式在真实数据上被证实存在）、声明 star 却没有唯一且显著支配的中心节点、声明 grid/quadrant 却存在覆盖超过 N/3 顶点数的连通结构 | 出图前确认画布内容确实由真实的 drawio 图形元素（vertex/edge 类型的 mxCell）构成，禁止用文本框内嵌源码充数；选择 layout_mode 前用实际边集自查是否满足该模式的拓扑约束；`drawio_layout_validator.py` 的 G7（`FAKE_DIAGRAM`）与 G10a（`FLOW_RECONVERGENT`/`STAR_NO_UNIQUE_HUB` 等错误码）判据失败时，G7 允许重新出图，但**G10a 判据失败禁止靠"换个模式重跑"蒙混过关**（等于穷举绕过语义检查），必须如实转 `layout_mode: manual` 并按要求填写 `manual_reason` + `attempted_modes` |
 
 > **失败处置红线（闭集定义，D2-2）**——脚本或 Agent 失败时：
 >
@@ -267,7 +270,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 - `references/claims-ledger-template.csv` — 事实核验台账模板
 - `references/source-index-template.csv` — 来源索引模板
 - `references/red-team-checklist.md` — 红队审查详细清单
-- `references/writing-standards.md` — 写作标准详细说明与示例（含 23 条标准，标准 0-22）
+- `references/writing-standards.md` — 写作标准详细说明与示例（含 25 条标准，标准 0-24）
 - `references/architecture-analysis-guide.md` — 架构分析方法论详细指南
 - `references/研究报告格式规范.md` — **【权威】研究报告 Word 格式规范 V3.1**
 - `references/word-format-spec.md` — Word 文档格式规范（旧版 v1.0，已归档）

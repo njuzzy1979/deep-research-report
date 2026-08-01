@@ -72,6 +72,15 @@
             "what_triggers_block_hint": "逻辑词后的结论在前文找不到对应前提，或'显然/必然'用于本应有条件限定的推断"
         },
         {
+            "group": "表述",
+            "id": "negative_evidence_check",
+            "method": "全文搜索'未见/尚未见/尚无文献/未有研究/现有文献均未/无一……提出过'等消极性检索表述，逐处执行结论层级测试+删除测试（writing-standards.md 标准24）",
+            "severity": "mid",
+            "what_to_look_for_hint": "消极性检索表述紧邻的结论为描述性判断（'这是新的/此前未见提法'），或该结论同时有独立于文献空白之外的正面论证（理论内部机制自洽性/与已论证问题的呼应/局部证据支持）支撑",
+            "what_triggers_warn_hint": "消极性检索表述紧邻评价性结论，且该结论虽有其他支撑句但正面论证展开较薄弱",
+            "what_triggers_block_hint": "删除该消极性检索表述后，紧邻的评价性结论（'有贡献/是范式革命/具有理论价值'等）完全失去支撑——即消极性证据是该结论的唯一或核心论据"
+        },
+        {
             "group": "结构",
             "id": "conclusion_para",
             "method": "本章结论段 3-5 句",
@@ -83,9 +92,9 @@
         {
             "group": "结构",
             "id": "contribution_limitation",
-            "method": "对主论点贡献含 ≥1 句局限",
+            "method": "语义扫描本章最后一个正文小节的收尾段落是否含 ≥1 句可识别的局限说明，不要求独立成段或字面标签",
             "severity": "mid",
-            "what_to_look_for_hint": "本章对全文主论点的贡献表述后，紧跟 ≥1 句局限性说明",
+            "what_to_look_for_hint": "本章最后一个正文小节的收尾段落中，能读出作者承认了本章分析的某个边界/假设/未覆盖维度",
             "what_triggers_warn_hint": "局限性表述存在但泛化（如仅写'仍需进一步研究'），未指出具体边界",
             "what_triggers_block_hint": "本章完全没有局限性表述，只写正向结论"
         },
@@ -229,10 +238,10 @@
         {
             "group": "结构",
             "id": "chapter_transition",
-            "method": "检查章尾是否有>=2句本章小结与过渡引用块（非最后章）；检查同章内H3节间是否有>=1句内容承接过渡",
+            "method": "语义扫描章尾最后一个正文小节的收尾段落是否含>=2句内容层面的章间过渡（非最后章），不要求引用块字面标签；检查同章内H3节间是否有>=1句内容承接过渡",
             "severity": "mid",
-            "what_triggers_block_hint": "非最后章缺少章间过渡段，或同章内相邻H3节间无内容承接过渡句",
-            "what_to_look_for_hint": "非最后章末尾有 ≥2 句本章小结与下章过渡引用；同章内相邻 H3 节间有 ≥1 句内容承接过渡句",
+            "what_triggers_block_hint": "非最后章缺少章间过渡内容，或同章内相邻H3节间无内容承接过渡句",
+            "what_to_look_for_hint": "非最后章末尾的收尾段落中能读出 ≥2 句本章小结与下章过渡内容；同章内相邻 H3 节间有 ≥1 句内容承接过渡句",
             "what_triggers_warn_hint": "章末过渡句数为 1 句（少于建议的 2 句但非完全缺失）"
         },
         {
@@ -322,6 +331,7 @@
             "cd_source_qualifier",
             "no_vague_source",
             "logic_word",
+            "negative_evidence_check",
             "conclusion_para",
             "contribution_limitation",
             "structural_consistency",
