@@ -34,6 +34,7 @@ def test_all_13_items_present_in_result(tmp_path, monkeypatch):
     result = dcc.run_delivery_checklist(str(merged))
     expected_keys = {
         "01_term_consistency", "02_reference_format", "03_reference_dedup",
+        "03b_reference_completeness",
         "04_figure_numbering", "05_output_isolation_marker",
         "06_writer_selfclaim_stripped", "07_redteam_annotation_stripped",
         "08_word_count_residue", "09_local_bibliography", "10_xref_consistency",

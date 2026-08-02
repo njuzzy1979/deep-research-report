@@ -54,6 +54,10 @@ class HeadingKind(Enum):
     SECTION = "section"  # H3 → "X.Y"
     SUBSECTION = "subsection"  # H4 → "X.Y.Z"（样本 0 处，规范支持）
     APPENDIX = "appendix"  # "附录X：" H2 → 字母编号
+    REFERENCES = "references"  # "参考文献" H2 → Heading 1，无编号（报告级组成部分，
+    # 与附录同级但不参与字母编号；此前误复用 ABSTRACT 分类导致被渲染为
+    # Heading 2、落入"第X章"的子级——参考文献是与正文/附录并列的报告级
+    # 组成部分（研究报告格式规范.md "一、文档结构" 序号6），不应从属任何章）
     PLAIN = "plain"  # 段落小标题（不编号不入目录）
 
 

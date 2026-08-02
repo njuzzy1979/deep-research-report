@@ -120,6 +120,8 @@ structure:
 - `frontmatter`：前置件区。H1（MAIN_TITLE）后的 H2/H3 归入此区，**不编号**。前置件区的 `section_no` 填空字符串
 - `bodymatter`：正文区。每个元素是一个完整章，`chapter_no` 为章序号。`sections` 按文档序排列，每项为 `{section_no, section_title}` 结构化对象——**编号是元数据（`section_no`），不是标题文本的一部分**。`subsections` 通过 `parent_section_no` 字段关联所属节，每项为 `{parent_section_no, subsection_no, subsection_title}` 结构化对象
 - `appendix`：附录区。`appendix_letter` 为字母标识（A/B/C…），顺序即为文档序
+
+> **参考文献节的特殊地位**：合并终稿中的 `## 参考文献` 一节由阶段9 `convert_references.py`/`finalize_pipeline.py` 自动生成并注入（插入于最后一个正文章节之后、附录之前），**不需要、也不应该**在本 YAML 结构清单中声明——它与 `merge_drafts.assemble_merged()` 生成的章容器 `## 第X章：` 同属"管道自身产出的结构性标记"，会被 `md2docx` 的 `FRONT_BACK_WORDS` 白名单自动识别为前置/后置件（渲染为 Word Heading 2 样式，不参与"第X章"编号），无需 `outline.md` 结构清单覆盖介入。
 - `figures_manifest`（**可选，阶段4产出**）：机器可读的图表规划清单。若报告超过 3 个核心架构图则**强烈建议**产出此字段，作为阶段6/7/9各方的图表清单权威来源。与 `structure` 同级，包含三个子清单（见下方完整 YAML 示例和字段 schema）
 - **"精确一致"约束**：YAML 中的 `section_title` / `subsection_title` 文本须与 Writer 分章文件中实际出现的 H3/H4 heading 文本**精确一致**（含标点、空格）。注意：是 `section_title` 与 heading 文本一致——`section_no` 是编号元数据，用于转换器编号和 `finalizer_agent` 结构驱动合并，Writer 不将其写入标题
 

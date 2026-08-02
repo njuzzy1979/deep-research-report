@@ -9,7 +9,7 @@
   B: 逐文件清洗（6 步规则：剥离Agent标记→字数残留→局部参考文献→爬虫标记→粗体伪标题→SRC残留）
   C: 单文件合约校验（C2/C6/C7/C8）
   D: 结构驱动拼接（按章插入 H2 章容器）
-  F: 引用转换（convert_references.py --in-place，对合并后 final-report.md 原地执行 SRC→[N]）
+  F: 引用转换（convert_references.py --in-place，对合并后 final-report.md 原地执行 SRC→[N] 转换 + 生成并注入统一参考文献节）
   E: 合并后终检（contract_check --merged --stage stage9，在转换后的文件上检查）
 
 用法：
@@ -401,7 +401,11 @@ def run_merged_check(merged_path: str, script_dir: str) -> bool:
 # ── 阶段 F：参考文献统一 ──────────────────────────────────
 
 def run_convert_references(file_path: str, source_index: str, script_dir: str) -> bool:
-    """运行 convert_references.py --in-place 对单个文件原地做 SRC→[N] 转换。"""
+    """运行 convert_references.py --in-place 对单个文件原地做 SRC→[N] 转换。
+
+    该 CLI 现同时完成参考文献节的生成与合并注入（见 convert_references.py
+    的 generate_bibliography()/insert_bibliography_before_appendix()），本
+    函数本身无需改动——subprocess 调用的下游脚本升级后自动继承新行为。"""
     convert_script = os.path.join(script_dir, "convert_references.py")
     drafts_dir = os.path.dirname(file_path)
     print(f"\n[阶段 F] 引用转换（原地）: {os.path.basename(file_path)}")

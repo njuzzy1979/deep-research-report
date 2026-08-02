@@ -35,6 +35,7 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.CHAPTER: 1,
     HeadingKind.APPENDIX: 1,
     HeadingKind.MAIN_TITLE: 1,
+    HeadingKind.REFERENCES: 1,  # 报告级组成部分，与 CHAPTER/APPENDIX 同级
     HeadingKind.SECTION: 2,
     HeadingKind.ABSTRACT: 2,
     # FRONT_MATTER（前言/导论区的无编号标题，§C.3 R-FM）：默认 Heading 2，
@@ -55,6 +56,9 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
 # 显式覆盖，否则会被样式级的默认编号"污染"：
 #   - APPENDIX 复用 Heading 1（与 CHAPTER 同级），须覆盖为独立的附录字母列表
 #   - MAIN_TITLE 复用 Heading 1，不应显示章节编号 → 覆盖为关闭编号（numId=0）
+#   - REFERENCES 复用 Heading 1（与 CHAPTER 同级），不应显示"第X章"编号，
+#     也不像 APPENDIX 那样需要字母编号（参考文献全篇只有一节）→ 覆盖为
+#     关闭编号（numId=0），与 MAIN_TITLE 同款处理
 #   - ABSTRACT 复用 Heading 2（与 SECTION 同级），不应显示
 #     "X.Y" 节编号 → 覆盖为关闭编号（numId=0）
 #   - FRONT_MATTER 复用 Heading 2/3/4（取决于 markdown_level），
@@ -65,6 +69,7 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
 _NUMPR_OVERRIDE: dict[HeadingKind, tuple[int, int]] = {
     HeadingKind.APPENDIX: (0, _numbering.APPENDIX_NUM_ID),
     HeadingKind.MAIN_TITLE: (0, _numbering.NO_NUMBERING_ID),
+    HeadingKind.REFERENCES: (0, _numbering.NO_NUMBERING_ID),
     HeadingKind.ABSTRACT: (1, _numbering.NO_NUMBERING_ID),
     # FRONT_MATTER 不在本表中 —— 其 numPr 由 render_heading() 根据
     # heading.markdown_level 动态计算 ilvl，再统一设置 numId=NO_NUMBERING_ID。

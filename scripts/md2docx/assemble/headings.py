@@ -24,6 +24,7 @@ from ..config import (
     N_05_CHAPTER_DUNHAO,
     N_06_CHAPTER_CN_DUNHAO,
     N_07_APPENDIX,
+    N_08_REFERENCES,
 )
 from ..ir import HeadingIR, HeadingKind, HeadingNumber
 from ..issues import Issue, IssueCollector, Level
@@ -49,6 +50,7 @@ _RE_N04 = re.compile(N_04_SECTION)
 _RE_N05 = re.compile(N_05_CHAPTER_DUNHAO)
 _RE_N06 = re.compile(N_06_CHAPTER_CN_DUNHAO)
 _RE_N07 = re.compile(N_07_APPENDIX)
+_RE_N08 = re.compile(N_08_REFERENCES)
 _RE_M6_H3 = re.compile(M6_H3_SINGLE_LEVEL)
 _RE_M6_H4 = re.compile(M6_H4_TWO_LEVEL)
 
@@ -902,6 +904,22 @@ def classify_and_number(
 
         # -- H2 --
         if h.level == 2:
+            # 优先0：参考文献精确匹配（须先于 _is_front_back 判定——"参考文献"
+            # 已从 FRONT_BACK_WORDS 白名单移除，改走独立分类，渲染为 Heading 1
+            # 且不参与"第X章"编号，与附录同级但无字母编号，见 ir.py
+            # HeadingKind.REFERENCES 的完整论证）。
+            if _RE_N08.match(raw):
+                rows.append({
+                    "kind": HeadingKind.REFERENCES,
+                    "raw_text": raw,
+                    "text": raw.rstrip("：:").strip(),
+                    "source_line": line,
+                    "orig_num": None,
+                    "orig_letter": None,
+                    "markdown_level": h.level,
+                })
+                continue
+
             # 优先1：前后置件关键词匹配
             if _is_front_back(raw):
                 kind = HeadingKind.ABSTRACT

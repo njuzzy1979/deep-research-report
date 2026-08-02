@@ -132,6 +132,19 @@ def build_skeleton_markdown(structure: dict, report_title: str) -> tuple:
             lines += [f"### {s_title}", "", SECTION_PLACEHOLDER, ""]
             section_total += 1
 
+    # 参考文献节：不读取 outline.md 的 YAML structure（该节按 stage-4-outline.md
+    # 的既定说明，不应、也不需要在 YAML 结构清单中声明——它是阶段9
+    # convert_references.py/finalize_pipeline.py 自动生成并插入的管道产物，
+    # 而非作者内容条目）。此处仅为骨架预览提供可视化占位，位置与真实管道
+    # 插入位置严格对齐：最后一章之后、附录之前。
+    lines += [
+        "## 参考文献",
+        "",
+        "> （本节由阶段9 convert_references.py/finalize_pipeline.py 自动生成并"
+        "插入统一参考文献列表，无需在 outline.md 中声明或在阶段7手动撰写）",
+        "",
+    ]
+
     for apx in tree.get("appendix", []) or []:
         letter = str(apx.get("appendix_letter") or "").strip()
         a_title = str(apx.get("appendix_title") or "").strip()

@@ -214,7 +214,7 @@ def format_gbt7714(source: dict, num: int) -> str:
 
 def generate_bibliography(num_to_src: dict, source_index: dict, missing: set) -> str:
     """生成 GB/T 7714-2015 格式的参考文献列表 Markdown 文本。"""
-    lines = ["# 参考文献", "", "> 按首次出现顺序排列，格式遵循 GB/T 7714-2015。", ""]
+    lines = ["## 参考文献", "", "> 按首次出现顺序排列，格式遵循 GB/T 7714-2015。", ""]
     warn_lines = []
 
     for num, sid in num_to_src.items():
@@ -230,12 +230,43 @@ def generate_bibliography(num_to_src: dict, source_index: dict, missing: set) ->
     if warn_lines:
         lines.append("---")
         lines.append("")
-        lines.append("## 元数据缺失的来源（需手动补充）")
+        lines.append("### 元数据缺失的来源（需手动补充）")
         lines.append("")
         lines.extend(warn_lines)
         lines.append("")
 
     return "\n".join(lines)
+
+
+# 附录边界定位：与 md2docx/config.py::N_07_APPENDIX 的宽松度对齐（允许"附录"
+# 与后续编号/标题之间存在空白），避免出现"手写附录标题带空格时被静默判定
+# 为无附录、参考文献误插入文末"这一不一致（design-auditor 复审要求）。
+_RE_APPENDIX_MARKER = re.compile(r"^##\s+附录", re.MULTILINE)
+
+
+def insert_bibliography_before_appendix(text: str, bib_text: str) -> tuple:
+    """把参考文献节插入到"最后一个正文章节之后、附录标题之前"（GB/T 7714 §8 位置要求）。
+
+    未找到附录标记时插入到文档末尾。单一实现，供 finalize_pipeline.py（函数级
+    import）与本模块 main() 的 --in-place 分支（服务于 merge_drafts.py 阶段F）
+    共同复用，避免两条路径各自实现导致漂移。
+
+    Args:
+        text: 待插入的合并后正文（此时应已完成 [SRC-XXX]→[N] 替换）。
+        bib_text: generate_bibliography() 产出的参考文献列表文本（含 "## 参考文献" H2 标题）。
+
+    Returns:
+        (new_text, position)，position ∈ {"before_appendix", "end_of_document"}。
+    """
+    section = bib_text.strip("\n") + "\n\n"
+    m = _RE_APPENDIX_MARKER.search(text)
+    if m is None:
+        new_text = text.rstrip("\n") + "\n\n" + section
+        return new_text, "end_of_document"
+    insert_at = m.start()
+    before = text[:insert_at].rstrip("\n") + "\n\n"
+    after = text[insert_at:]
+    return before + section + after, "before_appendix"
 
 
 def has_any_src_refs(drafts_dir: str) -> bool:
@@ -329,24 +360,32 @@ def main():
         print(f"[WARN] {len(missing)} 个来源在 source-index.csv 中未找到: {sorted(missing)}")
         print(f"       这些来源仍分配了编号，但参考文献条目需手动补充。")
 
-    # 7. 替换引用
+    # 7. 生成参考文献列表文本（必须先于第8步的替换/插入执行——insert_bibliography_
+    #    before_appendix() 需要同时拿到"待插入正文"和"bib_text"两个参数；此前若把
+    #    该生成动作放在替换之后会导致 --in-place 分支在插入时 bib_text 尚未产出）
+    bib_text = generate_bibliography(num_to_src, source_index, missing)
+    bib_path = os.path.join(output_dir, "bibliography.md")
+    if not args.dry_run:
+        # 独立存档：供人工核查，即便后续插入步骤失败也保留诊断依据
+        with open(bib_path, "w", encoding="utf-8") as f:
+            f.write(bib_text)
+        print(f"[OK] 参考文献列表已生成: {bib_path}")
+
+    # 8. 替换引用 + （in-place 模式下）插入参考文献节
     if not args.dry_run:
         if args.in_place:
-            # in-place 模式：只转换指定文件
-            replace_refs_in_file(args.in_place, src_to_num, in_place=True)
+            # in-place 模式：只转换指定文件，随后把参考文献节插入到该文件中
+            # （最后一个正文章节之后、附录之前；无附录则文末）
+            replaced_text = replace_refs_in_file(args.in_place, src_to_num, in_place=True)
+            inserted_text, insert_pos = insert_bibliography_before_appendix(replaced_text, bib_text)
+            with open(args.in_place, "w", encoding="utf-8") as f:
+                f.write(inserted_text)
             print(f"[OK] 已原地转换: {os.path.basename(args.in_place)}（备份: {os.path.basename(args.in_place)}.bak）")
+            print(f"[OK] 参考文献节已插入（位置：{insert_pos}）")
         else:
             for fp, _ in refs_by_file:
                 replace_refs_in_file(fp, src_to_num)
                 print(f"[OK] 已转换: {os.path.basename(fp)}")
-
-    # 8. 生成参考文献
-    bib_path = os.path.join(output_dir, "bibliography.md")
-    bib_text = generate_bibliography(num_to_src, source_index, missing)
-    if not args.dry_run:
-        with open(bib_path, "w", encoding="utf-8") as f:
-            f.write(bib_text)
-        print(f"[OK] 参考文献列表已生成: {bib_path}")
 
     # 9. 转换报告
     print()

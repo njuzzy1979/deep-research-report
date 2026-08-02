@@ -123,8 +123,36 @@ WORD_COUNT_RESIDUE_PATTERNS = {
 }
 
 # C9: 局部参考文献节
+# stage7 分章草稿 / 非 merged 场景专用：分章文件中"参考文献"标题（H2/H3，
+# 任意后缀）一律不应出现，0 容忍——合规的全局参考文献节只应在 stage9
+# finalize 阶段由流水线统一插入。
 LOCAL_BIBLIOGRAPHY_PATTERN = re.compile(
     r"^#{2,3}\s+参考文献", re.MULTILINE
+)
+
+# 【仅 stage9+merged 分支使用】三个正则协同工作，任何一个都不单独参与判定，
+# 必须在 check_contract() 内按判定表组合裁决（design-auditor 终审 Critical
+# 修正：不得对 H2 候选做末尾锚定，否则"## 参考文献列表"这类变体后缀标题会
+# 完全绕过检测——见判定表与 check_contract() 内的组合逻辑）。
+
+# (a) H2 前缀族：圈定所有以"参考文献"开头的 H2 标题候选集合（不论后缀/是否
+#     精确），仅用于统计候选总数，本身不是 pass/fail 依据。
+PIPELINE_BIBLIOGRAPHY_H2_PREFIX_PATTERN = re.compile(
+    r"^##\s+参考文献.*$", re.MULTILINE
+)
+
+# (b) H2 精确形式：generate_bibliography() 固定产出的标题形态（"参考文献"后
+#     仅允许可选中/英文冒号，行尾无其他文字）——"是流水线自己插入的那一个"
+#     的唯一可识别指纹。
+PIPELINE_BIBLIOGRAPHY_H2_EXACT_PATTERN = re.compile(
+    r"^##\s+参考文献\s*[:：]?\s*$", re.MULTILINE
+)
+
+# (c) H3-H6 前缀族：任何级别 H3 及以下的"参考文献"标题，不要求精确匹配——
+#     流水线不产出 H3+ 级别的参考文献节，出现即是局部残留的直接证据，无
+#     条件判负，优先级高于 H2 计数判定。
+PIPELINE_BIBLIOGRAPHY_H3PLUS_PATTERN = re.compile(
+    r"^#{3,6}\s+参考文献", re.MULTILINE
 )
 
 # C10（F7）: 信源分级前缀泄露（如 "[A] xxx"、"[C] xxx" 独占行首的分级标注）
@@ -294,8 +322,47 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     c8_pass = True  # WARN only，不阻断
 
     # C9: 局部参考文献节
-    c9_hits_paragraphs = LOCAL_BIBLIOGRAPHY_PATTERN.findall(clean)
-    c9_pass = len(c9_hits_paragraphs) == 0
+    if merged and stage == "stage9":
+        # --- stage9 + merged 专属分支：区分"流水线自己插入的合规参考文献节"
+        # 与"别处残留的局部/变体参考文献节"（design-auditor 终审 Critical 修
+        # 正后的判定表）：
+        #   0 处                        → pass（合法退化，可能确无引用，交
+        #                                  delivery_checklist 03b 进一步消歧）
+        #   1 处且为精确形式             → pass（流水线插入的那一个）
+        #   1 处但非精确形式（变体后缀） → fail（格式不确定的孤例不予放行）
+        #   ≥2 处（无论精确/变体组合）   → fail（重复插入或局部残留混存）
+        #   任意 H3-H6 命中              → fail（无条件，优先级最高，不因 H2
+        #                                  层面合规而被抵消）
+        h2_all_hits = PIPELINE_BIBLIOGRAPHY_H2_PREFIX_PATTERN.findall(clean)
+        h2_exact_hits = PIPELINE_BIBLIOGRAPHY_H2_EXACT_PATTERN.findall(clean)
+        h3plus_hits = PIPELINE_BIBLIOGRAPHY_H3PLUS_PATTERN.findall(clean)
+
+        h2_total = len(h2_all_hits)
+        h2_exact_total = len(h2_exact_hits)
+        h2_variant_total = h2_total - h2_exact_total
+
+        if h3plus_hits:
+            c9_pass = False
+        elif h2_total == 0:
+            c9_pass = True
+        elif h2_total == 1 and h2_exact_total == 1:
+            c9_pass = True
+        else:
+            # h2_total == 1 且非精确形式，或 h2_total >= 2（含全精确重复场景）
+            c9_pass = False
+
+        c9_hits_paragraphs = h2_all_hits + h3plus_hits
+        c9_extra_fields = {
+            "h2_total": h2_total,
+            "h2_exact_total": h2_exact_total,
+            "h2_variant_total": h2_variant_total,
+            "h3plus_total": len(h3plus_hits),
+        }
+    else:
+        # stage7 分章草稿 / 非 merged 场景：语义不变，沿用旧版前缀匹配、0 容忍
+        c9_hits_paragraphs = LOCAL_BIBLIOGRAPHY_PATTERN.findall(clean)
+        c9_pass = len(c9_hits_paragraphs) == 0
+        c9_extra_fields = {}
 
     # C10（F7）: 信源分级前缀泄露 —— 跨模型兼容性优化方案 §二 A3。
     # 第一阶段非阻塞（审查层 High-3 修订）：severity="mid"，pass 恒为 True，
@@ -331,7 +398,7 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C7_src_residue": {"hits": c7_hits, "count": c7_count, "pass": c7_pass, "severity": c7_severity},
             "C8_word_count_residue": {"hits": c8_hits, "pass": c8_pass, "severity": "low"},
             "C9_local_bibliography": {"hits": c9_hits_paragraphs, "count": len(c9_hits_paragraphs),
-                                       "pass": c9_pass, "severity": "high"},
+                                       "pass": c9_pass, "severity": "high", **c9_extra_fields},
             "C10_source_tier_prefix": {"hits": c10_hits, "count": len(c10_hits),
                                         "pass": c10_pass, "severity": "mid"},
             "C11_claim_id_leak": {"hits": c11_hits, "count": len(c11_hits),
@@ -469,7 +536,15 @@ def format_text_report(r: dict) -> str:
     lines.append(f"{c8_mark} C8 字数统计残留: {'无' if not c8['hits'] else c8['hits']}")
 
     c9 = c["C9_local_bibliography"]
-    lines.append(f"{mark(c9['pass'])} C9 局部参考文献节: {c9['count']} 处 (应为 0)")
+    if "h2_total" in c9:
+        lines.append(
+            f"{mark(c9['pass'])} C9 局部参考文献节(stage9+merged专属判定): "
+            f"H2精确={c9.get('h2_exact_total', 0)} "
+            f"H2变体={c9.get('h2_variant_total', 0)} "
+            f"H3+残留={c9.get('h3plus_total', 0)}"
+        )
+    else:
+        lines.append(f"{mark(c9['pass'])} C9 局部参考文献节: {c9['count']} 处 (应为 0)")
 
     # C10/C11（跨模型兼容性优化方案 §二 A3）：第一阶段非阻塞，pass 恒为 True，
     # 仅计数展示——不用 mark()（会恒显示 OK），改用中性标记区分"有命中但不阻断"。

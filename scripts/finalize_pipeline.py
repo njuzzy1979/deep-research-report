@@ -575,7 +575,7 @@ def run_finalize_pipeline(
         from convert_references import (
             load_source_index, scan_drafts, find_slash_refs_in_file,
             find_all_refs_in_file, build_numbering, replace_refs_in_file,
-            generate_bibliography,
+            generate_bibliography, insert_bibliography_before_appendix,
         )
     except ImportError as e:
         return _finish("convert_refs", f"convert_references 模块不可用（import 失败）: {e}")
@@ -616,19 +616,51 @@ def run_finalize_pipeline(
 
         if refs_by_file:
             src_to_num, num_to_src, missing = build_numbering(refs_by_file, source_index)
-            replace_refs_in_file(work_path, src_to_num, in_place=True)
+
+            # 1) 替换正文中的 [SRC-XXX]→[N]，取返回的替换后文本（避免重复读盘）
+            replaced_text = replace_refs_in_file(work_path, src_to_num, in_place=True)
+
+            # 2) 生成参考文献列表文本（generate_bibliography 已产出 H2 "## 参考文献"）
             bib_text = generate_bibliography(num_to_src, source_index, missing)
+
+            # 2.5) 防御性检查：只对 bib_text 这一段新增子串做 H1→H2 兜底，绝不对
+            #      已合并的全文 replaced_text 重跑该扫描——replaced_text 中已确立
+            #      "恰好一个合法 H1（报告主标题）"这一不变量（步骤3产出），若对
+            #      整篇文本裸调用 _replace_h1_with_h2 会把主标题一并误判为需要
+            #      降级的行，静默破坏这一不变量且现有 C1/verify_docx 检查均无法
+            #      捕获（design-auditor 终审 Critical 发现）。只扫描新增的 bib_text
+            #      片段，从作用域上排除了这一风险。
+            bib_text, bib_h1_fix_count = _replace_h1_with_h2(bib_text)
+
+            # 3) 独立存档：bibliography.md 供人工核查/调试；在插入到 work_path 之前
+            #    先写盘，即便后续插入/写回步骤失败，也保留失败诊断依据（不依赖
+            #    后续步骤成功）。语义为"审阅存档"，不是下游需要读取合并的中间产物。
             bib_path = os.path.join(str(Path(output_path).parent), "bibliography.md")
             Path(bib_path).write_text(bib_text, encoding="utf-8")
+
+            # 4) 定位并插入（最后一章之后、附录之前；无附录则文末）
+            inserted_text, insert_pos = insert_bibliography_before_appendix(replaced_text, bib_text)
+
+            # 5) 写回 work_path
+            Path(work_path).write_text(inserted_text, encoding="utf-8")
+
             convert_detail = {
                 "unique_sources": len(src_to_num),
                 "missing_sources": sorted(missing),
                 "bibliography_path": bib_path,
+                "bibliography_note": (
+                    "该文件为参考文献审阅存档；正式参考文献节已内嵌入合并终稿"
+                    "（插入位置见 bibliography_insert_position）"
+                ),
+                "bibliography_inserted": True,
+                "bibliography_insert_position": insert_pos,
+                "bibliography_h1_defensive_fix_count": bib_h1_fix_count,
             }
         else:
             convert_detail = {
                 "unique_sources": 0, "missing_sources": [], "bibliography_path": None,
                 "note": "未检测到 [SRC-XXX] 引用，跳过转换（已是纯数字引用或无可转换引用）",
+                "bibliography_inserted": False,
             }
     except Exception as e:  # noqa: BLE001
         return _finish("convert_refs", f"引用转换执行异常: {e}")

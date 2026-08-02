@@ -13,9 +13,11 @@
   10 项可脚本化：
     01 术语一致性                  —— term_consistency_check.run_check()
     02 引用格式 + 无分级前缀        —— contract_check C6 + C10
-    03 参考文献去重与一一对应       —— convert_references.has_any_src_refs()
+    03 参考文献去重与一一对应       —— 对合并终稿正文做 SRC_REF_PATTERN 存在性检测
        （代理指标：合并终稿中不再残留 [SRC-XXX]，说明 convert_references.py
-        的 OrderedDict 去重转换已完成；本项不重新实现去重算法）
+        的 OrderedDict 去重转换已完成；本项不重新实现去重算法。只检测合并
+        终稿本身，不检测原始分章草稿目录——原始分章文件按设计永远不会被
+        回写转换结果，检测它等于检测一个恒定包含 [SRC-XXX] 的目录）
     04 图表编号统一                —— figure_gate.run_figure_gate() + C3/C4
     05 输出隔离标记剥离             —— contract_check C5（含 F1 标记残留）
     06 写作者自声明剥离             —— 本地正则（与 clean.py R-12 逐字一致）
@@ -24,6 +26,12 @@
     09 局部参考文献                —— contract_check C9
     10 交叉引用一致（部分）         —— 本地正则（与 paragraphs.py _RE_XREF 逐字
        一致），仅做存在性/格式校验，语义指对与否仍需人工抽查（方案原文）
+
+  03 的配套项（新增，非原 13 项之一，紧邻 03 之后）：
+    03b 参考文献一一对应完整性     —— 正文唯一 [N] 引用编号集合与参考文献
+       条目编号集合的完整性比对（存在性/编号断裂/孤儿条目），不依赖
+       source-index.csv。与 03 职责边界：03 只做"[SRC-XXX] 残留"代理指标，
+       03b 做"参考文献章节是否存在 + 编号是否一一对应"的实质性检测
 
   2 项不可脚本化（显式标记为 manual_required，**不能**静默跳过或标记为 pass）：
     11 红队风险清单处理确认         —— 需人工核对 research/redteam-resolution-diff.md
@@ -35,7 +43,8 @@
 
 关键实现约束（三处 sys.exit 陷阱，均已规避——见方案调研结论）：
   - `convert_references.load_source_index()` 在 CSV 缺失/格式错误时直接
-    `sys.exit(2)`——本脚本改用不会 sys.exit 的 `has_any_src_refs()`。
+    `sys.exit(2)`——本脚本不调用该函数（03 直接对 merged_text 做正则检测，
+    不读 source-index.csv）。
   - `term_consistency_check.run_check()` 本身无 sys.exit 但也无 try/except
     包裹内部调用——本脚本调用时自行包裹 try/except。
   - `figure_gate.py` 顶部对 PIL/PyYAML 的 import 失败会在**模块导入阶段**
@@ -94,13 +103,13 @@ try:
 except ImportError:
     _term_run_check = None
 
-# 用 has_any_src_refs() 代替 load_source_index()，避开后者 CSV 缺失时的
-# sys.exit(2) 陷阱（见模块 docstring）。
+# SRC_REF_PATTERN / PURE_NUM_REF_PATTERN 复用 convert_references.py 的定义，
+# 避免两处正则各自演进产生漂移（03 的存在性检测 + 03b 的编号拆解均依赖）。
 try:
-    from convert_references import has_any_src_refs, SRC_REF_PATTERN
+    from convert_references import SRC_REF_PATTERN, PURE_NUM_REF_PATTERN
 except ImportError:
-    has_any_src_refs = None
     SRC_REF_PATTERN = re.compile(r"\[SRC-\d+(?:\s*,\s*SRC-\d+)*\]")
+    PURE_NUM_REF_PATTERN = re.compile(r"\[\d+(?:\s*,\s*\d+)*\]")
 
 # 降级台账汇总（第 13 项，方案 §D1 "G(交付)" 行）。
 try:
@@ -144,6 +153,19 @@ RE_XREF = re.compile(r"(图|表)(\d{1,2})-(\d{1,2})")
 FIGURE_CAPTION_PATTERN = re.compile(r"!\[图\s*(\d{1,2}-\d{1,2})")
 TABLE_CAPTION_PATTERN = re.compile(r"\*\*表\s*(\d{1,2}-\d{1,2})")
 
+# 03b 专用：参考文献章节标题定位 —— 支持 H1/H2/H3（{1,3}），同时覆盖
+# generate_bibliography() 修复前的 H1 现状与修复后的 H2 目标形态，避免
+# 03b 的章节定位依赖另一处改动是否已落地（interface-designer 回炉结论：
+# 两处改动互不阻塞，03b 不应把正则收窄为只匹配 H2）。要求标题独占一行、
+# 标题文本恰为"参考文献"（允许尾随空白），不匹配正文中出现"参考文献"
+# 字样的普通段落（如"详见参考文献列表"这类非标题行）。
+RX_BIBLIOGRAPHY_HEADING = re.compile(r"^#{1,3}\s+参考文献\s*$", re.MULTILINE)
+
+# 03b 专用：参考文献条目行首编号提取 —— 条目侧编号恒为单个整数
+# （generate_bibliography() 的 format_gbt7714() 每条固定 f"[{num}]" 单编号
+# 开头，不存在合并编号写法），逐行匹配即可，不需要逗号拆分。
+RX_ENTRY_LINE_LENIENT = re.compile(r"^\[(\d+)\]")
+
 
 # ---------------------------------------------------------------------------
 # 10 项可脚本化检查
@@ -164,18 +186,94 @@ def check_term_consistency(merged_file: str, glossary_path: Optional[str]) -> di
 
 
 def check_reference_dedup(merged_text: str, drafts_dir: Optional[str]) -> dict:
-    """03 参考文献去重与一一对应 —— 代理指标：合并终稿（或分章草稿目录）中
-    不再残留 [SRC-XXX] 引用，说明 convert_references.py 的去重转换已完成。
-    优先用 has_any_src_refs(drafts_dir)（若提供），否则直接对合并文本做
-    SRC_REF_PATTERN 存在性检测——两者均不触碰 load_source_index() 的
-    sys.exit(2) 陷阱。"""
-    if drafts_dir and has_any_src_refs is not None and Path(drafts_dir).is_dir():
-        found = has_any_src_refs(drafts_dir)
-        source = "drafts_dir"
-    else:
-        found = bool(SRC_REF_PATTERN.search(merged_text))
-        source = "merged_text"
-    return {"status": "fail" if found else "pass", "src_residue_found": found, "checked": source}
+    """03 参考文献去重与一一对应 —— 代理指标：合并终稿中不再残留 [SRC-XXX]
+    引用，说明 convert_references.py 的去重转换已完成。
+
+    只检测 merged_text（合并终稿），不检测 drafts_dir（原始分章草稿目录）。
+    ``drafts_dir`` 参数保留仅为向后兼容调用方签名，本函数不再读取它——
+    原始分章文件按设计**永远不会**被回写转换结果（merge_drafts.py::
+    clean_draft() B6 注释："在 merge 阶段暂时保留 SRC，由 convert_references.py
+    在阶段 F 统一处理"；finalize_pipeline.py 步骤4 同样只对 work_path 合并
+    副本做 [SRC-XXX]→[N] 替换，不回写 drafts_dir）。检测 drafts_dir 等于
+    检测一个按设计恒定包含 [SRC-XXX] 的目录，会让任何含真实引用的报告在
+    本项上恒定判负，与"引用转换是否已完成"这一本项真实意图无关——这不是
+    边界情形，是此前实现的根本性检测对象错误，已修复。"""
+    found = bool(SRC_REF_PATTERN.search(merged_text))
+    return {"status": "fail" if found else "pass", "src_residue_found": found, "checked": "merged_text"}
+
+
+def check_reference_completeness(text: str) -> dict:
+    """03b 参考文献一一对应完整性 —— 正文唯一 [N] 引用编号集合 与 参考文献
+    条目编号集合 的完整性比对，不依赖 source-index.csv（两个集合都直接从
+    merged_file 文本本身抽取）。
+
+    与 03（check_reference_dedup）的职责边界：03 是"正文 [SRC-XXX] 残留"
+    的代理指标；03b 是"参考文献章节是否存在 + 编号是否一一对应"的实质性
+    检测，二者互补，不重叠。
+
+    拆解算法（interface-designer 回炉核实）：正文侧用 PURE_NUM_REF_PATTERN
+    先定位每个完整的 [...] 块，再对块内容用 \\d+ 提取所有数字子串——这一手法
+    与 convert_references.py::extract_src_ids() 同构（外层定位块+内层提取
+    数字子串），能正确处理 [2, 4] 这类合并引用，不会把整个复合字符串当作
+    不可分割元素。显式采用 convert_references.py 的宽松版本 PURE_NUM_REF_
+    PATTERN（逗号前后均允许空格），不采用 contract_check.py 的窄版本
+    （不接受逗号前有空格的 [1 ,3] 变体），避免技术债传导产生假阳性。
+    """
+    bib_match = RX_BIBLIOGRAPHY_HEADING.search(text)
+    if bib_match is None:
+        # 消歧：区分"本来就无引用的合法报告"（如纯叙事类无需引用）与"该注入
+        # 参考文献节但漏注入"（bug 场景）——用同一个 PURE_NUM_REF_PATTERN 检
+        # 查全文是否存在任何 [N] 引用，低成本消歧，不需要新依赖。
+        if not PURE_NUM_REF_PATTERN.search(text):
+            return {
+                "status": "pass",
+                "reason": "全文无 [N] 引用，无需参考文献节，判定合规",
+            }
+        return {
+            "status": "fail",
+            "reason": (
+                "全文存在 [N] 引用，但未找到参考文献章节标题（支持 H1/H2/H3，"
+                "需独占一行）——说明参考文献节本应生成却未被正确插入，需检查"
+                "convert_refs 步骤的插入逻辑"
+            ),
+        }
+    body_text = text[: bib_match.start()]
+    bib_section_text = text[bib_match.end():]
+
+    body_ref_numbers: set = set()
+    for m in PURE_NUM_REF_PATTERN.finditer(body_text):
+        for num_str in re.findall(r"\d+", m.group(0)):
+            body_ref_numbers.add(int(num_str))
+
+    entry_numbers = []
+    for line in bib_section_text.split("\n"):
+        m = RX_ENTRY_LINE_LENIENT.match(line.strip())
+        if m is None:
+            continue
+        entry_numbers.append(int(m.group(1)))
+    entry_number_set = set(entry_numbers)
+
+    missing_in_bibliography = sorted(body_ref_numbers - entry_number_set)
+    orphan_entries = sorted(entry_number_set - body_ref_numbers)
+    duplicate_entry_numbers = sorted({n for n in entry_numbers if entry_numbers.count(n) > 1})
+
+    issues = []
+    if missing_in_bibliography:
+        issues.append(f"编号断裂：正文引用了 {missing_in_bibliography} 但参考文献列表中无对应条目")
+    if orphan_entries:
+        issues.append(f"孤儿条目：参考文献列表存在 {orphan_entries} 但正文从未引用")
+    if duplicate_entry_numbers:
+        issues.append(f"重复编号：参考文献列表中编号 {duplicate_entry_numbers} 重复出现")
+
+    return {
+        "status": "fail" if issues else "pass",
+        "body_ref_numbers": sorted(body_ref_numbers),
+        "entry_numbers": sorted(entry_number_set),
+        "missing_in_bibliography": missing_in_bibliography,
+        "orphan_entries": orphan_entries,
+        "duplicate_entry_numbers": duplicate_entry_numbers,
+        "issues": issues,
+    }
 
 
 def check_figure_numbering(
@@ -340,6 +438,7 @@ def run_delivery_checklist(
     }
 
     items["03_reference_dedup"] = check_reference_dedup(text, drafts_dir)
+    items["03b_reference_completeness"] = check_reference_completeness(text)
     items["04_figure_numbering"] = check_figure_numbering(contract_result, outline_path, figures_dir)
 
     items["05_output_isolation_marker"] = {

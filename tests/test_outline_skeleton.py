@@ -111,13 +111,22 @@ def test_placeholder_line_present_under_each_section(tmp_path):
 
 
 def test_no_body_text_beyond_placeholders(tmp_path):
-    """骨架**不写任何正文**——只有标题与占位行。"""
+    """骨架**不写任何正文**——只有标题与占位行。
+
+    参考文献节的说明行是一处刻意的例外：它不是 SECTION_PLACEHOLDER 常量
+    （因为内容不同——说明该节由阶段9自动生成，而非"待阶段7填充"），但同样
+    是引用块占位说明而非正文，故单独放行。
+    """
     from md2docx.assemble.outline_reader import extract_yaml_front_matter
     parsed, _ = extract_yaml_front_matter(_GOOD)
     text, _stats = sk.build_skeleton_markdown(parsed["structure"], "T")
+    references_note_line = (
+        "> （本节由阶段9 convert_references.py/finalize_pipeline.py "
+        "自动生成并插入统一参考文献列表，无需在 outline.md 中声明或在阶段7手动撰写）"
+    )
     for line in text.split("\n"):
         s = line.strip()
-        if s and not s.startswith("#") and s != sk.SECTION_PLACEHOLDER:
+        if s and not s.startswith("#") and s != sk.SECTION_PLACEHOLDER and s != references_note_line:
             pytest.fail(f"骨架含非占位正文: {s!r}")
 
 
@@ -164,7 +173,13 @@ def test_artifact_naming_and_placement(tmp_path):
 
 
 def test_docx_hierarchy_maps_chapters_to_heading1(tmp_path):
-    """层级映射实测：## -> Heading 1（章）、### -> Heading 2（节）。"""
+    """层级映射实测：## -> Heading 1（章）、### -> Heading 2（节）。
+
+    骨架生成器固定在正文章节之后、附录之前插入"参考文献"占位节
+    （outline_skeleton.py 的既定行为，模拟真实 finalize_pipeline.py 的插入
+    位置）。它是报告级组成部分，正确渲染为 Heading 1（与章同级，见
+    md2docx HeadingKind.REFERENCES），故预期的 h1 列表须包含它。
+    """
     pytest.importorskip("docx")
     from docx import Document
     r = sk.generate_skeleton(_w(tmp_path, _GOOD))
@@ -172,7 +187,7 @@ def test_docx_hierarchy_maps_chapters_to_heading1(tmp_path):
     d = Document(r["skeleton_docx"])
     h1 = [p.text for p in d.paragraphs if p.style.name == "Heading 1"]
     h2 = [p.text for p in d.paragraphs if p.style.name == "Heading 2"]
-    assert h1 == ["空间智能演化态势", "理论体系构建"]
+    assert h1 == ["空间智能演化态势", "理论体系构建", "参考文献"]
     assert h2 == ["研究背景与意义", "研究目标与范围", "六层认知升维模型", "七维问题空间"]
 
 
