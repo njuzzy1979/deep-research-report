@@ -49,17 +49,19 @@ portability: core
 - PNG 必须达到 300dpi+（通过 PIL 写入 DPI 元数据），宽度 ≥ 1102px
 - 文件命名：`<图号>-<描述>.<扩展名>`，如 `2-1-技术架构全景.drawio`
 
-### 自检：交付前必须跑两级机器门禁（D4-6 / D5-B3）
+### 自检：交付前必须跑两级机器门禁（D4-6 / D5-B3，已切换 blocking）
 
 上面 5 条是自然语言约定，**无一可机器校验**——这是"出图规范存在但从不生效"的直接来源。交付给 orchestrator **之前**必须自行执行两级门禁，**且门禁1必须先于门禁2执行**：门禁2只读 PNG 产物层，诊断具有误导性——已实测证实 3-1 文件 6 个 vertex 的 `x`/`width` 字面值是字符串 `"None"`（XML 合法但语义已损坏），`figure_gate.py` 对此只能报"宽度不足"，若照此提示放大导出 scale 只会得到更大尺寸的同样残缺图，真因只在源文件层可见（详见 `design/architecture-diagram-layout/00-overview-and-rulings.md` D5-R6「两级门禁，源文件层先行」）。
 
 **门禁1（源文件层几何/语义校验）**：
 
 ```bash
-python scripts/drawio_layout_validator.py --figures-dir research/figures --mode warn
+python scripts/drawio_layout_validator.py --figures-dir research/figures
 ```
 
-当前为 `--mode warn`，exit code 恒为 0，但**必须阅读输出中的 `summary.errors`/`summary.warnings` 与各文件 `issues[].feedback`**——warn 模式的设计意图是"降级但不清零"，不是"跑了就算过"。如果新出的图触发了 G1（几何完整性）/G6（内嵌图注）/G7（伪图检测）/G10a（拓扑-模式一致性）任一判据的错误，即使 exit=0 也不得视为"自检通过"，必须按对应 feedback 处理后才能进入门禁2。当前尚未满足 blocking 切换条件（`design/architecture-diagram-layout/04-workflow-integration.md` §5.1：需连续 2 次运行同时满足 `summary.vertex_geometry_broken == 0`、G6 命中数 == 0、无 `retryable=false` 类 error）——因 3-1（`vertex_geometry_broken=6`）与 12-1（`bottomNote` 内嵌图注）两个历史遗留问题尚未清零，故暂不能升级为 block/strict 模式（G6 历史上曾在 12-1/4-1/4-2 三处命中，其中 4-1/4-2 已随确定性重排推广解决，当前仅 12-1 的 `bottomNote` 残留，详见 SKILL.md 反例 24）。
+**不再传 `--mode warn`**——默认即为 `block`，**exit code 非零即不得交付**，与门禁2同等阻断力度。此前 warn 模式曾长期悬而不切换（`design/architecture-diagram-layout/04-workflow-integration.md` §5.1 定义的切换条件从未被实际核查过，导致 G6 的 `title1` 内嵌图注在全部图中静默存在而无人处理——这正是 warn 模式"跑了但没人当真"的真实故障案例，不是假设风险）。现已直接切换为 block，不再等待"连续 2 次运行零命中"的滚动条件——继续等待只会让同一缺陷继续静默复现。
+
+判据已从 G1/G6/G7/G10a 四项扩展为 **G1/G2/G6/G7/G10a/G12** 六项（新增 G2 节点硬重叠，ink-inflate + 三态判定 + 白名单式豁免机制，见 `design/architecture-diagram-layout/01-layout-algorithm-design.md` §3.3；新增 G12 跨图引用检测，检测节点文本内容中出现"图N-N"形式的其他图号引用，SKILL.md 反例 26）。G2 命中 `HARD_OVERLAP` 视同其余 error 判据处理；命中 `SOFT_OVERLAP_GRAY_ZONE` 仅记 warning，不阻断，但仍须人工核查（可选 `--exemptions research/figures/layout-exemptions.yaml` 登记确认无害的重叠白名单，白名单必须具名到 cell id 且填写 reason，禁止整体关闭该判据）。
 
 **门禁2（PNG产物层校验）**：
 
@@ -70,14 +72,18 @@ python scripts/figure_gate.py --outline research/outline.md \
 
 **exit code 非零即不得交付**。门禁会逐图验证：文件存在性（按 `figures_manifest` 清单）、宽度 ≥1102px、DPI（缺失记 warning、存在但 <300 记 error）。判定口径详见 `references/stage-6-diagrams.md` §6.9。
 
-**门禁失败路由**（摘自 `design/architecture-diagram-layout/04-workflow-integration.md` §3.2 路由表，仅列已实现的 4 个判据）：
+**门禁失败路由**（摘自 `design/architecture-diagram-layout/04-workflow-integration.md` §3.2 路由表，已含 G2/G12）：
 
 - `GEOMETRY_INVALID`（G1）：不可重试，直接上报 orchestrator 并停机（属生成器缺陷）
+- `HARD_OVERLAP`（G2）：可重试，调整任一节点坐标使二者不再重叠，或重新排布该区域；如确认属有意设计（如背景板与散点的包含关系），登记到 `--exemptions` 白名单并注明 reason，不得整体关闭该判据
 - `EMBEDDED_CAPTION`（G6）：不可重试，移除画布内图注 mxCell，文本移入 Markdown 正文题注
 - `FLOW_RECONVERGENT`/`GRID_HAS_CONNECTED_STRUCTURE`/`STAR_NO_UNIQUE_HUB`/`STAR_HUB_NOT_DOMINANT`/`STAR_NO_EDGES`（G10a）：不可重试，禁止改模式重试（等于穷举绕过语义检查），必须强制转 `layout_mode: manual`
 - `FAKE_DIAGRAM`（G7）：可重试，重新出图，禁止 text box 内嵌 Mermaid 源码
+- `CROSS_FIGURE_REFERENCE`（G12）：可重试，把节点文本中"图N-N"形式的图号引用改写为该被引用图内容要点的自足描述，不要求读者跨图翻阅
 
-**禁止**：用 text box 内嵌 Mermaid 源码文本冒充架构图（该形态会通过文件存在性检查，但不是图）；用文字描述替代该出图的位置；**仅跑门禁2而跳过门禁1**（门禁1诊断源文件层问题，门禁2查不出"XML合法但语义损坏"的废图，如 3-1 类故障）。
+`SOFT_OVERLAP_GRAY_ZONE`（G2 warning）不阻断交付，但须人工核查该区域排版是否确实无害。
+
+**禁止**：用 text box 内嵌 Mermaid 源码文本冒充架构图（该形态会通过文件存在性检查，但不是图）；用文字描述替代该出图的位置；**仅跑门禁2而跳过门禁1**（门禁1诊断源文件层问题，门禁2查不出"XML合法但语义损坏"的废图，如 3-1 类故障）；**靠加豁免让门禁变绿**——`--exemptions` 白名单只对 G2 开放，且每条必须具名到 cell id 并填写 reason，所有生效豁免写入报告 `exemptions_applied` 字段供审计，不得用于掩盖真实排版缺陷；**在画布节点文本里直接写"图N-N"图号引用**（SKILL.md 反例 26）——本图自身图号的标题自我标注不算跨图引用（由 G6 单独处理），但引用其他图号必须改写为自足内容描述。
 
 ## 交接与失败路径
 

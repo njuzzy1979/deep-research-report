@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-"""drawio_layout_validator.py 的单元测试（B1'：G1+G6+G7+G10a）。
+"""drawio_layout_validator.py 的单元测试（G1+G2+G6+G7+G10a+G12）。
 
 覆盖范围（对齐 02 号设计文档 §2/§3/§4 的最小子集承诺）：
 - G1 几何完整性判据：正常文件 PASS，含 BAD_LITERALS（如 x="None"）的文件 FAIL
+- G2 节点硬重叠判据（01 号文档 §3.3 三态判定）：AABB 不相交 PASS、AABB 相交+墨迹
+  相交厚度 >= MIN_INK_THICKNESS FAIL(HARD_OVERLAP)、AABB 相交但墨迹相交很浅/不
+  相交 WARNING(SOFT_OVERLAP_GRAY_ZONE)；豁免机制（人工白名单 + style 自动豁免）
 - G6 内嵌图注判据：CAPTION_IDS/CAPTION_PAT 命中 FAIL；同时用测试如实标注 R2 已知
   局限（`<b>图注：</b>` 类 HTML 包裹文本的假阴性，06 号文档裁决不修复）
 - G7 伪图检测判据：Mermaid 源码关键字命中 FAIL，且 error_code=FAKE_DIAGRAM 为
   唯一 retryable=True 的判据
+- G12 跨图引用检测（SKILL.md 反例 26）：节点文本含"图N-N"形式跨图引用 FAIL；
+  自身图号自我标注（如标题 cell 含本图图号）不算跨图引用，予以排除
 - G10a 拓扑-模式一致性判据：flow/star/grid/quadrant 四路 mode-dispatch 全覆盖，
   以及未提供 --ir 时的 not_applicable 分支、stack/pyramid/manual 的不适用分支
 - exit code 三档约定中的 0（PASS）与 1（校验失败）两档（本骨架版本暂无 skip 场景，
@@ -156,6 +161,157 @@ _G7_FAKE_DIAGRAM_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 # ---------------------------------------------------------------------------
+# G12 fixtures：跨图引用命中 / 自身图号自我标注排除 / 无命中
+# ---------------------------------------------------------------------------
+
+# 节点文本引用了"图3-1"/"图3-2"（对齐真实 3-3 图 in1/in2 实测形态）→ FAIL
+_G12_CROSS_REF_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="in1" value="六维结构历史观测序列&#10;（图3-1）" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="in2" value="六类关系图谱当前状态&#10;（图3-2）" vertex="1" parent="1">
+          <mxGeometry x="260" y="40" width="200" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+# 标题 cell 内含本图自身图号"图3-3"——自我标注不算跨图引用 → PASS
+# （own_figure_no="3-3" 从测试用文件名 "3-3-xxx.drawio" 解析而来）
+_G12_SELF_REF_ONLY_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title1" value="图3-3 空间世界预测模型架构图" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="300" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+# ---------------------------------------------------------------------------
+# G2 fixtures：AABB 不相交 / 硬重叠 / 灰区软重叠 / 人工豁免 / 自动豁免(swimlane)
+# ---------------------------------------------------------------------------
+
+# 两个短文本节点，AABB 相隔较远，不相交 → PASS
+_G2_NO_OVERLAP_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="a" value="A" vertex="1" parent="1" style="fontSize=16;">
+          <mxGeometry x="40" y="40" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="b" value="B" vertex="1" parent="1" style="fontSize=16;">
+          <mxGeometry x="400" y="400" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+# 两个左对齐 CJK 长文本节点，AABB 水平相交 50px，且墨迹（长文本撑满宽度）也显著
+# 相交 → HARD_OVERLAP（对齐真实 11-2/omsBox 类实测形态：容器与内部长文本重叠）
+_G2_HARD_OVERLAP_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="boxA" value="空间态势认知智能框架研究理论体系" vertex="1" parent="1" style="fontSize=16;align=left;">
+          <mxGeometry x="0" y="0" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="boxB" value="空间态势认知智能框架研究理论体系" vertex="1" parent="1" style="fontSize=16;align=left;">
+          <mxGeometry x="250" y="0" width="300" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+
+# AABB 相交但墨迹（短文本、居中）几乎不相交 → SOFT_OVERLAP_GRAY_ZONE
+_G2_SOFT_OVERLAP_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="wide" value="X" vertex="1" parent="1" style="fontSize=16;">
+          <mxGeometry x="0" y="0" width="400" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="corner" value="Y" vertex="1" parent="1" style="fontSize=16;">
+          <mxGeometry x="380" y="80" width="200" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+# 与硬重叠 fixture 结构一致（同样的重叠几何+长文本），但 boxA 的 style 含
+# swimlane → 自动豁免使其不参与重叠检查，不产生 issue
+_G2_AUTO_EXEMPT_SWIMLANE_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="boxA" value="空间态势认知智能框架研究理论体系" vertex="1" parent="1" style="swimlane;fontSize=16;align=left;">
+          <mxGeometry x="0" y="0" width="300" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="boxB" value="空间态势认知智能框架研究理论体系" vertex="1" parent="1" style="fontSize=16;align=left;">
+          <mxGeometry x="250" y="0" width="300" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+
+
+@pytest.fixture
+def g2_no_overlap_file(tmp_path):
+    return _write(tmp_path, "g2_no_overlap.drawio", _G2_NO_OVERLAP_DRAWIO)
+
+
+@pytest.fixture
+def g2_hard_overlap_file(tmp_path):
+    return _write(tmp_path, "g2_hard_overlap.drawio", _G2_HARD_OVERLAP_DRAWIO)
+
+
+@pytest.fixture
+def g2_soft_overlap_file(tmp_path):
+    return _write(tmp_path, "g2_soft_overlap.drawio", _G2_SOFT_OVERLAP_DRAWIO)
+
+
+@pytest.fixture
+def g2_auto_exempt_swimlane_file(tmp_path):
+    return _write(tmp_path, "g2_auto_exempt.drawio", _G2_AUTO_EXEMPT_SWIMLANE_DRAWIO)
+
+
+# ---------------------------------------------------------------------------
 # G10a fixtures：flow 模式重汇合 / 线性链（需含边，source/target 引用 vertex id）
 # ---------------------------------------------------------------------------
 
@@ -242,6 +398,17 @@ def g6_html_wrapped_miss_file(tmp_path):
 @pytest.fixture
 def g7_fake_diagram_file(tmp_path):
     return _write(tmp_path, "g7_fake.drawio", _G7_FAKE_DIAGRAM_DRAWIO)
+
+
+@pytest.fixture
+def g12_cross_ref_file(tmp_path):
+    return _write(tmp_path, "3-3-空间世界预测模型架构图.drawio", _G12_CROSS_REF_DRAWIO)
+
+
+@pytest.fixture
+def g12_self_ref_only_file(tmp_path):
+    """文件名以 "3-3-" 开头，own_figure_no 解析为 "3-3"，与标题内自引用一致。"""
+    return _write(tmp_path, "3-3-空间世界预测模型架构图.drawio", _G12_SELF_REF_ONLY_DRAWIO)
 
 
 @pytest.fixture
@@ -352,6 +519,116 @@ def test_check_g7_passes_when_no_mermaid_keyword():
     root = ET.fromstring(_GOOD_DRAWIO)
     cells = list(root.iter("mxCell"))
     assert dlv.check_g7(cells) == []
+
+
+# ---------------------------------------------------------------------------
+# check_g12_cross_figure_ref() 判据本体（SKILL.md 反例 26）
+# ---------------------------------------------------------------------------
+
+def test_check_g12_detects_cross_figure_ref():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G12_CROSS_REF_DRAWIO)
+    cells = list(root.iter("mxCell"))
+    hits = dlv.check_g12_cross_figure_ref(cells)
+    hit_ids = {cid for cid, _ in hits}
+    assert hit_ids == {"in1", "in2"}
+    matched_texts = {m for _, m in hits}
+    assert matched_texts == {"图3-1", "图3-2"}
+
+
+def test_check_g12_self_reference_excluded_when_own_figure_no_given():
+    """own_figure_no 与命中图号一致（自我标注）时不算跨图引用。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G12_SELF_REF_ONLY_DRAWIO)
+    cells = list(root.iter("mxCell"))
+    hits = dlv.check_g12_cross_figure_ref(cells, own_figure_no="3-3")
+    assert hits == []
+
+
+def test_check_g12_self_reference_still_hits_without_own_figure_no():
+    """未提供 own_figure_no 时退化为"任何图号引用都算跨图引用"（更严格，不漏报）。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G12_SELF_REF_ONLY_DRAWIO)
+    cells = list(root.iter("mxCell"))
+    hits = dlv.check_g12_cross_figure_ref(cells)
+    assert hits == [("title1", "图3-3")]
+
+
+def test_check_g12_passes_when_no_cross_figure_ref():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_GOOD_DRAWIO)
+    cells = list(root.iter("mxCell"))
+    assert dlv.check_g12_cross_figure_ref(cells) == []
+
+
+def test_load_own_figure_no_parses_from_filename(tmp_path):
+    p = _write(tmp_path, "3-3-空间世界预测模型架构图.drawio", "")
+    assert dlv._load_own_figure_no(p) == "3-3"
+
+
+def test_load_own_figure_no_none_when_no_leading_number(tmp_path):
+    p = _write(tmp_path, "非常规命名.drawio", "")
+    assert dlv._load_own_figure_no(p) is None
+
+
+# ---------------------------------------------------------------------------
+# check_g2_overlap() 判据本体（01 号文档 §3.3.0 三态判定）
+# ---------------------------------------------------------------------------
+
+def test_check_g2_overlap_aabb_no_intersect_passes():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_NO_OVERLAP_DRAWIO)
+    cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(cells)
+    assert fail == []
+    assert warn == []
+
+
+def test_check_g2_overlap_hard_overlap_fails():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_HARD_OVERLAP_DRAWIO)
+    cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(cells)
+    assert len(fail) == 1
+    assert warn == []
+    issue = fail[0]
+    assert issue["error_code"] == "HARD_OVERLAP"
+    assert issue["severity"] == "error"
+    assert issue["retryable"] is True
+    assert {p["id"] for p in issue["pair"]} == {"boxA", "boxB"}
+
+
+def test_check_g2_overlap_soft_overlap_gray_zone_warns():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_SOFT_OVERLAP_DRAWIO)
+    cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(cells)
+    assert fail == []
+    assert len(warn) == 1
+    issue = warn[0]
+    assert issue["error_code"] == "SOFT_OVERLAP_GRAY_ZONE"
+    assert issue["severity"] == "warning"
+    assert issue["retryable"] is True
+
+
+def test_check_g2_overlap_manual_exemption_suppresses_hit():
+    """人工白名单（--exemptions）豁免其中一个 cell id 后，二者不再参与两两配对。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_HARD_OVERLAP_DRAWIO)
+    cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(cells, exempt_cell_ids={"boxA"})
+    assert fail == []
+    assert warn == []
+
+
+def test_check_g2_overlap_auto_exempt_swimlane_suppresses_hit():
+    """style 含 swimlane 的 cell 无需人工登记即自动豁免（01 号文档 §3.3.2/§6.1）。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_AUTO_EXEMPT_SWIMLANE_DRAWIO)
+    cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(cells)
+    assert fail == []
+    assert warn == []
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +774,24 @@ def test_validate_one_file_g7_hit(g7_fake_diagram_file):
     assert issue["retryable"] is True
 
 
+def test_validate_one_file_g12_cross_ref_hit(g12_cross_ref_file):
+    item = dlv.validate_one_file(g12_cross_ref_file)
+    assert item["passed"] is False
+    assert item["checks"]["G12_cross_figure_ref"] == "fail"
+    issue = next(i for i in item["issues"] if i["check"] == "G12_cross_figure_ref")
+    assert issue["error_code"] == "CROSS_FIGURE_REFERENCE"
+    assert issue["retryable"] is True
+    assert {cid for cid, _ in issue["cells"]} == {"in1", "in2"}
+
+
+def test_validate_one_file_g12_self_reference_via_filename_passes(g12_self_ref_only_file):
+    """own_figure_no 从文件名 "3-3-xxx.drawio" 解析为 "3-3"，与标题自引用一致，
+    G12 判 pass；G6 仍会独立命中该标题 cell（职责不重叠）。"""
+    item = dlv.validate_one_file(g12_self_ref_only_file)
+    assert item["checks"]["G12_cross_figure_ref"] == "pass"
+    assert item["checks"]["G6_embedded_caption"] == "fail"
+
+
 def test_validate_one_file_g10a_without_ir_is_not_applicable(g10a_flow_reconvergent_file):
     """未提供 ir_path 时 G10a 不臆测 mode，记为 not_applicable，不影响 passed。"""
     item = dlv.validate_one_file(g10a_flow_reconvergent_file)
@@ -533,6 +828,128 @@ def test_validate_one_file_malformed_xml(tmp_path):
     assert item["passed"] is False
     assert item["issues"][0]["error_code"] == "XML_PARSE_ERROR"
     assert item["issues"][0]["retryable"] is False
+
+
+def test_validate_one_file_g1_fail_skips_g2(bad_file):
+    """G1 失败时 G2 记为 skip，而非 pass（02号文档 §4.1：skip 与 pass 须严格区分）。"""
+    item = dlv.validate_one_file(bad_file)
+    assert item["checks"]["G1_geometry_integrity"] == "fail"
+    assert item["checks"]["G2_overlap"] == "skip"
+
+
+def test_validate_one_file_g2_hard_overlap_fails(g2_hard_overlap_file):
+    item = dlv.validate_one_file(g2_hard_overlap_file)
+    assert item["passed"] is False
+    assert item["checks"]["G2_overlap"] == "fail"
+    issue = next(i for i in item["issues"] if i["check"] == "G2_overlap")
+    assert issue["error_code"] == "HARD_OVERLAP"
+
+
+def test_validate_one_file_g2_soft_overlap_warns_but_passes(g2_soft_overlap_file):
+    """灰区判定不计入 passed=False（仅 warning，非 error）。"""
+    item = dlv.validate_one_file(g2_soft_overlap_file)
+    assert item["passed"] is True
+    assert item["checks"]["G2_overlap"] == "warning"
+    issue = next(i for i in item["issues"] if i["check"] == "G2_overlap")
+    assert issue["error_code"] == "SOFT_OVERLAP_GRAY_ZONE"
+
+
+def test_validate_one_file_g2_manual_exemption_via_arg(g2_hard_overlap_file):
+    item = dlv.validate_one_file(g2_hard_overlap_file, exempt_cell_ids={"boxA"})
+    assert item["passed"] is True
+    assert item["checks"]["G2_overlap"] == "pass"
+    ex = next(e for e in item["exemptions_applied"] if e["check"] == "G2_overlap")
+    assert ex["cells"] == ["boxA"]
+    assert ex["source"] == "layout-exemptions.yaml"
+
+
+def test_validate_one_file_g2_auto_exemption_tracked(g2_auto_exempt_swimlane_file):
+    item = dlv.validate_one_file(g2_auto_exempt_swimlane_file)
+    assert item["passed"] is True
+    assert item["checks"]["G2_overlap"] == "pass"
+    ex = next(e for e in item["exemptions_applied"] if e["check"] == "G2_overlap")
+    assert ex["cells"] == ["boxA"]
+    assert ex["source"] == "style:swimlane/group/container"
+
+
+# ---------------------------------------------------------------------------
+# _load_exemptions()：文件不存在/PyYAML不可用/解析失败/字段缺失/check非法
+# ---------------------------------------------------------------------------
+
+def test_load_exemptions_missing_file_returns_empty(tmp_path):
+    by_file, warnings = dlv._load_exemptions(tmp_path / "nonexistent.yaml")
+    assert by_file == {}
+    assert warnings == []
+
+
+def test_load_exemptions_none_path_returns_empty():
+    by_file, warnings = dlv._load_exemptions(None)
+    assert by_file == {}
+    assert warnings == []
+
+
+def test_load_exemptions_valid_entry_loaded(tmp_path):
+    p = tmp_path / "layout-exemptions.yaml"
+    p.write_text(
+        "exemptions:\n"
+        "  - file: \"11-1-x.drawio\"\n"
+        "    check: G2_overlap\n"
+        "    cells: [q1bg, q2bg]\n"
+        "    reason: \"四象限背景板\"\n",
+        encoding="utf-8",
+    )
+    by_file, warnings = dlv._load_exemptions(p)
+    assert by_file["11-1-x.drawio"] == {"q1bg", "q2bg"}
+    assert warnings == []
+
+
+def test_load_exemptions_missing_required_field_skips_entry_with_warning(tmp_path):
+    p = tmp_path / "layout-exemptions.yaml"
+    p.write_text(
+        "exemptions:\n"
+        "  - file: \"11-1-x.drawio\"\n"
+        "    check: G2_overlap\n"
+        "    cells: [q1bg]\n"
+        # 缺失 reason
+        "\n",
+        encoding="utf-8",
+    )
+    by_file, warnings = dlv._load_exemptions(p)
+    assert by_file == {}
+    assert len(warnings) == 1
+    assert "reason" in warnings[0]
+
+
+def test_load_exemptions_non_g2_check_skipped_with_warning(tmp_path):
+    """豁免机制仅对 G2_overlap 开放（02号文档 §6.2），其余判据的豁免声明应被忽略。"""
+    p = tmp_path / "layout-exemptions.yaml"
+    p.write_text(
+        "exemptions:\n"
+        "  - file: \"x.drawio\"\n"
+        "    check: G6_embedded_caption\n"
+        "    cells: [note1]\n"
+        "    reason: \"试图豁免不允许豁免的判据\"\n",
+        encoding="utf-8",
+    )
+    by_file, warnings = dlv._load_exemptions(p)
+    assert by_file == {}
+    assert len(warnings) == 1
+
+
+def test_load_exemptions_malformed_yaml_degrades_to_empty_with_warning(tmp_path):
+    p = tmp_path / "layout-exemptions.yaml"
+    p.write_text("exemptions: [this is not: valid: yaml: at all", encoding="utf-8")
+    by_file, warnings = dlv._load_exemptions(p)
+    assert by_file == {}
+    assert len(warnings) == 1
+
+
+def test_load_exemptions_non_mapping_top_level_degrades_to_empty(tmp_path):
+    p = tmp_path / "layout-exemptions.yaml"
+    p.write_text("- just\n- a\n- list\n", encoding="utf-8")
+    by_file, warnings = dlv._load_exemptions(p)
+    assert by_file == {}
+    assert len(warnings) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -590,6 +1007,36 @@ def test_run_validator_g10a_partial_ir_only_counts_missing(good_file, g10a_flow_
     )
     assert result["summary"]["g10a_skipped_no_ir"] == 1
     assert result["passed"] is False  # g10a_flow_reconvergent_file 在 flow 模式下 FLOW_RECONVERGENT
+
+
+def test_run_validator_g2_hard_overlap_fails(g2_hard_overlap_file):
+    result = dlv.run_validator([g2_hard_overlap_file])
+    assert result["passed"] is False
+    assert result["exit_code"] == 1
+    assert result["summary"]["errors"] == 1
+
+
+def test_run_validator_exemptions_by_file_suppresses_hit(g2_hard_overlap_file):
+    """exemptions_by_file 按文件名匹配后传入 validate_one_file，整体判定应变为 PASS，
+    且生效豁免出现在顶层 exemptions_applied 中（可审计）。"""
+    result = dlv.run_validator(
+        [g2_hard_overlap_file],
+        exemptions_by_file={g2_hard_overlap_file.name: {"boxA"}},
+    )
+    assert result["passed"] is True
+    assert result["summary"]["errors"] == 0
+    applied = result["exemptions_applied"]
+    assert len(applied) == 1
+    assert applied[0]["file"] == g2_hard_overlap_file.name
+    assert applied[0]["cells"] == ["boxA"]
+
+
+def test_run_validator_exemption_warnings_surfaced(g2_hard_overlap_file):
+    result = dlv.run_validator(
+        [g2_hard_overlap_file],
+        exemption_warnings=["测试用告警文案"],
+    )
+    assert result["exemption_load_warnings"] == ["测试用告警文案"]
 
 
 # ---------------------------------------------------------------------------
@@ -752,3 +1199,66 @@ def test_cli_ir_flag_ignored_in_figures_dir_mode(figures_dir, ir_flow_file, tmp_
     assert "--figures-dir 批量模式下无法与 --ir 一一对应" in proc.stderr
     data = json.loads(report_out.read_text(encoding="utf-8"))
     assert data["summary"]["g10a_skipped_no_ir"] == data["summary"]["files_total"]
+
+
+# ---------------------------------------------------------------------------
+# CLI --exemptions 参数
+# ---------------------------------------------------------------------------
+
+def test_cli_exemptions_flag_suppresses_hard_overlap(g2_hard_overlap_file, tmp_path):
+    exemptions_path = tmp_path / "layout-exemptions.yaml"
+    exemptions_path.write_text(
+        "exemptions:\n"
+        f"  - file: \"{g2_hard_overlap_file.name}\"\n"
+        "    check: G2_overlap\n"
+        "    cells: [boxA]\n"
+        "    reason: \"测试豁免\"\n",
+        encoding="utf-8",
+    )
+    report_out = tmp_path / "report.json"
+    proc = _run_cli([
+        "--file", str(g2_hard_overlap_file),
+        "--exemptions", str(exemptions_path),
+        "--report-out", str(report_out),
+    ])
+    assert proc.returncode == 0
+    data = json.loads(report_out.read_text(encoding="utf-8"))
+    assert data["passed"] is True
+    assert data["exemptions_applied"][0]["cells"] == ["boxA"]
+
+
+def test_cli_exemptions_flag_missing_file_no_error(g2_hard_overlap_file, tmp_path):
+    """--exemptions 指向不存在的路径时按空白名单处理，不报错，判定仍如实 FAIL。"""
+    report_out = tmp_path / "report.json"
+    proc = _run_cli([
+        "--file", str(g2_hard_overlap_file),
+        "--exemptions", str(tmp_path / "nonexistent-exemptions.yaml"),
+        "--report-out", str(report_out),
+    ])
+    assert proc.returncode == 1
+    data = json.loads(report_out.read_text(encoding="utf-8"))
+    assert data["passed"] is False
+    assert data["exemption_load_warnings"] == []
+
+
+def test_cli_exemptions_defaults_to_figures_dir_layout_exemptions_yaml(g2_hard_overlap_file, tmp_path):
+    """未显式传 --exemptions 时默认从 <figures-dir>/layout-exemptions.yaml 读取。"""
+    exemptions_path = tmp_path / "layout-exemptions.yaml"
+    exemptions_path.write_text(
+        "exemptions:\n"
+        f"  - file: \"{g2_hard_overlap_file.name}\"\n"
+        "    check: G2_overlap\n"
+        "    cells: [boxA]\n"
+        "    reason: \"测试默认路径\"\n",
+        encoding="utf-8",
+    )
+    report_out = tmp_path / "report.json"
+    proc = _run_cli([
+        "--figures-dir", str(tmp_path),
+        "--report-out", str(report_out),
+    ])
+    data = json.loads(report_out.read_text(encoding="utf-8"))
+    hit = next(it for it in data["items"] if it["file"] == g2_hard_overlap_file.name)
+    assert hit["passed"] is True
+    assert proc.returncode == 0
+

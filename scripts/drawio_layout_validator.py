@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""drawio 布局质量校验器 —— 源文件层几何门禁（B1' 实现：G1+G6+G7+G10a）。
+"""drawio 布局质量校验器 —— 源文件层几何门禁（G1+G2+G6+G7+G10a+G12 实现）。
 
-范围声明（B1'，非 B1''/B3）：
+范围声明（G2+G12 补批，非完整 B1''/B3）：
   本版本实现 02 号设计文档定义的 CLI 契约中的以下子集：
-    --figures-dir / --file / --ir / --report-out / --json / --mode / --strict
-  接入的判据为 G1（几何完整性）+ G6（内嵌图注）+ G7（伪图检测）+ G10a
-  （拓扑-模式一致性，零参数判据），均对应 02 号文档 §2 排名前四的零拟合
-  参数判据。G2/G3/G5/G11（含拟合参数）、豁免机制、stage-6 agent 两级门禁
-  接入均不在本批次范围内，留待 B1''/B3 批次扩展。
+    --figures-dir / --file / --ir / --exemptions / --report-out / --json
+    / --mode / --strict
+  接入的判据为 G1（几何完整性）+ G2（节点硬重叠，01 号文档 §3.3 三态判定
+  完整版：ink-inflate + MIN_INK_THICKNESS 灰区 + 白名单式豁免机制）+ G6
+  （内嵌图注）+ G7（伪图检测）+ G10a（拓扑-模式一致性，零参数判据）+ G12
+  （跨图引用检测，SKILL.md 反例 26，零参数判据，检测节点文本内容中出现的
+  "图N-N"形式图号引用，且排除本图自身图号的自我标注）。
+  G3/G5/G11（含拟合参数）不在本批次范围内，留待 B1''/B3 批次扩展。
 
   G10a 的 mode 参数来源（02 号文档 §9 I-1）：G10a 判据算法本身只需边集
   （从 .drawio 本身可解析），不依赖 rank，故不受 --ir 缺失限制；但判据
@@ -18,13 +21,28 @@
   layout_mode 为 stack/pyramid/manual 时 G10a 同样不适用（01 号文档
   §3.7.1：stack/pyramid 交 G10b，B4 后依赖 rank 字段启用）。
 
+  G2 已知局限（01 号文档 M-6/M-8/D5-08，如实继承，非本次引入）：
+    - INK_INFLATE=1.15 在同一批 7 对样本上标定，存在过拟合风险，安全窗口
+      仅约 6%（真实假阴性率未知，见design docs §3.3.3）。
+    - MIN_INK_THICKNESS=3px 依据 strokeWidth=1 的视觉吸收推断，未经渲染
+      验证。
+    - 两参数方向对冲，不应各自独立调整。
+  这些是"如实继承的已知局限"，不是"因未实现而空白"——与 G1/G6/G7/G10a
+  同属已交付判据，只是精度边界已知且被诚实标注。
+
   G6 已知局限（R2，06 号文档 §3.3.3 已裁决不在本批次修复）：对
   `<b>图注：</b>` 类 HTML 标签包裹的图注文本存在假阴性（未先 strip_html()
   再匹配 CAPTION_PAT）。本版本原样移植 rearrange_11_1.py 的实现，不修复。
 
+  G12 已知局限（新引入，如实标注）：图号识别仅支持"图N-N"半角数字+连字符
+  形式（含全角横线/破折号变体），不识别"图三-一"中文数字或"Figure 3-1"
+  英文形式；自身图号从文件名 `<图号>-<描述>.drawio` 解析，若文件命名不
+  遵循此约定（如手工重命名过的文件），own_figure_no 解析为 None，此时
+  退化为"任何图号引用都算跨图引用"（更严格而非更宽松，不会漏报）。
+
 退出码约定（02 号文档 §3.2，三档）：
     0 = PASS（无 error；或目录下无 .drawio 且未声明架构图）
-    1 = 校验失败（存在几何损坏/内嵌图注/伪图/拓扑不一致；或声明 >0 张架构图但目录为空）
+    1 = 校验失败（存在几何损坏/硬重叠/内嵌图注/伪图/拓扑不一致/跨图引用；或声明 >0 张架构图但目录为空）
     2 = 部分校验（本版本暂无 skip 场景，预留位）
 
 用法：
@@ -32,6 +50,7 @@
     python drawio_layout_validator.py --file a.drawio --file b.drawio --json
     python drawio_layout_validator.py --figures-dir research/figures --report-out out.json
     python drawio_layout_validator.py --file a.drawio --ir a.ir.json
+    python drawio_layout_validator.py --figures-dir research/figures --exemptions research/figures/layout-exemptions.yaml
 """
 
 import re
@@ -39,6 +58,7 @@ import sys
 import html
 import json
 import argparse
+import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -52,7 +72,7 @@ if sys.platform == "win32":
         pass
 
 SCHEMA_VERSION = "d5-layout-1"
-VALIDATOR_VERSION = "0.2.0-b1prime"
+VALIDATOR_VERSION = "0.4.0-g12"
 
 BAD_LITERALS = {"None", "nan", "NaN", "null", "NULL", "undefined", ""}
 
@@ -65,6 +85,13 @@ MERMAID_KEYWORDS = ("flowchart", "graph TD", "subgraph", "-->")
 
 # G10a：不适用 mode 集合（stack/pyramid 交 G10b，manual 无拓扑一致性可言）
 G10A_NOT_APPLICABLE_MODES = {"stack", "pyramid", "stack/pyramid", "manual"}
+
+# G2：ink-box 计算参数（01 号设计文档 §3.3.1，如实继承已标定值，见模块 docstring 已知局限）
+INK_INFLATE = 1.15
+MIN_INK_THICKNESS = 3
+
+# G2：自动豁免的 style 特征（01 号设计文档 §3.3.2/§6.1，无需人工登记）
+AUTO_EXEMPT_STYLE_MARKERS = ("swimlane", "group", "container=1")
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +121,220 @@ def check_g1(vertex_elems):
             except ValueError:
                 bad_cells.append({"id": cid, "attr": attr, "literal": raw})
     return bad_cells
+
+
+# ---------------------------------------------------------------------------
+# G2：节点硬重叠判据（01 号设计文档 §3.3 三态判定完整版：AABB 必要条件 +
+# ink-box 膨胀后确认 + MIN_INK_THICKNESS 灰区，逐字移植 §3.3.1 算法）
+# ---------------------------------------------------------------------------
+
+def _strip_html_g2(s):
+    """<br>/<div>/<p> 转换行符而非直接剥除（01 号文档 §3.3.1，误差不对称性
+    实测：直接剥除会导致纵向漏报，见设计文档 3.3.1 <br> 处置表）。"""
+    s = re.sub(r"<br\s*/?>", "\n", s or "", flags=re.I)
+    s = re.sub(r"</(div|p|li)\s*>", "\n", s, flags=re.I)
+    s = re.sub(r"<[^>]+>", "", s)
+    return html.unescape(s)
+
+
+def _parse_font_size_g2(style, default=16):
+    m = re.search(r"fontSize=(\d+)", style or "")
+    return int(m.group(1)) if m else default
+
+
+def _parse_align_g2(style):
+    m = re.search(r"(?<![a-zA-Z])align=(\w+)", style or "")
+    return m.group(1) if m else "center"
+
+
+def _char_w_g2(ch, fs):
+    """按 Unicode 东亚宽度分段：CJK 全角/宽=1.0×fs，歧义宽度=0.85×fs，窄字符=0.55×fs
+    （01 号文档 §3.3.1，比早期版本额外区分了 'A' 歧义宽度档）。"""
+    if ch == "\n":
+        return 0
+    eaw = unicodedata.east_asian_width(ch)
+    if eaw in ("W", "F"):
+        return fs * 1.00
+    if eaw == "A":
+        return fs * 0.85
+    return fs * 0.55
+
+
+def _max_line_width_g2(text, fs):
+    lines = text.split("\n")
+    if not lines:
+        return 0
+    return max((sum(_char_w_g2(c, fs) for c in ln) for ln in lines), default=0)
+
+
+def _estimate_lines_g2(text, box_w, fs):
+    n = 0
+    for ln in text.split("\n"):
+        w = sum(_char_w_g2(c, fs) for c in ln)
+        n += max(1, int(-(-w // box_w)) if box_w > 0 else 1)
+    return max(1, n)
+
+
+def _cell_aabb(cell):
+    """从 mxCell 提取 (x, y, w, h) 四元组。调用前须先经过 G1 判定几何合法。"""
+    g = cell.find("mxGeometry")
+    return (float(g.get("x")), float(g.get("y")), float(g.get("width")), float(g.get("height")))
+
+
+def _centered_box(aabb, ink_w, ink_h, align):
+    """按对齐方式把缩小后的 ink_w/ink_h 尺寸放回 AABB 内的对应位置
+    （01 号文档 §3.3.1 centered_box()，仅 align 影响水平位置，垂直恒居中——
+    与 draw.io whiteSpace=wrap 默认 verticalAlign=middle 的常见形态一致）。"""
+    x, y, w, h = aabb
+    if align == "left":
+        ink_x = x
+    elif align == "right":
+        ink_x = x + (w - ink_w)
+    else:
+        ink_x = x + (w - ink_w) / 2.0
+    ink_y = y + (h - ink_h) / 2.0
+    return (ink_x, ink_y, ink_w, ink_h)
+
+
+def _ink_box(cell):
+    """计算节点的墨迹框（ink-box）。无文本的装饰形状回退为 AABB（01 号文档
+    §3.3.2：无文本节点不豁免重叠检查，占据视觉空间同样构成缺陷）。"""
+    aabb = _cell_aabb(cell)
+    text = _strip_html_g2(cell.get("value") or "").strip()
+    if not text:
+        return aabb
+    style = cell.get("style") or ""
+    fs = _parse_font_size_g2(style)
+    align = _parse_align_g2(style)
+    x, y, w, h = aabb
+    raw_w = _max_line_width_g2(text, fs) * INK_INFLATE
+    lines = _estimate_lines_g2(text, w, fs)
+    raw_h = lines * fs * 1.4 * INK_INFLATE
+    ink_w = min(w, raw_w)
+    ink_h = min(h, raw_h)
+    return _centered_box(aabb, ink_w, ink_h, align)
+
+
+def _participates_in_overlap(cell):
+    """判定 cell 是否参与重叠检查（01 号文档 §3.3.2 H-4 防御性修订）。"""
+    if cell.get("vertex") != "1":
+        return False
+    style = cell.get("style") or ""
+    if "edgeLabel" in style:
+        return False
+    g = cell.find("mxGeometry")
+    if g is not None and g.get("relative") == "1":
+        return False
+    return True
+
+
+def _is_auto_exempt(cell):
+    """style 含 swimlane/group/container=1 → 自动豁免（01 号文档 §3.3.2/§6.1，
+    无需人工登记）。"""
+    style = cell.get("style") or ""
+    return any(marker in style for marker in AUTO_EXEMPT_STYLE_MARKERS)
+
+
+def _aabb_intersect(a, b):
+    ax1, ay1, aw, ah = a
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx1, by1, bw, bh = b
+    bx2, by2 = bx1 + bw, by1 + bh
+    ox = min(ax2, bx2) - max(ax1, bx1)
+    oy = min(ay2, by2) - max(ay1, by1)
+    if ox > 0 and oy > 0:
+        return ox, oy
+    return None
+
+
+def check_g2_overlap(vertex_elems, exempt_cell_ids=None):
+    """01 号设计文档 §3.3.0 三态判定：
+
+      AABB 不相交              → PASS（不产生 issue）
+      AABB 相交 + ink 相交
+        且 min(ox,oy) >= 3px   → FAIL（error, HARD_OVERLAP）
+      AABB 相交，其余情况       → WARNING（灰区，SOFT_OVERLAP_GRAY_ZONE，不静默放行）
+
+    Args:
+        vertex_elems: 已通过 G1 几何校验（geometry 四值均可 float()）的 vertex 列表。
+        exempt_cell_ids: 本次调用中应豁免的 cell id 集合（人工白名单，来自
+            --exemptions；自动豁免见 _is_auto_exempt，在调用方过滤 candidates
+            时一并处理，不在本函数内部重复判断）。
+
+    Returns:
+        (fail_issues, warn_issues) 二元组，均为 dict 列表。
+    """
+    exempt_cell_ids = exempt_cell_ids or set()
+    candidates = [
+        c for c in vertex_elems
+        if _participates_in_overlap(c) and c.get("id") not in exempt_cell_ids
+        and not _is_auto_exempt(c)
+    ]
+
+    fail_issues = []
+    warn_issues = []
+    n = len(candidates)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = candidates[i], candidates[j]
+            aabb_a, aabb_b = _cell_aabb(a), _cell_aabb(b)
+            aabb_hit = _aabb_intersect(aabb_a, aabb_b)
+            if aabb_hit is None:
+                continue  # AABB 不相交 → PASS，不产生 issue
+
+            ink_a, ink_b = _ink_box(a), _ink_box(b)
+            ink_hit = _aabb_intersect(ink_a, ink_b)
+
+            id_a, id_b = a.get("id", "?"), b.get("id", "?")
+            pair_detail = [
+                {"id": id_a, "x": aabb_a[0], "y": aabb_a[1], "w": aabb_a[2], "h": aabb_a[3],
+                 "ink": {"x": ink_a[0], "y": ink_a[1], "w": ink_a[2], "h": ink_a[3]}},
+                {"id": id_b, "x": aabb_b[0], "y": aabb_b[1], "w": aabb_b[2], "h": aabb_b[3],
+                 "ink": {"x": ink_b[0], "y": ink_b[1], "w": ink_b[2], "h": ink_b[3]}},
+            ]
+
+            if ink_hit is not None and min(ink_hit) >= MIN_INK_THICKNESS:
+                ox, oy = ink_hit
+                fail_issues.append({
+                    "check": "G2_overlap",
+                    "error_code": "HARD_OVERLAP",
+                    "severity": "error",
+                    "pair": pair_detail,
+                    "overlap": {"w": round(ox, 1), "h": round(oy, 1),
+                                "area": round(ox * oy, 1), "basis": "ink_inflated"},
+                    "message": f"节点 {id_a} 与 {id_b} 墨迹相交 {ox:.1f}x{oy:.1f}px",
+                    "feedback": (
+                        f"节点 {id_a}(x={aabb_a[0]:.0f},y={aabb_a[1]:.0f},"
+                        f"w={aabb_a[2]:.0f},h={aabb_a[3]:.0f}) 与 "
+                        f"{id_b}(x={aabb_b[0]:.0f},y={aabb_b[1]:.0f},"
+                        f"w={aabb_b[2]:.0f},h={aabb_b[3]:.0f}) 墨迹重叠 "
+                        f"{ox:.1f}x{oy:.1f}px（面积{ox*oy:.0f}）。"
+                        "建议：调整任一节点坐标使二者不再重叠，或重新排布该区域。"
+                    ),
+                    "retryable": True,
+                })
+            else:
+                ox, oy = ink_hit if ink_hit is not None else (0.0, 0.0)
+                warn_issues.append({
+                    "check": "G2_overlap",
+                    "error_code": "SOFT_OVERLAP_GRAY_ZONE",
+                    "severity": "warning",
+                    "pair": pair_detail,
+                    "overlap": {"w": round(ox, 1), "h": round(oy, 1),
+                                "area": round(ox * oy, 1), "basis": "ink_inflated"},
+                    "message": (
+                        f"节点 {id_a} 与 {id_b} AABB 相交但墨迹相交厚度不足 "
+                        f"{MIN_INK_THICKNESS}px（灰区，非确定无害）"
+                    ),
+                    "feedback": (
+                        f"节点 {id_a} 与 {id_b} 的包围盒相交，但估算的文字墨迹范围"
+                        "相交很浅或不相交——可能是视觉安全间距不足，也可能是估算误差。"
+                        "建议人工核查该区域排版，或如确认无害可加入 --exemptions 白名单。"
+                    ),
+                    "retryable": True,
+                })
+
+    return fail_issues, warn_issues
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +372,56 @@ def check_g7(all_cell_elems):
             if kw in unescaped:
                 hits.append((c.get("id", "?"), kw))
     return hits
+
+
+# ---------------------------------------------------------------------------
+# G12：跨图引用检测（SKILL.md 反例 26，如 "图3-1"/"图 3-1" 出现在本图节点文本
+# 内容中——真实案例：3-3 图的 in1/in2 引用了"图3-1"/"图3-2"，这种在画布内直接
+# 指向其他图号的写法会增加读者跨图翻阅的阅读负担，应改写为不依赖图号的自足描述）
+# ---------------------------------------------------------------------------
+
+CROSS_FIGURE_REF_PAT = re.compile(r"图\s*(\d+\s*[-–—]\s*\d+)")
+_FILE_FIGURE_NO_PAT = re.compile(r"^(\d+-\d+)")
+
+
+def _normalize_figure_no(s):
+    """把 "3-1"/"3 - 1"/"3—1" 等写法统一归一化为 "3-1" 便于比较。"""
+    return re.sub(r"\s*[-–—]\s*", "-", s.strip())
+
+
+def check_g12_cross_figure_ref(all_cell_elems, own_figure_no=None):
+    """检测节点文本内容中残留的跨图引用（如"图3-1"），返回命中的 (cell_id, matched_text) 列表。
+
+    与 G6（CAPTION_PAT，检测行首的"图N-N 标题"型图注）刻意区分：G12 不要求
+    匹配出现在行首，只要节点文本任意位置包含"图N-N"形式的图号引用即命中——
+    这类文本即使不是图注，也构成读者必须跨图翻阅才能理解本图的负担。
+
+    Args:
+        all_cell_elems: 全部 mxCell 列表
+        own_figure_no: 本文件自身图号（如 "3-3"，从文件名 `<图号>-<描述>.drawio`
+            解析而来）。命中的图号若与自身图号相同（如标题 cell 内"图3-3 xxx"
+            自我标注本图图号），不算跨图引用，予以排除，避免与 G6 重复判定同
+            一处内嵌标题文本。
+    """
+    own_norm = _normalize_figure_no(own_figure_no) if own_figure_no else None
+    hits = []
+    for c in all_cell_elems:
+        value = c.get("value") or ""
+        text = _strip_html_g2(value)
+        m = CROSS_FIGURE_REF_PAT.search(text)
+        if not m:
+            continue
+        matched_no = _normalize_figure_no(m.group(1))
+        if own_norm is not None and matched_no == own_norm:
+            continue
+        hits.append((c.get("id", "?"), m.group(0)))
+    return hits
+
+
+def _load_own_figure_no(path: Path):
+    """从文件名 `<图号>-<描述>.drawio` 解析本图自身图号（如 "3-3"）。"""
+    m = _FILE_FIGURE_NO_PAT.match(path.stem)
+    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +519,54 @@ def _load_layout_mode(ir_path):
     return data.get("layout_mode")
 
 
-def validate_one_file(path: Path, ir_path=None) -> dict:
+def _load_exemptions(exemptions_path):
+    """加载 G2 豁免白名单（02 号文档 §6/§7 容错与降级）。
+
+    返回 (by_file: dict[str, set[str]], warnings: list[str])：
+      - 文件不存在 → 视为空白名单，不报错（豁免只会让门禁更宽松）
+      - PyYAML 不可用 / YAML 解析失败 → 空白名单 + warning（同上，读不到反而更严）
+      - 缺失 file/check/cells/reason 任一字段的条目 → 跳过该条 + warning（不整体失败）
+      - check != "G2_overlap" 的条目 → 跳过该条 + warning（豁免机制仅对 G2 开放，02号文档§6.2）
+    """
+    by_file = defaultdict(set)
+    warnings = []
+    if exemptions_path is None:
+        return by_file, warnings
+    path = Path(exemptions_path)
+    if not path.exists():
+        return by_file, warnings
+
+    try:
+        import yaml
+    except ImportError:
+        warnings.append(f"PyYAML 不可用，豁免文件 {path} 无法解析，本次运行按空白名单处理（门禁更严，非失败）")
+        return by_file, warnings
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        warnings.append(f"豁免文件 {path} 解析失败: {e}，本次运行按空白名单处理")
+        return by_file, warnings
+
+    if not isinstance(data, dict):
+        warnings.append(f"豁免文件 {path} 顶层结构不是映射（期望含 exemptions 键的对象），本次运行按空白名单处理")
+        return by_file, warnings
+
+    entries = data.get("exemptions") or []
+    for entry in entries:
+        missing = [k for k in ("file", "check", "cells", "reason") if not entry.get(k)]
+        if missing:
+            warnings.append(f"豁免条目缺少必填字段 {missing}，已忽略该条: {entry}")
+            continue
+        if entry["check"] != "G2_overlap":
+            warnings.append(f"豁免机制仅对 G2_overlap 开放，忽略条目声明的 check={entry['check']!r}: {entry}")
+            continue
+        by_file[entry["file"]].update(entry["cells"])
+
+    return by_file, warnings
+
+
+def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
     """校验单个 .drawio 文件，返回 02 号文档 §4 schema 的单 item 结构。
 
     Args:
@@ -236,6 +574,8 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
         ir_path: 可选，配套 IR JSON 路径。提供时用其中的 layout_mode 字段
             驱动 G10a 做完整 mode-dispatch 判定；不提供时 G10a 记为
             not_applicable，不臆测 mode。
+        exempt_cell_ids: 可选，本文件 G2 判据的人工豁免 cell id 集合（来自
+            --exemptions，按文件名匹配后传入）。
     """
     item = {
         "file": path.name,
@@ -245,11 +585,14 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
         "vertex_geometry_valid": 0,
         "checks": {
             "G1_geometry_integrity": "pass",
+            "G2_overlap": "pass",
             "G6_embedded_caption": "pass",
             "G7_fake_diagram": "pass",
             "G10a_topology": "not_applicable",
+            "G12_cross_figure_ref": "pass",
         },
         "issues": [],
+        "exemptions_applied": [],
     }
 
     try:
@@ -257,6 +600,7 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
     except ET.ParseError as e:
         item["passed"] = False
         item["checks"]["G1_geometry_integrity"] = "fail"
+        item["checks"]["G2_overlap"] = "skip"
         item["issues"].append({
             "check": "G1_geometry_integrity",
             "error_code": "XML_PARSE_ERROR",
@@ -279,6 +623,7 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
     if bad_cells:
         item["passed"] = False
         item["checks"]["G1_geometry_integrity"] = "fail"
+        item["checks"]["G2_overlap"] = "skip"  # G1 失败 → 后续几何判据无意义（02号文档 §4.1 skip 语义）
         cell_ids = sorted({b["id"] for b in bad_cells})
         item["issues"].append({
             "check": "G1_geometry_integrity",
@@ -292,6 +637,37 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
             ),
             "retryable": False,
         })
+    else:
+        # --- G2：节点硬重叠（仅在 G1 通过、几何全部合法时才有意义） ---
+        bad_ids = {b["id"] for b in bad_cells}
+        clean_vertex_elems = [c for c in vertex_elems if c.get("id") not in bad_ids]
+        exempt_cell_ids = exempt_cell_ids or set()
+        g2_fail, g2_warn = check_g2_overlap(clean_vertex_elems, exempt_cell_ids=exempt_cell_ids)
+        if g2_fail:
+            item["passed"] = False
+            item["checks"]["G2_overlap"] = "fail"
+            item["issues"].extend(g2_fail)
+        elif g2_warn:
+            item["checks"]["G2_overlap"] = "warning"
+            item["issues"].extend(g2_warn)
+        else:
+            item["checks"]["G2_overlap"] = "pass"
+
+        # 留痕生效豁免（02号文档 §6.2 强制留痕，可被审计"是否靠加豁免让门禁变绿"）
+        overlap_participants = [c for c in clean_vertex_elems if _participates_in_overlap(c)]
+        manual_hit = sorted({c.get("id") for c in overlap_participants if c.get("id") in exempt_cell_ids})
+        if manual_hit:
+            item["exemptions_applied"].append({
+                "check": "G2_overlap", "cells": manual_hit, "source": "layout-exemptions.yaml",
+            })
+        auto_hit = sorted({
+            c.get("id") for c in overlap_participants
+            if c.get("id") not in exempt_cell_ids and _is_auto_exempt(c)
+        })
+        if auto_hit:
+            item["exemptions_applied"].append({
+                "check": "G2_overlap", "cells": auto_hit, "source": "style:swimlane/group/container",
+            })
 
     # --- G6：内嵌图注 ---
     g6_hits = check_g6(all_cell_elems)
@@ -330,6 +706,27 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
             "retryable": True,
         })
 
+    # --- G12：跨图引用检测（SKILL.md 反例 26） ---
+    own_figure_no = _load_own_figure_no(path)
+    g12_hits = check_g12_cross_figure_ref(all_cell_elems, own_figure_no=own_figure_no)
+    if g12_hits:
+        item["passed"] = False
+        item["checks"]["G12_cross_figure_ref"] = "fail"
+        cell_ids = sorted({cid for cid, _ in g12_hits})
+        item["issues"].append({
+            "check": "G12_cross_figure_ref",
+            "error_code": "CROSS_FIGURE_REFERENCE",
+            "severity": "error",
+            "cells": g12_hits,
+            "message": f"{len(cell_ids)} 个节点文本内容引用了其他图号: {g12_hits}",
+            "feedback": (
+                f"节点 {', '.join(cell_ids)} 的文本内容中出现了跨图引用（如"
+                "\"图3-1\"），要求读者跨图翻阅才能理解本图，应改写为不依赖"
+                "图号的自足描述（如直接概括被引用图的内容要点，而非仅给出图号）。"
+            ),
+            "retryable": True,
+        })
+
     # --- G10a：拓扑-模式一致性 ---
     layout_mode = _load_layout_mode(ir_path)
     if layout_mode is None:
@@ -364,7 +761,8 @@ def validate_one_file(path: Path, ir_path=None) -> dict:
 # 主校验流程
 # ---------------------------------------------------------------------------
 
-def run_validator(files: list, ir_files: list = None, mode: str = "block", strict: bool = False) -> dict:
+def run_validator(files: list, ir_files: list = None, mode: str = "block", strict: bool = False,
+                   exemptions_by_file: dict = None, exemption_warnings: list = None) -> dict:
     """对给定文件列表跑校验，返回 02 号文档 §4 schema 的完整结构。
 
     Args:
@@ -373,10 +771,18 @@ def run_validator(files: list, ir_files: list = None, mode: str = "block", stric
             输入，G10a 记为 not_applicable）；整体省略时按全 None 处理
         mode: warn（所有 error 降级为 warning，恒 exit 0）| block（正常判定）
         strict: warning 一并计入失败
+        exemptions_by_file: 文件名（含扩展名，如 "11-1-xxx.drawio"）→ 豁免 cell id
+            集合，来自 --exemptions（_load_exemptions() 产出）。None 视为空白名单。
+        exemption_warnings: _load_exemptions() 产出的告警文案列表，原样并入
+            summary（本函数不重复校验豁免文件本身）。
     """
     if ir_files is None:
         ir_files = [None] * len(files)
-    items = [validate_one_file(p, ir_path=ir) for p, ir in zip(files, ir_files)]
+    exemptions_by_file = exemptions_by_file or {}
+    items = [
+        validate_one_file(p, ir_path=ir, exempt_cell_ids=exemptions_by_file.get(p.name))
+        for p, ir in zip(files, ir_files)
+    ]
 
     total_errors = sum(len([i for i in it["issues"] if i["severity"] == "error"]) for it in items)
     total_warnings = sum(len([i for i in it["issues"] if i["severity"] == "warning"]) for it in items)
@@ -397,6 +803,11 @@ def run_validator(files: list, ir_files: list = None, mode: str = "block", stric
     exit_code = 0 if passed else 1
 
     g10a_skipped_no_ir = sum(1 for it in items if it["checks"].get("G10a_topology") == "not_applicable")
+
+    exemptions_applied = []
+    for it in items:
+        for entry in it.get("exemptions_applied", []):
+            exemptions_applied.append({"file": it["file"], **entry})
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -420,7 +831,8 @@ def run_validator(files: list, ir_files: list = None, mode: str = "block", stric
         },
         "items": items,
         "skipped": [],
-        "exemptions_applied": [],
+        "exemptions_applied": exemptions_applied,
+        "exemption_load_warnings": exemption_warnings or [],
     }
 
 
@@ -428,7 +840,7 @@ def format_report(result: dict) -> str:
     """对齐 figure_gate.py 的 format_report() 风格。"""
     lines = [
         "=" * 60,
-        "布局质量门禁报告 (drawio_layout_validator) — B1'（G1+G6+G7+G10a）",
+        "布局质量门禁报告 (drawio_layout_validator) — G1+G2+G6+G7+G10a+G12",
         "=" * 60,
         "",
     ]
@@ -449,12 +861,38 @@ def format_report(result: dict) -> str:
 
     fail_items = [it for it in result["items"] if not it["passed"]]
     if fail_items:
-        lines.append("--- 判据未通过 (FATAL 除 G7 外均不可重试) ---")
+        lines.append("--- 判据未通过 (FATAL 除 G2/G7 外均不可重试) ---")
         for it in fail_items:
             lines.append(f"  [FAIL] {it['file']}")
             for issue in it["issues"]:
+                if issue["severity"] != "error":
+                    continue
                 lines.append(f"         {issue['message']}")
                 lines.append(f"         -> {issue['feedback']}")
+        lines.append("")
+
+    warn_issues_by_file = [
+        (it["file"], issue)
+        for it in result["items"]
+        for issue in it["issues"]
+        if issue["severity"] == "warning"
+    ]
+    if warn_issues_by_file:
+        lines.append("--- 灰区与告警 (WARN, 不阻断) ---")
+        for fname, issue in warn_issues_by_file:
+            lines.append(f"  [WARN] {fname}: {issue['message']}")
+        lines.append("")
+
+    if result.get("exemptions_applied"):
+        lines.append("--- 生效豁免 (可审计) ---")
+        for ex in result["exemptions_applied"]:
+            lines.append(f"  {ex['file']}: {ex['check']} 豁免 {ex['cells']} (来源: {ex['source']})")
+        lines.append("")
+
+    if result.get("exemption_load_warnings"):
+        lines.append("--- 豁免文件加载告警 ---")
+        for w in result["exemption_load_warnings"]:
+            lines.append(f"  [WARN] {w}")
         lines.append("")
 
     lines.append("--- 逐项详情 ---")
@@ -473,6 +911,7 @@ def format_report(result: dict) -> str:
         lines.append(f"留痕: {result['report_out']}")
 
     return "\n".join(lines)
+
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +952,11 @@ def main():
         "--report-out", default=None,
         help="门禁留痕 JSON 落盘路径（默认: <figures-dir>/.layout-gate-report.json）"
     )
+    parser.add_argument(
+        "--exemptions", default=None,
+        help="G2 豁免白名单 YAML 路径（默认: <figures-dir>/layout-exemptions.yaml）。"
+             "文件不存在按空白名单处理，不报错；PyYAML 不可用同样降级为空白名单+警告。"
+    )
 
     args = parser.parse_args()
 
@@ -552,6 +996,8 @@ def main():
             )
 
     report_out = Path(args.report_out) if args.report_out else figures_dir_for_report / ".layout-gate-report.json"
+    exemptions_path = Path(args.exemptions) if args.exemptions else figures_dir_for_report / "layout-exemptions.yaml"
+    exemptions_by_file, exemption_warnings = _load_exemptions(exemptions_path)
 
     if not files:
         # 空目录一律按 02 号文档"未声明架构图"分支处理为 PASS + note。
@@ -573,7 +1019,10 @@ def main():
             "note": "目录下无 .drawio 文件，本版本不读取 outline.md 声明数，按 PASS 处理",
         }
     else:
-        result = run_validator(files, ir_files=ir_files, mode=args.mode, strict=args.strict)
+        result = run_validator(
+            files, ir_files=ir_files, mode=args.mode, strict=args.strict,
+            exemptions_by_file=exemptions_by_file, exemption_warnings=exemption_warnings,
+        )
 
     tz = timezone(timedelta(hours=8))
     result["generated_at"] = datetime.now(tz).isoformat()
