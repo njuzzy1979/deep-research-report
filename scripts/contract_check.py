@@ -12,11 +12,10 @@
     C7 SRC 引用残留（合并后检查）
     C8 字数统计残留（全文约/本章字数/写作者自声明——2026-08-03 升级：自声明已移至独立文件）
     C9 局部参考文献节（每章独立参考文献体系）
-  观察层 C10-C11（跨模型兼容性优化方案 §二 A3，第一阶段非阻塞）
-    C10（F7）信源分级前缀泄露（如 "[A] xxx" 独占行首）——只计数不判负
-    C11（F8）claim_id 泄露（如 [CM021]）——只计数不判负
-    两项均 severity="mid"、pass 恒为 True、不纳入 high_severity_keys，
-    仅用于收集真实报告语料的命中分布，供后续独立决策是否升级为阻塞检查。
+  观察层 C10-C11（写作改革方案 P2：已从非阻塞观察期升级为 FATAL 阻断）
+    C10（F7）信源分级前缀泄露（如 "[A] xxx" 独占行首）——severity="high"，命中即阻断
+    C11（F8）claim_id 泄露（如 [CM021]）——severity="high"，命中即阻断
+    两项均纳入 high_severity_keys，出现即说明管线有 bug，不可降级放行。
   量化层 QS1-QS3 —— 供阶段 7 审计 Agent 做字数/图/表统计
     QS1 正文字数（中文字符计数，供与大纲"约 N×800 字"预算比对）
     QS2 图片引用数
@@ -379,16 +378,17 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
         c9_pass = len(c9_hits_paragraphs) == 0
         c9_extra_fields = {}
 
-    # C10（F7）: 信源分级前缀泄露 —— 跨模型兼容性优化方案 §二 A3。
-    # 第一阶段非阻塞（审查层 High-3 修订）：severity="mid"，pass 恒为 True，
-    # 不纳入 high_severity_keys；仅用于收集真实报告语料的命中分布，
-    # 供后续独立决策是否升级为阻塞检查（第二阶段）。
+    # C10（F7）: 信源分级前缀泄露 —— FATAL（写作改革方案 P2）。
+    # 分级信息根本不应出现在任何 Writer 可见输出中，出现即说明管线有 bug，
+    # 直接阻断，不可降级放行。
     c10_hits = [ln.strip() for ln in lines if F7_SOURCE_TIER_PREFIX_PATTERN.match(ln)]
-    c10_pass = True
+    c10_pass = len(c10_hits) == 0
 
-    # C11（F8）: claim_id 泄露 —— 同上，第一阶段非阻塞，仅计数。
+    # C11（F8）: claim_id 泄露 —— FATAL（写作改革方案 P2）。
+    # claim_id 是内部质控元数据，不应出现在读者可见的正文中。
+    # 出现即说明管线有 bug，直接阻断，不可降级放行。
     c11_hits = F8_CLAIM_ID_LEAK_PATTERN.findall(clean)
-    c11_pass = True
+    c11_pass = len(c11_hits) == 0
 
     # QS1: 正文字数
     word_count = count_cjk_chars(text)
@@ -415,9 +415,9 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C9_local_bibliography": {"hits": c9_hits_paragraphs, "count": len(c9_hits_paragraphs),
                                        "pass": c9_pass, "severity": "high", **c9_extra_fields},
             "C10_source_tier_prefix": {"hits": c10_hits, "count": len(c10_hits),
-                                        "pass": c10_pass, "severity": "mid"},
+                                        "pass": c10_pass, "severity": "high"},
             "C11_claim_id_leak": {"hits": c11_hits, "count": len(c11_hits),
-                                   "pass": c11_pass, "severity": "mid"},
+                                   "pass": c11_pass, "severity": "high"},
         },
         "quant": {
             "QS1_cjk_chars": word_count,
@@ -428,7 +428,7 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
         },
     }
     # 高严重度合约项（C1/C2/C5/C6/C9，stage9 下+C7）任一失败 → 整体 fail
-    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C8_word_count_residue", "C9_local_bibliography"]
+    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C8_word_count_residue", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak"]
     if stage == "stage9":
         high_severity_keys.append("C7_src_residue")
     # 致命级合约项（C2 在合并终稿模式下升级为 fatal）——失败直接阻断，不可降级
@@ -561,18 +561,18 @@ def format_text_report(r: dict) -> str:
     else:
         lines.append(f"{mark(c9['pass'])} C9 局部参考文献节: {c9['count']} 处 (应为 0)")
 
-    # C10/C11（跨模型兼容性优化方案 §二 A3）：第一阶段非阻塞，pass 恒为 True，
-    # 仅计数展示——不用 mark()（会恒显示 OK），改用中性标记区分"有命中但不阻断"。
+    # C10/C11（写作改革方案 P2）：已升级为 FATAL 阻断，severity="high"，
+    # 命中即用 FAIL 标记。
     c10 = c["C10_source_tier_prefix"]
-    c10_mark = WARN if c10["count"] > 0 else OK
-    lines.append(f"{c10_mark} C10 信源分级前缀泄露(F7，非阻塞观察期): {c10['count']} 处")
+    c10_mark = FAIL if c10["count"] > 0 else OK
+    lines.append(f"{c10_mark} C10 信源分级前缀泄露(F7，FATAL): {c10['count']} 处")
     if c10.get("hits"):
         for h in c10["hits"][:5]:
             lines.append(f"      - {h}")
 
     c11 = c["C11_claim_id_leak"]
-    c11_mark = WARN if c11["count"] > 0 else OK
-    lines.append(f"{c11_mark} C11 claim_id泄露(F8，非阻塞观察期): {c11['count']} 处")
+    c11_mark = FAIL if c11["count"] > 0 else OK
+    lines.append(f"{c11_mark} C11 claim_id泄露(F8，FATAL): {c11['count']} 处")
     if c11.get("hits"):
         for h in c11["hits"][:5]:
             lines.append(f"      - {h}")
@@ -593,7 +593,7 @@ def format_text_report(r: dict) -> str:
             f"     QS4 超长段落(>600字): {qs4['over_600']} 个 (建议拆分)",
         ])
     lines.append("")
-    high_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography"]
+    high_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak"]
     if r.get("stage") == "stage9":
         high_keys.append("C7_src_residue")
     failed = [k for k in high_keys if not c[k]["pass"]]

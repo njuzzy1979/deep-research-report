@@ -108,22 +108,22 @@ def test_agents_dir_files_match_role_table(doc_path):
 
 
 STANDARDS_COUNT_PATTERNS = [
-    re.compile(r"共\s*25\s*条"),
-    re.compile(r"25\s*条(?:写作)?标准"),
-    re.compile(r"标准体系（25\s*条）"),
+    re.compile(r"共\s*28\s*条"),
+    re.compile(r"28\s*条(?:写作)?标准"),
+    re.compile(r"标准体系（28\s*条）"),
 ]
 
 STANDARD_HEADING_PATTERN = re.compile(r"^## 标准 \d+", re.MULTILINE)
 
 
-def _has_25_count_mention(text):
+def _has_28_count_mention(text):
     return any(p.search(text) for p in STANDARDS_COUNT_PATTERNS)
 
 
 @pytest.mark.parametrize("doc_path", [AUDITOR_AGENT_MD, SKILL_MD, README_MD])
 def test_writing_standards_count_mentioned_as_25(doc_path):
     text = _read(doc_path)
-    assert _has_25_count_mention(text), (
+    assert _has_28_count_mention(text), (
         doc_path.name + " 未找到 '25 条标准' / '共 25 条' 之类的标准总数声明"
     )
 
@@ -132,7 +132,7 @@ def test_writing_standards_actual_heading_count_is_25():
     """references/writing-standards.md 实际的 '## 标准 N' 一级标题数量应为 25（标准 0-24）。"""
     text = _read(WRITING_STANDARDS_MD)
     headings = STANDARD_HEADING_PATTERN.findall(text)
-    assert len(headings) == 25, (
+    assert len(headings) == 28, (
         "writing-standards.md 实际 '## 标准 N' 标题数为 " + str(len(headings))
         + "，与声明的 25 条不一致"
     )
@@ -152,7 +152,7 @@ def _short_form(dimension_id):
 
 
 def test_auditor_contract_dimension_ids_all_mentioned_in_agent_md():
-    """30 个维度条目在 chapter_auditor_agent.md 正文中均有迹可循。
+    """12 dimensions (D1-D7 + P1-P5) all traceable in chapter_auditor_agent.md. 2026-08-03 reform reduced from 30.
 
     契约里两类 id 命名风格对应文档里两种不同的引用方式（这是既有约定，非本测试
     发明）：
@@ -164,7 +164,7 @@ def test_auditor_contract_dimension_ids_all_mentioned_in_agent_md():
     """
     contract = _load_auditor_contract()
     all_entries = contract["dimensions"] + contract.get("proposal_extra", [])
-    assert len(all_entries) == 30, "契约维度总数应为 30，实际 " + str(len(all_entries))
+    assert len(all_entries) == 12, "契约维度总数（D1-D7 + P1-P5）应为 12，实际 " + str(len(all_entries))
 
     text = _read(AUDITOR_AGENT_MD)
 

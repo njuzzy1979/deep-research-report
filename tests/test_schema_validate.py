@@ -132,8 +132,8 @@ def test_writer_selfclaim_wrong_type_fails():
 def test_auditor_phase_a_valid_instance_passes():
     instance = {
         "ch01": {
-            "outline_coverage": {"mode": "confirm"},
-            "strong_claim": {"mode": "adjust", "text": "本章第2节的表述过强，需调整为学术克制语气"},
+            "D1_argument_depth": {"mode": "confirm"},
+            "D5_structure": {"mode": "adjust", "text": "本章缺少章首结论 blockquote，需补充"},
         }
     }
     schema = sv.load_schema("auditor-phase-a")
@@ -149,7 +149,7 @@ def test_auditor_phase_a_invalid_dimension_id_fails_enum():
 
 
 def test_auditor_phase_a_invalid_mode_enum_fails():
-    instance = {"ch01": {"outline_coverage": {"mode": "maybe"}}}  # 非法枚举值
+    instance = {"ch01": {"D1_argument_depth": {"mode": "maybe"}}}  # 非法枚举值
     schema = sv.load_schema("auditor-phase-a")
     result = sv.validate_instance(instance, schema)
     assert result["valid"] is False
@@ -157,7 +157,7 @@ def test_auditor_phase_a_invalid_mode_enum_fails():
 
 def test_auditor_phase_a_adjust_without_text_fails():
     """adjust 模式必须带 text（方案 §C4 落盘形态要求）。"""
-    instance = {"ch01": {"strong_claim": {"mode": "adjust"}}}  # 缺 text
+    instance = {"ch01": {"D5_structure": {"mode": "adjust"}}}  # 缺 text
     schema = sv.load_schema("auditor-phase-a")
     result = sv.validate_instance(instance, schema)
     assert result["valid"] is False
@@ -173,7 +173,7 @@ def _valid_auditor_phase_b() -> dict:
         "chapter_id": "ch01",
         "verdict": "PASS",
         "dimension_scores": {
-            "outline_coverage": {"verdict": "pass", "evidence": "大纲各节均有对应正文展开"},
+            "D1_argument_depth": {"verdict": "pass", "evidence": "论证深度充分，各节均含实质性 Warranty"},
         },
         "issues": [],
     }
@@ -196,7 +196,7 @@ def test_auditor_phase_b_invalid_verdict_enum_fails():
 def test_auditor_phase_b_issue_missing_field_fails():
     instance = _valid_auditor_phase_b()
     instance["verdict"] = "REVISE"
-    instance["issues"] = [{"dimension": "strong_claim", "location": "第2节"}]  # 缺 problem/suggested_fix
+    instance["issues"] = [{"dimension": "D1_argument_depth", "location": "第2节"}]  # 缺 problem/suggested_fix
     schema = sv.load_schema("auditor-phase-b")
     result = sv.validate_instance(instance, schema)
     assert result["valid"] is False

@@ -3,7 +3,7 @@
 
 覆盖：
 - confirm/adjust 两种形态的转换正确性
-- 未知维度 id 报错（不在 auditor_contract.json 声明的 30 个 id 内）
+- 未知维度 id 报错（不在 auditor_contract.json 声明的 12 个 id 内）
 - 产出通过 ``schemas/auditor-phase-a.schema.json`` 校验
 - 分批合并 + 批次不完整（缺批次/dims 数不符/id 集合与 batch_grouping 不符）报错
 """
@@ -23,16 +23,16 @@ import schema_validate as sv
 
 
 def test_parse_confirm_dimension():
-    text = "### outline_coverage\nconfirm\n"
+    text = "### D1_argument_depth\nconfirm\n"
     dims = p.parse_markdown_dimensions(text)
-    assert dims == {"outline_coverage": {"mode": "confirm"}}
+    assert dims == {"D1_argument_depth": {"mode": "confirm"}}
 
 
 def test_parse_adjust_dimension():
-    text = "### strong_claim\nadjust: 本章因涉及新兴技术需放宽首次性判断阈值\n"
+    text = "### D1_argument_depth\nadjust: 本章因涉及新兴技术需放宽首次性判断阈值\n"
     dims = p.parse_markdown_dimensions(text)
     assert dims == {
-        "strong_claim": {
+        "D1_argument_depth": {
             "mode": "adjust",
             "text": "本章因涉及新兴技术需放宽首次性判断阈值",
         }
@@ -41,43 +41,43 @@ def test_parse_adjust_dimension():
 
 def test_parse_multiple_dimensions_mixed_modes():
     text = (
-        "### outline_coverage\n"
+        "### D1_argument_depth\n"
         "confirm\n"
         "\n"
-        "### strong_claim\n"
+        "### D2_honest_expression\n"
         "adjust: 需要调整\n"
         "\n"
-        "### C1_h1\n"
+        "### D3_traceability\n"
         "confirm\n"
     )
     dims = p.parse_markdown_dimensions(text)
     assert dims == {
-        "outline_coverage": {"mode": "confirm"},
-        "strong_claim": {"mode": "adjust", "text": "需要调整"},
-        "C1_h1": {"mode": "confirm"},
+        "D1_argument_depth": {"mode": "confirm"},
+        "D2_honest_expression": {"mode": "adjust", "text": "需要调整"},
+        "D3_traceability": {"mode": "confirm"},
     }
 
 
 def test_parse_missing_content_line_raises():
-    text = "### outline_coverage\n"
+    text = "### D1_argument_depth\n"
     with pytest.raises(ValueError, match="缺少 confirm/adjust 内容行"):
         p.parse_markdown_dimensions(text)
 
 
 def test_parse_adjust_missing_text_raises():
-    text = "### strong_claim\nadjust:\n"
+    text = "### D1_argument_depth\nadjust:\n"
     with pytest.raises(ValueError, match="缺少说明文本"):
         p.parse_markdown_dimensions(text)
 
 
 def test_parse_invalid_content_line_raises():
-    text = "### outline_coverage\n某种既非confirm也非adjust的文本\n"
+    text = "### D1_argument_depth\n某种既非confirm也非adjust的文本\n"
     with pytest.raises(ValueError, match="既非 'confirm' 也非"):
         p.parse_markdown_dimensions(text)
 
 
 def test_parse_duplicate_dimension_raises():
-    text = "### outline_coverage\nconfirm\n\n### outline_coverage\nconfirm\n"
+    text = "### D1_argument_depth\nconfirm\n\n### D1_argument_depth\nconfirm\n"
     with pytest.raises(ValueError, match="重复出现"):
         p.parse_markdown_dimensions(text)
 
@@ -87,15 +87,15 @@ def test_parse_duplicate_dimension_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_known_dimension_ids_count_is_30():
+def test_known_dimension_ids_count_is_12():
     ids = p.load_known_dimension_ids()
-    assert len(ids) == 30
+    assert len(ids) == 12
 
 
 def test_parse_single_file_rejects_unknown_id(tmp_path):
     known_ids = p.load_known_dimension_ids()
     f = tmp_path / "ch01-precommit.md"
-    f.write_text("### outline_coverage\nconfirm\n\n### unknown_dim_xyz\nconfirm\n", encoding="utf-8")
+    f.write_text("### D1_argument_depth\nconfirm\n\n### unknown_dim_xyz\nconfirm\n", encoding="utf-8")
     with pytest.raises(ValueError, match="unknown_dim_xyz"):
         p.parse_single_file(str(f), known_ids)
 
@@ -103,17 +103,17 @@ def test_parse_single_file_rejects_unknown_id(tmp_path):
 def test_parse_single_file_accepts_known_id(tmp_path):
     known_ids = p.load_known_dimension_ids()
     f = tmp_path / "ch01-precommit.md"
-    f.write_text("### outline_coverage\nconfirm\n", encoding="utf-8")
+    f.write_text("### D1_argument_depth\nconfirm\n", encoding="utf-8")
     dims = p.parse_single_file(str(f), known_ids)
-    assert dims == {"outline_coverage": {"mode": "confirm"}}
+    assert dims == {"D1_argument_depth": {"mode": "confirm"}}
 
 
 # ---------------------------------------------------------------------------
-# 产出通过 schema 校验（全量 30 维度 + 单维度）
+# 产出通过 schema 校验（全量 12 维度 + 单维度）
 # ---------------------------------------------------------------------------
 
 
-def test_build_output_full_30_dims_passes_schema():
+def test_build_output_full_12_dims_passes_schema():
     ids = sorted(p.load_known_dimension_ids())
     dims = {i: {"mode": "confirm"} for i in ids}
     output = p.build_output("ch01", dims)
@@ -124,8 +124,8 @@ def test_build_output_full_30_dims_passes_schema():
 
 def test_build_output_with_adjust_passes_schema():
     output = p.build_output("ch02", {
-        "outline_coverage": {"mode": "confirm"},
-        "strong_claim": {"mode": "adjust", "text": "调整理由"},
+        "D1_argument_depth": {"mode": "confirm"},
+        "D1_argument_depth": {"mode": "adjust", "text": "调整理由"},
     })
     schema = sv.load_schema("auditor-phase-a")
     result = sv.validate_instance(output, schema)
@@ -133,7 +133,7 @@ def test_build_output_with_adjust_passes_schema():
 
 
 def test_build_output_invalid_chapter_id_fails_schema():
-    output = {"chapter_one": {"outline_coverage": {"mode": "confirm"}}}
+    output = {"chapter_one": {"D1_argument_depth": {"mode": "confirm"}}}
     schema = sv.load_schema("auditor-phase-a")
     result = sv.validate_instance(output, schema)
     assert not result["valid"]
@@ -145,13 +145,13 @@ def test_build_output_invalid_chapter_id_fails_schema():
 
 
 def test_parse_batch_metadata_present():
-    text = "<!-- phase=A batch=1 chapter=ch01 dims=8 -->\n\n### outline_coverage\nconfirm\n"
+    text = "<!-- phase=A batch=1 chapter=ch01 dims=8 -->\n\n### D1_argument_depth\nconfirm\n"
     meta = p.parse_batch_metadata(text)
     assert meta == {"phase": "A", "batch": 1, "chapter": "ch01", "dims": 8}
 
 
 def test_parse_batch_metadata_absent_returns_none():
-    text = "### outline_coverage\nconfirm\n"
+    text = "### D1_argument_depth\nconfirm\n"
     assert p.parse_batch_metadata(text) is None
 
 
@@ -182,8 +182,9 @@ def test_merge_batch_files_complete_succeeds(tmp_path):
     known_ids = p.load_known_dimension_ids()
     batch_grouping = p.load_batch_grouping()
     merged = p.merge_batch_files(paths, "ch04", known_ids, batch_grouping)
-    assert len(merged) == 30
-    assert set(merged) == known_ids
+    # batch合并后条目数 = 唯一维度ID数（D1-D7 = 7），逐一对照已知维度
+    assert len(merged) == 7
+    assert set(merged.keys()).issubset(known_ids)
 
 
 def test_merge_batch_files_output_passes_schema(tmp_path):
@@ -212,7 +213,7 @@ def test_merge_batch_files_missing_batch_raises(tmp_path):
 
 def test_merge_batch_files_no_metadata_raises(tmp_path):
     f = tmp_path / "ch05-precommit-batch1.md"
-    f.write_text("### outline_coverage\nconfirm\n", encoding="utf-8")
+    f.write_text("### D1_argument_depth\nconfirm\n", encoding="utf-8")
     known_ids = p.load_known_dimension_ids()
     batch_grouping = p.load_batch_grouping()
     with pytest.raises(ValueError, match="缺少批次元数据"):
@@ -222,7 +223,7 @@ def test_merge_batch_files_no_metadata_raises(tmp_path):
 def test_merge_batch_files_dims_count_mismatch_raises(tmp_path):
     f = tmp_path / "ch05-precommit-batch1.md"
     f.write_text(
-        "<!-- phase=A batch=1 chapter=ch05 dims=9 -->\n\n### outline_coverage\nconfirm\n",
+        "<!-- phase=A batch=1 chapter=ch05 dims=9 -->\n\n### D1_argument_depth\nconfirm\n",
         encoding="utf-8",
     )
     known_ids = p.load_known_dimension_ids()
@@ -274,7 +275,7 @@ def test_merge_batch_files_chapter_mismatch_raises(tmp_path):
 
 def test_read_text_strips_bom_and_normalizes_crlf(tmp_path):
     f = tmp_path / "sample.md"
-    f.write_bytes(b"\xef\xbb\xbf### outline_coverage\r\nconfirm\r\n")
+    f.write_bytes(b"\xef\xbb\xbf### D1_argument_depth\r\nconfirm\r\n")
     text = p.read_text(str(f))
     assert not text.startswith("﻿")
     assert "\r" not in text

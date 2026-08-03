@@ -24,6 +24,8 @@ portability: core
 
 你**必须不做**（MUST NOT）：写正文（卡片是研究笔记不是正文）；重新核验（核验已在阶段 3 完成）；编造台账中没有的主张。
 
+你**必须做**（MUST）：读取 claims-ledger.csv 时过滤 `adopted=false` 的主张——这些主张已在阶段 3 的二分决策中被剔除（核验状态为"误导/错误/无法证实"），不得为其生成卡片。在开始卡片合成前，先从台账中筛选出 `adopted=true` 的行作为工作集。
+
 ## 输出隔离契约
 
 ```
@@ -36,7 +38,7 @@ portability: core
 
 ## 输入 / 输出
 
-- **输入**：`research/claims/claims-ledger.csv`（台账）+ `research/outline.md`（按 chapter_ref 组织卡片）。
+- **输入**：`research/claims/claims-ledger.csv`（台账——**只处理 `adopted=true` 的主张**，`adopted=false` 的不生成卡片）+ `research/outline.md`（按 chapter_ref 组织卡片）。
 - **输出**：`research/notes/{case-cards,tech-cards,architecture-cards,theory-cards}/` 下的结构化卡片 + `research/notes/card-index.csv`（登记每张卡片类型/对应章节 chapter_ref/关联证据包/是否已被阶段7引用 used_in_chapter/卡片文件路径 card_file_path）。目录名约定以 `references/stage-5-cards.md` §5.0 为准。**此外产出 `research/glossary.md`**——基于 theory-cards 中的原创概念编译术语表，含 preferred_form/aliases/banned_forms 等完整元数据，格式以 `references/glossary.md` 模板为准。
 
 ## 卡片类型（stage-5-cards.md）
@@ -47,7 +49,16 @@ portability: core
 > **card-index.csv 的 `transcription_check` 列**：合成阶段**留空**，由阶段 7 审计 Agent 跑完卡片-正文重合度检测后回填（pass/overlap-flagged/waived-facts）。
 > **card-index.csv 的 `card_file_path` 列**：合成阶段**必须填写**卡片文件相对于 `research/` 目录的相对路径（如 `notes/case-cards/CASE-01.md`）。此列为后续脚本精确按 CSV 路径定位卡片文件提供依据。
 
+### adopted 过滤操作
+
+在开始卡片合成之前：
+
+1. 读取 `research/claims/claims-ledger.csv`
+2. 筛选 `adopted=true` 的行——这些是核验通过、可用于卡片合成的主张
+3. `adopted=false` 的行不生成卡片，不在 card-index.csv 中登记
+4. 如果台账中存在 `claim_nature: opinion` 的主张（adopted=true、核验状态为"仅为观点"），正常为其生成卡片，但在卡片中标记其观点性质（如在卡片内注明"此主张为 XX 机构的观点，非已验证事实"）。
+
 ## 交接与失败路径
 
 - **交接**：卡片 + card-index.csv → `architecture_chart_agent`（架构卡）+ `chapter_writer_agent`（按 chapter_ref 取当前章卡片）。`research/glossary.md` → `chapter_writer_agent`（术语强制参考）+ `chapter_auditor_agent`（术语一致性审计基准）。
-- **失败路径**：某主张证据不足以成卡 → 在 card-index.csv notes 标注，不硬凑；卡片数不足阶段 5 门槛 → 回炉补充。
+- **失败路径**：adopted=true 的主张中某条证据不足以成卡 → 在 card-index.csv notes 标注，不硬凑；adopted=true 的主张不足以支撑卡片数满足阶段 5 门槛 → 回炉补充（注意：不回炉已被剔除的 adopted=false 主张——它们已在阶段 3 被判定为不可用）。

@@ -4,13 +4,13 @@
       "count": 0,
       "hits": [],
       "pass": true,
-      "severity": "mid"
+      "severity": "high"
     },
     "C11_claim_id_leak": {
       "count": 0,
       "hits": [],
       "pass": true,
-      "severity": "mid"
+      "severity": "high"
     },
     "C1_h1": {
       "count": 1,

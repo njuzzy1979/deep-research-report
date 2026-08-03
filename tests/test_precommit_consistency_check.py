@@ -75,10 +75,10 @@ def _matching_phase_b(chapter, core_ids, dim_meta, block_dims=(), warn_dims=()):
 def test_fully_consistent_passes():
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    # strong_claim 是 high 严重度维度，触发 block 使得 verdict=REVISE 与 verdict_rule 一致
+    # D1_argument_depth 是 high 严重度维度，触发 block 使得 verdict=REVISE 与 verdict_rule 一致
     phase_b_obj = _matching_phase_b(
         "ch01", core_ids, dim_meta,
-        block_dims=["strong_claim"], warn_dims=["structural_consistency"],
+        block_dims=["D1_argument_depth"],
     )
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     assert result["dimension_completeness"]["passed"]
@@ -98,7 +98,7 @@ def test_fully_consistent_passes():
 def test_fully_consistent_cli_exit_0(tmp_path):
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["strong_claim"])
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D1_argument_depth"])
 
     a_path = tmp_path / "ch01-audit-phaseA.json"
     b_path = tmp_path / "ch01-audit-phaseB.json"
@@ -122,15 +122,15 @@ def test_fully_consistent_cli_exit_0(tmp_path):
 def test_a5_unmatched_evidence_fails_and_names_dimension():
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["strong_claim"])
-    # 把 strong_claim 的 evidence 替换为与触发词毫无关系的文本
-    phase_b_obj["dimension_scores"]["strong_claim"]["evidence"] = "本段落篇幅适中，用词自然，读来顺畅。"
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D1_argument_depth"])
+    # 把 D1_argument_depth 的 evidence 替换为与触发词毫无关系的文本
+    phase_b_obj["dimension_scores"]["D1_argument_depth"]["evidence"] = "本段落篇幅适中，用词自然，读来顺畅。"
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     assert result["a5_consistency"]["passed"] is False
     failing = [r for r in result["a5_consistency"]["results"] if not r["passed"]]
     assert len(failing) == 1
-    assert failing[0]["dimension"] == "strong_claim"
+    assert failing[0]["dimension"] == "D1_argument_depth"
 
     schema_a = sv.validate_instance(phase_a_obj, sv.load_schema("auditor-phase-a"))
     schema_b = sv.validate_instance(phase_b_obj, sv.load_schema("auditor-phase-b"))
@@ -142,8 +142,8 @@ def test_a5_unmatched_evidence_fails_and_names_dimension():
 def test_a5_unmatched_evidence_cli_exit_1(tmp_path):
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["strong_claim"])
-    phase_b_obj["dimension_scores"]["strong_claim"]["evidence"] = "无关文本，未复述触发词"
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D1_argument_depth"])
+    phase_b_obj["dimension_scores"]["D1_argument_depth"]["evidence"] = "无关文本，未复述触发词"
 
     a_path = tmp_path / "ch01-audit-phaseA.json"
     b_path = tmp_path / "ch01-audit-phaseB.json"
@@ -158,7 +158,7 @@ def test_a5_unmatched_evidence_cli_exit_1(tmp_path):
     payload = json.loads(proc.stdout)
     assert payload["failure_stage"] == "phaseB"
     failing_dims = [r["dimension"] for r in payload["a5_consistency"]["results"] if not r["passed"]]
-    assert failing_dims == ["strong_claim"]
+    assert failing_dims == ["D1_argument_depth"]
 
 
 # ---------------------------------------------------------------------------
@@ -167,10 +167,10 @@ def test_a5_unmatched_evidence_cli_exit_1(tmp_path):
 
 
 def test_paraphrase_still_passes_via_token_overlap():
-    """strong_claim 的 block 触发词同义改写后：严格 substring 会误判失败，分词交集法正确判通过。"""
+    """D1_argument_depth 的 block 触发词同义改写后：严格 substring 会误判失败，分词交集法正确判通过。"""
     dim_meta = m.load_dimension_meta()
-    block_hint = dim_meta["strong_claim"]["what_triggers_block_hint"]
-    paraphrase = "经 claim_strength_check.py 运行核实，发现存在缺乏引用支撑的强表述内容，该脚本判定结果为 exit 1"
+    block_hint = dim_meta["D1_argument_depth"]["what_triggers_block_hint"]
+    paraphrase = "经过逐节排查，全章范围内未发现任何实质性的Warranty逻辑推理，维度D1评分低于等于2分"
 
     # 严格 substring 判定：应当失败（这正是方案要求"分词交集比例而非严格 substring"的价值所在）
     assert block_hint not in paraphrase, "测试前提：改写文本不应是触发词的原文子串"
@@ -180,18 +180,18 @@ def test_paraphrase_still_passes_via_token_overlap():
     assert ratio >= m.DEFAULT_THRESHOLD, f"改写文本 ratio={ratio} 应达到阈值 {m.DEFAULT_THRESHOLD}"
 
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["strong_claim"])
-    phase_b_obj["dimension_scores"]["strong_claim"]["evidence"] = paraphrase
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D1_argument_depth"])
+    phase_b_obj["dimension_scores"]["D1_argument_depth"]["evidence"] = paraphrase
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     assert result["a5_consistency"]["passed"] is True
 
 
 def test_paraphrase_structural_consistency_word_order_change():
-    """structural_consistency 触发词语序调整后的同义改写，仍应判通过。"""
+    """D5_structure 触发词语序调整后的同义改写，仍应判通过。"""
     dim_meta = m.load_dimension_meta()
-    block_hint = dim_meta["structural_consistency"]["what_triggers_block_hint"]
-    paraphrase = "正文中出现了未列于 outline.md 结构清单的 H3/H4 标题，同时清单声明的某节在正文里没有出现"
+    block_hint = dim_meta["D5_structure"]["what_triggers_block_hint"]
+    paraphrase = "本章内容缺少结论性总结段落，整体篇章结构存在不完整之处"
 
     assert block_hint not in paraphrase
 
@@ -199,8 +199,8 @@ def test_paraphrase_structural_consistency_word_order_change():
     assert ratio >= m.DEFAULT_THRESHOLD
 
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["structural_consistency"])
-    phase_b_obj["dimension_scores"]["structural_consistency"]["evidence"] = paraphrase
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D5_structure"])
+    phase_b_obj["dimension_scores"]["D5_structure"]["evidence"] = paraphrase
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     assert result["a5_consistency"]["passed"] is True
@@ -210,10 +210,10 @@ def test_strict_substring_vs_token_overlap_divergence_documented():
     """鲁棒性对比实证：同一组改写样本，严格 substring 与分词交集法给出不同判定。"""
     dim_meta = m.load_dimension_meta()
     samples = [
-        ("strong_claim", dim_meta["strong_claim"]["what_triggers_block_hint"],
-         "经 claim_strength_check.py 运行核实，发现存在缺乏引用支撑的强表述内容，该脚本判定结果为 exit 1"),
-        ("structural_consistency", dim_meta["structural_consistency"]["what_triggers_block_hint"],
-         "正文中出现了未列于 outline.md 结构清单的 H3/H4 标题，同时清单声明的某节在正文里没有出现"),
+        ("D1_argument_depth", dim_meta["D1_argument_depth"]["what_triggers_block_hint"],
+         "经过逐节排查，全章范围内未发现任何实质性的Warranty逻辑推理，维度D1评分低于等于2分"),
+        ("D5_structure", dim_meta["D5_structure"]["what_triggers_block_hint"],
+         "本章内容缺少结论性总结段落，整体篇章结构存在不完整之处"),
     ]
     for dim_id, hint, paraphrase in samples:
         substring_match = hint in paraphrase
@@ -233,14 +233,14 @@ def test_missing_dimension_in_phase_a_detected():
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
     # 从 Phase A 中删除一个核心维度
-    del phase_a_obj["ch01"]["strong_claim"]
-    remaining_ids = [i for i in core_ids if i != "strong_claim"]
+    del phase_a_obj["ch01"]["D1_argument_depth"]
+    remaining_ids = [i for i in core_ids if i != "D1_argument_depth"]
     phase_b_obj = _matching_phase_b("ch01", remaining_ids, dim_meta)
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     dc = result["dimension_completeness"]
     assert dc["passed"] is False
-    assert "strong_claim" in dc["missing_core_in_phase_a"]
+    assert "D1_argument_depth" in dc["missing_core_in_phase_a"]
 
     schema_a = sv.validate_instance(phase_a_obj, sv.load_schema("auditor-phase-a"))
     schema_b = sv.validate_instance(phase_b_obj, sv.load_schema("auditor-phase-b"))
@@ -254,12 +254,12 @@ def test_phase_b_missing_dimension_covered_by_phase_a_detected():
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
     phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta)
-    del phase_b_obj["dimension_scores"]["strong_claim"]
+    del phase_b_obj["dimension_scores"]["D1_argument_depth"]
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
     dc = result["dimension_completeness"]
     assert dc["passed"] is False
-    assert "strong_claim" in dc["missing_in_phase_b"]
+    assert "D1_argument_depth" in dc["missing_in_phase_b"]
 
 
 # ---------------------------------------------------------------------------
@@ -375,11 +375,11 @@ def test_schema_invalid_content_reported_but_not_exit_2(tmp_path):
 
 
 def test_failure_stage_phase_a_when_schema_invalid():
-    phase_a_obj = {"not-a-valid-chapter-id": {"outline_coverage": {"mode": "confirm"}}}
+    phase_a_obj = {"not-a-valid-chapter-id": {"D1_argument_depth": {"mode": "confirm"}}}
     phase_b_obj = {
         "chapter_id": "ch01",
         "verdict": "PASS",
-        "dimension_scores": {"outline_coverage": {"verdict": "pass", "evidence": "x"}},
+        "dimension_scores": {"D1_argument_depth": {"verdict": "pass", "evidence": "x"}},
         "issues": [],
     }
     schema_a = sv.validate_instance(phase_a_obj, sv.load_schema("auditor-phase-a"))
@@ -403,8 +403,8 @@ def test_failure_stage_phase_a_when_schema_invalid():
 def test_failure_stage_phase_b_when_verdict_rule_mismatch():
     dim_meta = m.load_dimension_meta()
     phase_a_obj, core_ids = _all_confirm_phase_a("ch01")
-    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["strong_claim"])
-    # strong_claim 是 high 严重度，触发 block 理应 verdict=REVISE，这里故意错填为 PASS
+    phase_b_obj = _matching_phase_b("ch01", core_ids, dim_meta, block_dims=["D1_argument_depth"])
+    # D1_argument_depth 是 high 严重度，触发 block 理应 verdict=REVISE，这里故意错填为 PASS
     phase_b_obj["verdict"] = "PASS"
 
     result = m.run_check(phase_a_obj, phase_b_obj, m.DEFAULT_THRESHOLD, None)
@@ -467,16 +467,16 @@ def test_tokenize_and_ratio_basic():
 
 def test_verdict_rule_high_block_forces_revise():
     dim_meta = m.load_dimension_meta()
-    scores = {"strong_claim": {"verdict": "block", "evidence": "x"}}
+    scores = {"D1_argument_depth": {"verdict": "block", "evidence": "x"}}
     result = m.check_verdict_rule(scores, dim_meta, "PASS")
     assert result["passed"] is False
     assert result["expected_verdict"] == "REVISE"
-    assert result["high_block_dims"] == ["strong_claim"]
+    assert result["high_block_dims"] == ["D1_argument_depth"]
 
 
 def test_verdict_rule_mid_block_does_not_force_revise():
     dim_meta = m.load_dimension_meta()
-    scores = {"structural_consistency": {"verdict": "block", "evidence": "x"}}  # mid 严重度
+    scores = {"D2_honest_expression": {"verdict": "block", "evidence": "x"}}  # mid 严重度
     result = m.check_verdict_rule(scores, dim_meta, "PASS")
     assert result["passed"] is True
     assert result["expected_verdict"] == "PASS"

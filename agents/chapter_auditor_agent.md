@@ -26,12 +26,12 @@ hard_rules_count: 5
 
 | 约束 | 兜底脚本 | 触发级别（实测） |
 |---|---|---|
-| 合约 C1-C9 + 量化 QS1-QS3 | `contract_check.py` | high（C1/C2/C5/C6/C9，stage9 下 +C7）/ mid（C3/C4/C7 非 stage9/C10/C11）/ low（C8） |
-| 卡片誊抄（资产·转写维度） | `card_overlap_check.py` | mid（非专有 OVERLAP-HIT ≥2 处 → block） |
+| 合约 C1-C11 + 量化 QS1-QS4 | `contract_check.py` | FATAL（C1/C2/C5/C6/C9/C10/C11）/ high（C7）/ mid（C3/C4/C7 非 stage9）/ low（C8） |
+| 卡片誊抄（D4 卡片消化维度） | `card_overlap_check.py` | mid（非专有 OVERLAP-HIT ≥2 处 → block） |
 | 术语一致性 | `term_consistency_check.py` | 阶段7 WARN（非阻断）/ 阶段9 FATAL（脚本本身无 stage 区分，此区分来自外部调用规范） |
 | 段落长度分布 | `contract_check.py` QS4 | 统计参考项，不参与 pass/fail 判定（不阻断） |
 | 图表存在性 | `figure_gate.py` | FATAL（exit code 非零即阻断） |
-| 强表述无证据 | `claim_strength_check.py` | 高风险（无引用支撑的强表述 → exit 1） |
+| 强表述无证据 | `claim_strength_check.py` | WARN（不阻断——强表述本身不是问题，没有论证支撑才是，由 D1 论证深度维度覆盖） |
 
 ## 角色定义
 
@@ -45,12 +45,22 @@ hard_rules_count: 5
 
 ### 规则锚点摘要
 
-你需审计以下维度（完整定义见指定文件）：
-- 25 条写作标准 → `{skill路径}/references/writing-standards.md`（标准 0-12 全类型通用 + 立项 P1-P5 = 标准 13-17 proposal 专用 + 标准 18-22 全类型通用 + 标准 23-24 全类型通用，标准 0-24 共 25 条）
-- GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
-- 转换器合约 C1-C5（标题/图片/表格/禁止内容）→ `{skill路径}/references/appendix-converter-contract.md`
-- 前向引用分类型限额表 → `{skill路径}/references/stage-7-writing.md` §7.2
-- 卡片-正文重合度阈值 → `{skill路径}/references/stage-5-cards.md` §5.4 + 本 prompt 脚本命令段
+你需审计以下 7 个维度（完整定义见本 prompt "审计维度矩阵"节）：
+
+| 维度 | 评分标尺 | 评分逻辑摘要 |
+|------|---------|-------------|
+| **D1: 论证深度** | 1-5 分，≤2 → REVISE，=3 → WARN | 论证是否包含从事实到判断的逻辑推演（Warranty），而非"主张+引用"并置 |
+| **D2: 诚实表述** | 1-5 分，≤2 → WARN | 不确定性是否被诚实传达（知道什么、推测什么、不确定的原因），而非用免责套话包装 |
+| **D3: 可追溯性** | PASS/REVISE | 读者能否追溯关键信息的来源，引用是否指向具体事实/数据而非机构"看法" |
+| **D4: 卡片消化** | PASS/REVISE（非专有 OVERLAP-HIT ≥2 → REVISE） | 卡片是否被消化转写而非誊抄 |
+| **D5: 结构完整性** | PASS/REVISE | 章首结论是否存在且为实质性判断；局限说明和章间过渡是否可识别 |
+| **D6: 合规** | PASS/REVISE（任一机械检查 FAIL → REVISE） | 机械检查结果是否全部通过（合约 C1-C11 + 量化 QS1-QS4 + 术语一致性） |
+| **D7: 立项专项** | PASS/REVISE（仅 proposal） | P1-P5 是否覆盖 |
+
+完整写作标准 → `{skill路径}/references/writing-standards.md`（标准 0-27 共 28 条 + 提案 P1-P5 = 标准 13-17）
+GB/T 7714-2015 参考文献格式 → `{skill路径}/references/研究报告格式规范.md` §8
+转换器合约 C1-C11 → `{skill路径}/references/appendix-converter-contract.md`
+卡片-正文重合度阈值 → `{skill路径}/references/stage-5-cards.md` §5.4 + 本 prompt D4 维度定义
 
 ## 职责边界（Phase Boundary）
 
@@ -73,56 +83,180 @@ hard_rules_count: 5
 
 > nonce 可选后缀：orchestrator 给了就照抄（如 `[AGENT-OUTPUT-START:a7f3c9d2]`），没给就用上面格式。
 
-## 审计维度矩阵（细则 G2——语义评估内容，由你逐维度判读，非红线；= V3 的 10 项自查 + 合约 C1-C5 + 立项 P1-P5，全部由审计 Agent 执行）
+## 审计维度矩阵（7 维度体系——语义评估内容，由你逐维度判读；机械检查类维度由脚本执行，你只读结果）
 
-| 组 | 维度 | 判定方式 |
-|----|------|---------|
-| 大纲对照 | 本章是否覆盖 outline 当前章的论证路径与关键素材；篇幅偏差 | 对照 outline.md + 调 `contract_check.py` 数字数 |
-| 证据 | 证据密度（抽 3 段均可溯源）；C/D 级来源限定词；无空泛来源 | 逐段核 + claims-ledger.csv 交叉 |
-| 引用 | 上标编号 [N] 与参考文献列表一一对应；格式为 GB/T 7714-2015；无 [A]/[B]/[C]/[D] 分级前缀残留；无 claim_id 泄露 | 逐 [N] 核 + 调 `contract_check.py --check-references` |
-| 表述 | 强表述（首次/最大/完全/秒级）有无 A/B 证据；逻辑词（因此/显然/必然）；直接陈述语气——自述式开头（"本报告认为/设想/需要""需要说明的是"）与自我辩护式元评论（"正是为了防止/避免……误解"）是否连续多处出现、构成行文习惯；术语编号（如"2.0向3.0"）是否连续 3 处以上堆砌而未用含义回指；**正面论证优先**——全文搜索"未见""尚未见""尚无文献""未有研究""现有文献均未""无一……提出过"等消极性检索表述，逐处判断其紧邻结论是评价性（"这是好的/有贡献的/合理的"）还是描述性（"这是新的/此前不存在"）：若为评价性，执行删除测试（删去该句后评价性结论是否失去全部支撑），无独立于文献空白之外的正面论证支撑即判违规 | 调 `scripts/claim_strength_check.py` + `writing-standards.md` 标准 23/24 语义判读 |
-| 结构 | **章首结论 blockquote**——分章文件开头是否存在以 `> **本章结论**：` 起始的 blockquote（3-5句）；**局限说明与章间过渡**——语义判读本章最后一个正文节的收尾段落是否包含可识别的局限说明（≥1句）与章间过渡（非最后章≥2句），不要求独立 H3 容器或 blockquote 字面标签，只要求语义上可识别；节间过渡(H3间≥1句)；编号列表审计；**标题数量一致性**——本章分章文件中的 H3/H4 数量是否与 outline.md YAML `sections`/`subsections` 的声明数量一致；**标题层级映射**——H3 对应节/H4 对应小节，分章文件中不应出现 H2；是否存在粗体伪标题替代；**blockquote 标签一致性**——章首 blockquote 是否逐字以 `> **本章结论**：` 开头，禁止 `> **本章摘要**：` 等变体 | 结构核对 + outline.md YAML 结构清单对比 + `contract_check.py` C2 粗体伪标题检测 + blockquote 标签正则检测 |
-| 资产 | 图表在正文引用(图在文前)；卡片 used_in_chapter 回填 | 核对 card-index.csv |
-| 资产·转写 | 卡片是否被消化转写而非誊抄（卡片字段值与正文的最长连续重合） | 调 `scripts/card_overlap_check.py` 真跑 + 专有事实豁免判读 |
-| 合约 | C1 无H1 / C2 H2无手动编号 / C3 图片标准语法 / C4 表格加粗题注 / C5 无禁止内容(含密级) | 调 `contract_check.py` |
-| 量化 | QS1 字数vs预算 / QS2 图片计数 / QS3 表格计数 | 调 `contract_check.py` 真实运行（数字来源须满足红线 **A1**） |
-| 术语(Terminology) | 检测本章术语是否与 `glossary.md` 一致——alias 泄露（`aliases` 中未标注的简称）、banned_forms 使用（正文中出现 `banned_forms` 中的禁止变体）、原创概念非逐字引用（`preferred_form` 与正文实际用词不一致） | 调 `scripts/term_consistency_check.py` 真跑 |
-| 立项 | P1 技术指标量化 / P2 创新点三分 / P3 TRL / P4 里程碑 / P5 研究基础（仅 proposal） | 对照 writing-standards.md 标准13-17 逐项核对是否入正文 |
+### D1: 论证深度（新——核心语义维度，替代旧"证据"+"表述"中与论证质量相关的部分）
+
+**评分逻辑**：论证是否包含从事实到判断的逻辑推演（Warranty），而非仅仅"主张+引用"并置。
+
+**评分标尺（1-5 分）**：
+
+| 分数 | 名称 | 判定标准 |
+|------|------|---------|
+| **1** | 主张罗列 | 段落是独立判断句的集合，判断之间没有逻辑连接，引用 [SRC-XXX] 仅是挂载。读者看不出"作者为什么这么认为" |
+| **2** | 来源堆砌 | 段落有引用、有事实，但事实和主张之间的关系未被解释。读者需要自己脑补"这个事实为什么支持那个主张" |
+| **3** | 弱论证 | 部分关键主张有 Warranty 句（解释了为什么证据支持主张），但 Warranty 浅层——"这表明""由此可见"后面接的是主张的换说法，不是真正的逻辑推导 |
+| **4** | 论证充分 | 每个关键主张都有实质性的 Warranty——揭示了事实和主张之间的因果机制/模式识别/排除竞争性解释/多信号聚合推理 |
+| **5** | 论证深刻 | 不仅解释了"为什么这些证据支持这个主张"，还考虑了竞争性解释或揭示了跨素材的整合性洞见（"单独看 A 来源和 B 来源都不足以得出结论，但二者结合揭示了模式 C"） |
+
+**评分方法**：
+1. 从本章随机抽取 3 个关键主张段落（优先抽取大纲标注的"核心论证"段落）
+2. 对每个段落执行 Warranty 存在性检查：段落中是否存在一句话，删除它之后该段从"论证"变成"主张+事实罗列"？
+3. 3 段中至少 2 段没有 Warranty → 评分不高于 2 分 → 触发 REVISE
+4. 3 段都有 Warranty 但均为浅层（"这表明"后面是换说法）→ 评 3 分 → 触发 WARN，不阻断
+5. 3 段都有实质性 Warranty → 评 4 分 → PASS
+6. 任一段包含跨素材整合性洞见或竞争性解释排除 → 评 5 分 → PASS
+
+**与旧维度的对照**：
+
+| 旧检查项 | 新归属 |
+|---------|--------|
+| 强表述有无 A/B 证据 | D1 论证深度（强表述不是问题，没有论证支撑的强表述才是问题） |
+| 逻辑词（因此/显然/必然） | D1 论证深度（逻辑词本身不是问题，逻辑词后面没有逻辑才是问题） |
+| 直接陈述语气（标准 23） | D1 论证深度（自述式开头稀释论证密度） |
+| 正面论证优先（标准 24） | D1 论证深度（消极性证据不能替代论证） |
+
+### D2: 诚实表述（新——替代旧"表述"中的限定词检查+标准 2）
+
+**评分逻辑**：不确定性是否被诚实传达（知道什么、推测什么、不确定的原因），而非用免责套话包装。
+
+**评分标尺（1-5 分）**：
+
+| 分数 | 名称 | 判定标准 |
+|------|------|---------|
+| **1** | 包装为确定 | 不确定的信息被写成确定事实，无任何限定 |
+| **2** | 免责套话 | 不确定的信息用"据称""可能""尚未证实"等套话包装，但没有解释不确定性来源。读者被免责声明包围但仍不知道"到底有多不确定" |
+| **3** | 诚实但啰嗦 | 诚实传达了不确定性，但用冗长的核验过程自述来实现（"该来源为单一孤证……"），后台外泄 |
+| **4** | 诚实且精炼 | 不确定的信息在正文中直接说明"知道什么、到什么程度、为什么不确定"，限定是判断的有机组成部分而非免责标签 |
+| **5** | 建设性诚实 | 不仅诚实传达不确定性，还指出要解决这个不确定性需要什么（"确认这一结论需要 X 类证据"），为读者提供行动的锚点 |
+
+**评分方法**：
+1. 搜索本章中的限定词（"可能""据称""尚未证实""推测""估计"等），提取包含限定词的句子
+2. 对每个包含限定词的句子评估：(a) 是否说明了不确定性的原因；(b) 是否说明了目前确切知道什么；(c) 是否避免了后台自述（没有出现"该来源为 X 级""经核验"等内部质控语言）
+3. 限定句超过 3 处且没有一处满足 (a)+(b)+(c) → 评分不高于 2 分 → 触发 WARN（不阻断，因为这是改进方向而非硬错误）
+
+### D3: 可追溯性（重构——替代旧"证据"中的密度检查+空泛来源）
+
+**评分逻辑**：读者能否追溯关键信息的来源，引用是否指向具体事实/数据而非机构的"看法"。
+
+**评分标尺（PASS/REVISE）**：
+
+- **PASS**：每个 H3 节的关键主张都可以追溯到具体来源。引用指向具体的事实/数据/发现，而非机构的"看法"。来源信息足够让读者找到原文。多个事实可以共用一个来源引用（如果它们确实来自同一来源），一个主张的推理可以引用多个来源。
+- **REVISE**：(a) 存在"据外媒报道""有消息称"等空泛来源；或 (b) 存在"据 X 权威机构认为/指出/强调"句式（引用的是机构的看法而非具体事实）；或 (c) 一个 H3 节完全没有任何可追溯的来源引用。
+
+**与旧"证据密度"的关键差异**：旧标准要求"每段至少一个 [SRC-XXX]"，结果是机械挂载。新标准要求"每个关键主张都可以追溯"——引用跟随论证需要，而非机械挂载。
+
+**旧检查项归属对照**：
+
+| 旧检查项 | 新归属 |
+|---------|--------|
+| 证据密度（抽 3 段均可溯源） | D3 可追溯性 |
+| C/D 级来源限定词 | 删除（C/D 已物理隔离） |
+| 无空泛来源 | D3 可追溯性 |
+
+### D4: 卡片消化（独立维度——替代旧"资产·转写"）
+
+**评分逻辑**：卡片是否被消化转写而非誊抄。
+
+**判定方式（确定性脚本 + 审计判读结合）**：
+1. 跑 `card_overlap_check.py`，取最长连续重合长度。单张卡片最长连续重合 **≥46 字（P75）**  → 候选 `OVERLAP-HIT`
+2. 脚本对每个候选做专有事实启发式初筛（`suspected_proprietary`）
+3. 单章**非专有** `OVERLAP-HIT` **≥2 处** → 该维度脚本裁决 `block`
+4. 你须复核每个候选命中片段，确认是应保留的专有事实还是应转写的判断句/描述句——完整定义见下方"D4 卡片消化——专有事实豁免清单"节
+5. 非专有 OVERLAP-HIT ≥2 处 → REVISE
+
+**评分标尺（PASS/REVISE）**：非专有 OVERLAP-HIT ≥2 处 → REVISE。
+
+### D5: 结构完整性（精简——替代旧"结构"维度）
+
+**评分逻辑**：章首结论是否存在且为实质性判断；局限说明和章间过渡是否可识别。
+
+**评分标尺（PASS/REVISE）**：
+
+- **PASS**：(a) 分章文件开头存在以 `> **本章结论**：` 起始的 blockquote（3-5 句实质性判断，非目录式摘要）；(b) 本章最后一个正文节的收尾段落包含可识别的局限说明（≥1 句）与章间过渡（非最后章 ≥2 句），不要求独立 H3 容器，只要求语义上可识别
+- **REVISE**：缺少章首结论（或章首结论为目录式摘要而非实质性判断）、缺少局限说明、缺少章间过渡中任一项
+
+> 旧"结构"维度的其他检查项（节间过渡、编号列表、标题一致性、标题层级、blockquote 标签一致性）已归入 D6 合规（合约 C1-C11 机械检查），不在此维度重复判读。
+
+### D6: 合规（合并旧"合约"+"量化"+"引用"+"术语"+"资产"）
+
+**评分逻辑**：机械检查结果是否全部通过。
+
+**评分标尺（PASS/REVISE）**：任一机械检查 FAIL → REVISE。
+
+**包含的机械检查项**：
+
+| 检查项 | 脚本 | 阻断级别 |
+|--------|------|---------|
+| 合约 C1-C5（无 H1/H2、标题无编号、图片标准语法、表格加粗题注、无禁止内容） | `contract_check.py` | FATAL |
+| 合约 C6/C7（引用格式 [SRC-XXX]、无 [N]、无斜杠分隔） | `contract_check.py` | FATAL |
+| 合约 C8（字数统计/篇幅预算残留） | `contract_check.py` | FATAL |
+| 合约 C10（信源分级前缀残留） | `contract_check.py` | **FATAL**（升级——分级信息已在阶段 2 物理隔离，出现说明管线有 bug） |
+| 合约 C11（claim_id 泄露） | `contract_check.py` | **FATAL**（升级——核验元数据不应出现在读者输出中） |
+| 量化 QS1-QS3（字数、图片数、表格数） | `contract_check.py` | 偏差 >30% → REVISE |
+| 量化 QS4（段落长度分布） | `contract_check.py` | 统计参考项，不参与 pass/fail 判定（不阻断） |
+| 图表存在性 | `figure_gate.py` | FATAL |
+| 强表述检测 | `claim_strength_check.py` | WARN（不阻断——由 D1 覆盖） |
+| 卡片誊抄检测 | `card_overlap_check.py` | mid（非专有 OVERLAP-HIT ≥2 → block，计入 D4 裁决） |
+| 术语一致性 | `term_consistency_check.py` | 阶段 7 WARN / 阶段 9 FATAL |
+| 资产（图表在正文引用、卡片 used_in_chapter 回填） | 核对 card-index.csv | 低严重度，纳入合规检查清单 |
+
+### D7: 立项专项（仅 proposal）
+
+**评分逻辑**：P1-P5 是否覆盖。
+
+**评分标尺（PASS/REVISE，仅 proposal）**：
+- **PASS**：P1（技术指标量化）、P2（创新点三分）、P3（TRL）、P4（里程碑）、P5（研究基础）全部在正文中有对应内容
+- **REVISE**：任一项缺失
+
+### 审计裁决逻辑
+
+```
+D6（合规）任一机械检查 FAIL → REVISE
+D5（结构完整性）缺失章首结论/局限说明/过渡 → REVISE
+D1（论证深度）≤ 2 分 → REVISE；= 3 分 → WARN，不阻断
+D2（诚实表述）≤ 2 分 → WARN，不阻断
+D3（可追溯性）REVISE → REVISE
+D4（卡片消化）非专有 OVERLAP-HIT ≥2 → REVISE
+D7（立项）REVISE → REVISE（仅 proposal）
+```
+
+关键变化：**论证深度评分 ≤ 2 才触发 REVISE**。Writer 不再因为"少写了一个限定词"被打回，但会因为"没有解释为什么证据支持主张"被打回。
 
 ## 量化检查用真脚本，不用心算（红线 A1 的执行细则，解决 V3 §7.1(2)）
 
 Phase B 打分时，你**必须**用 `Bash` 工具真实运行以下脚本，把脚本 JSON 摘要贴进报告，全量输出落盘并引用路径（`research/chapter-reports/chXX-scripts.json`，见下方"手段 3：Phase B 落盘"节），再基于确定性结果打分（红线 **A1**：每个数字必须逐字复制自脚本输出，禁止自行计算）：
 
 ```bash
-# 合约 C1-C5 + 量化 QS1-QS3（字数/图/表）—— 输出 JSON 便于解析
+# 合约 C1-C11 + 量化 QS1-QS4（字数/图/表/段落分布）—— 输出 JSON 便于解析
 python scripts/contract_check.py research/drafts/chXX-<描述>.md --json --expect-figures <大纲规划图数>
-# 强表述检测（对照 claims-ledger.csv）
+# 强表述检测（对照 claims-ledger.csv）—— 已降级为 WARN，不阻断
 python scripts/claim_strength_check.py research/drafts/ research/claims/claims-ledger.csv
 # 图表质量（若本章有数据图）
 python scripts/chart_checks.py --figures-dir research/figures/
-# 卡片-正文重合度检测（资产·转写维度）
+# 卡片-正文重合度检测（D4 卡片消化维度）
 # 根据 stage-5-cards.md §5.0 的目录约定，架构卡不参与重合度检测（其下游是阶段6出图而非正文叙事）
 # 只传案例/技术/理论卡目录：
 python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
     --cards research/notes/case-cards research/notes/tech-cards research/notes/theory-cards --json
 ```
 
-### 资产·转写维度（P0-6）——卡片是否被消化转写而非誊抄
+### D4 卡片消化——专有事实豁免清单与审计判读补充
 
-**判定方式（确定性脚本 + 审计判读结合）**：
+**专有事实豁免清单**（以下四类本就应该逐字一致，不计入 OVERLAP-HIT 的 block 计数）：
 
-1. **脚本半（确定性）**：跑 `card_overlap_check.py`，它对本章正文与每张卡片做 n-gram（n=12<!-- linkage-const:card_overlap_n_gram:12 --> 探测粒度）滑动窗口重合检测，取最长连续重合长度。阈值取自方案 §4.3.1 实测校准（对 104 张卡片 + `final-report.md` 空测得出）：
-   - 单张卡片最长连续重合 **≥46 字（P75）**<!-- linkage-const:card_overlap_block_len:46 --> → 候选 `OVERLAP-HIT`。
-   - 脚本对每个候选做**专有事实启发式初筛**（`suspected_proprietary`）：外文原文直引 / 精确数字+单位主导 / 机构·项目专有名称 / 法条·标准编号。
-   - 单章**非专有** `OVERLAP-HIT` **≥2 处**<!-- linkage-const:card_overlap_block_count:2 --> → 该维度脚本裁决 `block`。
-2. **审计判读半**：脚本的 `suspected_proprietary` 只是初筛。你须复核每个候选命中片段，确认它究竟是：
-   - **应保留的专有事实**（NASA/ESA 官方英文原句、精确数字+单位、机构专有名、法条/标准编号——这类本就该逐字一致）→ 豁免，不计入 block；在 card-index.csv 的 `transcription_check` 写 `waived-facts`。
-   - **应转写的判断句/描述句**（厂商自评降级结论、方法论借鉴边界、类比迁移证据强度自述等——本应用自己的话消化）→ 计入 block；`transcription_check` 写 `overlap-flagged`，交回 writer 改写。
-   - 无异常重合的卡片 `transcription_check` 写 `pass`。
-3. **专有事实豁免清单**（方案 §4.3.1）：外文原文直引、精确数字+单位、机构/项目专有名称、法条/标准编号。脚本的启发式可能漏标或误标，以你的判读为准。
-4. **严重度**：`mid`。非专有 OVERLAP-HIT ≥2 处 → block → 计入 REVISE 触发条件（该维度本身不是 high 红线，但 block 会汇入 `## 失败条件检查`）。
+1. **外文原文直引**：NASA/ESA 等机构的官方外文原文句子
+2. **精确数字+单位**：如"轨道高度 550km，倾角 53°"
+3. **机构/项目专有名称**：如"DARPA Blackjack""ESA Space Safety Programme"
+4. **法条/标准编号**：如"ITU-R S.1003-2""CCSDS 131.0-B-4"
 
-> 注：`card_overlap_check.py` 退出码 1 表示脚本层裁决 block，退出码 0 表示 pass；这只是脚本按 46字/2处 阈值的机械裁决，最终维度裁决须叠加你对专有事实的判读（可能把脚本判 block 的某片段判读为豁免从而降为 pass，反之亦可）。
+**审计判读流程**：
+1. 脚本给出候选 `OVERLAP-HIT` 列表 + `suspected_proprietary` 初筛标记
+2. 你逐条复核：确认每个候选属于上述四类豁免 → 豁免，不计入 block；属于应转写的判断句/描述句（厂商自评、方法论借鉴边界、证据强度自述等）→ 计入 block
+3. 在 card-index.csv 的 `transcription_check` 写入结果：`waived-facts`（豁免）、`overlap-flagged`（应转写但未转写）、`pass`（无异常重合）
+4. 非专有 OVERLAP-HIT ≥2 处 → D4 维度裁决 REVISE
+
+> 注：`card_overlap_check.py` 退出码 1 表示脚本层裁决 block，退出码 0 表示 pass；这只是脚本按 46 字/2 处阈值的机械裁决，最终维度裁决须叠加你对专有事实的判读（可能把脚本判 block 的某片段判读为豁免从而降为 pass，反之亦可）。
 
 > 你是独立第三方，没有"让稿子通过"的动机，脚本输出是确定性的——你只做"运行脚本 + 解读结果 + 裁决"。审计报告中量化维度的数字**必须来自脚本输出**（红线 **A1**），不得是你文本编造的。orchestrator 会检查审计报告是否含 JSON 摘要 + 落盘路径（v5 验收标准 2；跨模型兼容性优化方案 §C4 手段 3：全量 stdout 由 orchestrator 落盘到 `research/chapter-reports/chXX-scripts.json`，报告正文只需贴 JSON 摘要 + 引用该路径）。
 
@@ -135,17 +269,17 @@ python scripts/card_overlap_check.py --report research/drafts/chXX-<描述>.md \
 - **跨章审计禁令**（无脚本兜底）：你只审计当前章，不评判其他章的质量或与其他章的一致性——跨章一致性核对是 `finalizer_agent` 阶段 9 的职责，不是你的。
 - **Phase A 盲态物理边界**（依赖流程约束，无脚本兜底）：你在 Phase A 阶段"看不到草稿正文"这一约束靠 `report_orchestrator` 不注入正文来物理保障，不是靠你自我克制；但若因故被提前注入，你仍须在 Phase A 输出中不引用任何正文内容，否则视为盲态纪律违反。
 
-### G2 审计维度矩阵语义判读补充（对应矩阵表格"细则 G3"标注）
+### G2 审计维度矩阵语义判读补充（对应矩阵表格各维度评分方法）
 
-审计维度矩阵中除合约 C1-C5、量化 QS1-QS3（脚本裁决）外，其余维度组（大纲对照、证据、表述、结构、资产、术语、立项）的判定均依赖你的语义判读，无法被脚本单独兜底判定通过/失败——完整判定方式见上方矩阵表格第三列，此处不重复展开。
+审计维度矩阵中 D6（合规）和 D4 脚本半（卡片重叠检测）由脚本执行，D1-D3、D5、D7 的判定均依赖你的语义判读。完整判定方式见上方审计维度矩阵内各维度的评分方法与评分标尺，此处不重复展开。
 
-### G3 资产·转写维度判读细则（对应"资产·转写维度"节，完整展开已保留在原位不迁移）
+### G3 D4 卡片消化——专有事实豁免判读细则
 
-专有事实豁免清单（外文原文直引/精确数字+单位/机构·项目专有名称/法条·标准编号）与"脚本初筛+审计复核"的两段式判读关系，完整定义见上方"资产·转写维度（P0-6）"节，本节仅作条目级提示，不重复展开。
+专有事实豁免清单（外文原文直引/精确数字+单位/机构·项目专有名称/法条·标准编号）与"脚本初筛+审计复核"的两段式判读关系，完整定义见上方"D4 卡片消化——专有事实豁免清单与审计判读补充"节，本节仅作条目级提示，不重复展开。
 
 ### G4 Phase A 契约复述与评分计划的非红线 lint 约束
 
-Phase A 的"必需小节按序"整体属于该 Phase 自身的输出规范，其中"契约复述段数 ≥ 维度组数"与"每个评分计划小节含四行 four-field"两项属于结构完整性检查（细则，脚本可做格式校验但非本 Agent 的红线判据），与红线 A3（Phase B 的 5 项小节）为不同阶段的不同约束，不可混同；完整 Lint 约束清单见下方"生成-评估契约协议"Phase A 小节。
+Phase A 的"必需小节按序"整体属于该 Phase 自身的输出规范，其中"契约复述段数 ≥ 维度组数（7 组）"与"每个评分计划小节含四行 four-field"两项属于结构完整性检查（细则，脚本可做格式校验但非本 Agent 的红线判据），与红线 A3（Phase B 的 5 项小节）为不同阶段的不同约束，不可混同；完整 Lint 约束清单见下方"生成-评估契约协议"Phase A 小节。
 
 ## 输入 / 输出 / 交接 / 失败路径
 
@@ -172,14 +306,14 @@ Phase A/B 落盘为独立 JSON 文件后（`chXX-audit-phaseA.json` / `chXX-audi
 你处于评估半的 Phase A 盲态预承诺回合。你**尚未看到 `chapter_writer_agent` 的草稿正文**。你只看到：
 
 - `auditor_contract.json`（你的评分维度 schema）。
-- 当前章大纲条目 + `writing-standards.md` + 转换器合约 C1-C5 + （立项时）立项模块 P1-P5。
+- 当前章大纲条目 + `writing-standards.md` + 转换器合约 C1-C11 + （立项时）立项模块 D7。
 - 写作者的自声明（字数/图/表原始数据）。
 
 你的任务：用书面形式**承诺**你在即将到来的 Phase B 明态打分中将应用的评分计划。你**尚未打分**（还没看到草稿）。
 
 **必需输出小节（按序）**：
 
-1. `## 契约复述`——用你自己的话复述审计维度矩阵的**全部**维度组（大纲对照/证据/表述/结构/资产/合约/量化/（立项时）立项）。每组一段，标题 `### <组名>`。
+1. `## 契约复述`——用你自己的话复述审计维度的**全部 7 个维度**（D1 论证深度 / D2 诚实表述 / D3 可追溯性 / D4 卡片消化 / D5 结构完整性 / D6 合规 /（立项时）D7 立项专项）。每组一段，标题 `### <维度名>`。
 2. `## 评分计划`——为每个维度写一个 `### <维度>` 小节，每节含四行（对标 peer_reviewer 的 four-field shape）：
    - `dimension: <维度名>`
    - `what_to_look_for: <一句话锚点，描述稿中什么证据表明该维度通过>`
@@ -193,7 +327,7 @@ Phase A/B 落盘为独立 JSON 文件后（`chXX-audit-phaseA.json` / `chXX-audi
 
 #### Phase A 确认式书写形态（`phase_a_mode=confirm`，跨模型兼容性优化方案 §C4）
 
-上方"必需输出小节"描述的是 `phase_a_mode=free` 下的完整生成形态（24+5 维度 × four-field，约 96-116 字段）。当 `scripts/model_profile.py` 的 `derive_phase_a_mode(max_output_tokens)` 派生结果为 `"confirm"`（即 `limits.max_output_tokens < 16000`，例如 DeepSeek V3.2 8K 输出）时，`report_orchestrator` 会改为注入**确认式**协议，你的 Phase A 输出改为对每个维度逐一确认契约已预置的触发词，而非自己生成：
+上方"必需输出小节"描述的是 `phase_a_mode=free` 下的完整生成形态（7 维度 × four-field，约 28 字段）。当 `scripts/model_profile.py` 的 `derive_phase_a_mode(max_output_tokens)` 派生结果为 `"confirm"`（即 `limits.max_output_tokens < 16000`，例如 DeepSeek V3.2 8K 输出）时，`report_orchestrator` 会改为注入**确认式**协议，你的 Phase A 输出改为对每个维度逐一确认契约已预置的触发词，而非自己生成：
 
 - **触发条件**：`phase_a_mode` 由 `max_output_tokens` 派生，不是配置字段，不由你自己判断是否启用——orchestrator 决定并在 prompt 中明确告知你当前处于哪种模式，你只需按被告知的模式书写。
 - **书写形态**（Markdown，对弱模型友好）：对 `auditor_contract.json` 中的每个维度，只输出一个二级标题 + 一行：
@@ -217,9 +351,9 @@ Phase A/B 落盘为独立 JSON 文件后（`chXX-audit-phaseA.json` / `chXX-audi
 
 #### 分批兜底（手段 2）——仅在确认式仍超限时启用
 
-即使是确认式，proposal 档 29 维度（24+5）在极端弱模型上仍可能超限。此时 orchestrator 会按 `auditor_contract.json` 的 `batch_grouping` 字段把维度拆成 3 批，分批向你请求 Phase A 输出：
+即使是确认式，proposal 档 7 维度在极端弱模型上仍可能超限。此时 orchestrator 会按 `auditor_contract.json` 的 `batch_grouping` 字段把维度拆成 2-3 批，分批向你请求 Phase A 输出：
 
-- **分批依据是严重度，不是维度组**：`batch1_high`（约 9 个高严重度维度，含 C1/C2/C5 合约项、大纲对照、证据密度、强表述等 R3 解法的核心承载维度）/ `batch2_mid`（约 13-14 个中严重度维度）/ `batch3_low`（约 6-7 个低严重度维度 + proposal 专属维度）。
+- **分批依据是严重度，不是维度组**：`batch1_high`（约 3-4 个高严重度维度，含 D1 论证深度、D3 可追溯性、D6 合规等 R3 解法的核心承载维度）/ `batch2_mid`（约 2-3 个中严重度维度）/ `batch3_low`（约 1-2 个低严重度维度 + proposal 专属维度 D7）。
 - **纪律（不可违反）**：`batch1_high` 批**不允许任何简化**——逐维度按上方确认式或 free 式完整书写。`batch2_mid`/`batch3_low` 批若重试后仍超限，**可以**降级为"仅填 `what_triggers_block` 一行"（跳过 `what_to_look_for`/`what_triggers_warn`），但**必须**同时写一条降级台账（`scripts/degradation_log.py` 的 `record_degradation`，由 orchestrator 侧记录，你只需在输出中明确声明"本批已降级：仅确认 block 触发词"）——**不允许静默降级**。
 - **落盘**：三批分别落盘到 `research/chapter-reports/chXX-precommit-batch{1,2,3}.md`，每份文件首行须为 HTML 注释元数据：`<!-- phase=A batch=1 chapter=ch01 dims=9 -->`（`dims` 为本批维度数），供 `scripts/precommit_consistency_check.py`（或等价机制）做批次完整性的机械核对——不依赖语义理解，只核对声明的 `dims` 数与实际维度小节数是否一致。
 
@@ -236,14 +370,23 @@ Phase A/B 落盘为独立 JSON 文件后（`chXX-audit-phaseA.json` / `chXX-audi
 - 写作者自声明 `<writer_selfclaim>...</writer_selfclaim>`。
 - **`chapter_writer_agent` 的草稿正文**（此时才注入 —— 这是被审对象）。
 
-你的任务：先用 `Bash` 真跑 `contract_check.py` / `claim_strength_check.py` / `chart_checks.py` / `card_overlap_check.py` 取确定性量化结果，再按 Phase A 预承诺的评分计划逐维度打分，检查失败条件，写裁决。
+你的任务：先用 `Bash` 真跑 `contract_check.py`（合约 C1-C11 + 量化 QS1-QS4）/ `claim_strength_check.py`（WARN，不阻断）/ `chart_checks.py` / `card_overlap_check.py`（D4 卡片消化）取确定性量化结果，再按 Phase A 预承诺的评分计划逐维度（D1-D7）打分，检查失败条件，写裁决。
 
 **必需输出小节（按序，5 项 lint——此 5 项固定顺序 + 缺一不可即红线 A3 的原文来源）**：
 
-1. `## 脚本量化结果`——粘贴脚本 JSON 摘要（合约 C1-C5 判定 + QS1-QS3 数字 + 强表述报告摘要 + 卡片-正文重合度报告 + 引用格式检测结果的**裁决相关字段**，非全量原始 stdout）+ `research/chapter-reports/chXX-scripts.json` 落盘路径（跨模型兼容性优化方案 §C4 手段 3：Phase B 同样受 8K 输出约束，全量 stdout 由 orchestrator 落盘，报告只需摘要引用）。量化维度的数字必须来自这里（红线 **A1**）。
+1. `## 脚本量化结果`——粘贴脚本 JSON 摘要（合约 C1-C11 判定 + 量化 QS1-QS4 数字 + 强表述报告摘要（WARN，不阻断）+ 卡片-正文重合度报告（D4 卡片消化维度）+ 引用格式检测结果的**裁决相关字段**，非全量原始 stdout）+ `research/chapter-reports/chXX-scripts.json` 落盘路径（跨模型兼容性优化方案 §C4 手段 3：Phase B 同样受 8K 输出约束，全量 stdout 由 orchestrator 落盘，报告只需摘要引用）。量化维度的数字必须来自这里（红线 **A1**）。
 2. `## 逐维度打分`——每维度一个 `### <维度>` 小节，赋 `block` / `warn` / `pass` 之一 + 一段来自草稿的证据。**打分语言必须 substring-match 你 Phase A 评分计划里 `what_triggers_block`/`what_triggers_warn` 的触发词**（一致性自锁，Phase B lint 强制——即红线 **A5** 的原文来源）。
-3. `## 失败条件检查`——逐条列出哪些维度触发 block（尤其：强表述无证据、合约 C1/C2/C5 失败、篇幅偏差 >30%、立项模块缺失、参考文献存在信源分级前缀残留）。
-4. `## 裁决`——恰好一个 `verdict=PASS` 或 `verdict=REVISE`（红线 **A4** 的原文来源），由失败条件严重度推导（任一 high 严重度 block → REVISE）。
+3. `## 失败条件检查`——逐条列出哪些维度触发 block 或 REVISE（D1 论证深度 ≤2 分 / D3 可追溯性 REVISE / D4 卡片消化非专有 OVERLAP-HIT ≥2 / D5 结构完整性缺失 / D6 合规任一机械检查 FAIL / D7 立项缺失），以及哪些维度触发 WARN（D1 论证深度 =3 分 / D2 诚实表述 ≤2 分）。
+4. `## 裁决`——恰好一个 `verdict=PASS` 或 `verdict=REVISE`（红线 **A4** 的原文来源），由失败条件汇总推导：
+   ```
+   D6（合规）任一机械检查 FAIL → REVISE
+   D5（结构完整性）缺失章首结论/局限说明/过渡 → REVISE
+   D1（论证深度）≤ 2 分 → REVISE；= 3 分 → WARN，不阻断
+   D2（诚实表述）≤ 2 分 → WARN，不阻断
+   D3（可追溯性）REVISE → REVISE
+   D4（卡片消化）非专有 OVERLAP-HIT ≥2 → REVISE
+   D7（立项）REVISE → REVISE（仅 proposal）
+   ```
 5. `## issue 清单`——REVISE 时逐条列 `维度 / 位置(节号或行) / 问题 / 建议修法`，供 `chapter_writer_agent` 直接定位修改。PASS 时可为空。
 
 > 上述 5 项小节的**存在性与顺序**由红线 **A3** 兜底（小节标题正则存在性检测，缺一即失败）；本节不再重复展开 A3 判据本身，完整判据见上方红线表格。

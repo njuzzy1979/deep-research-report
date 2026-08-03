@@ -272,7 +272,7 @@ A：回到阶段 1 重新确认参数，检查已有产物可复用性，不在�
 - `references/claims-ledger-template.csv` — 事实核验台账模板
 - `references/source-index-template.csv` — 来源索引模板
 - `references/red-team-checklist.md` — 红队审查详细清单
-- `references/writing-standards.md` — 写作标准详细说明与示例（含 25 条标准，标准 0-24）
+- `references/writing-standards.md` — 写作标准详细说明与示例（含 28 条标准，标准 0-27）
 - `references/architecture-analysis-guide.md` — 架构分析方法论详细指南
 - `references/研究报告格式规范.md` — **【权威】研究报告 Word 格式规范 V3.1**
 - `references/word-format-spec.md` — Word 文档格式规范（旧版 v1.0，已归档）

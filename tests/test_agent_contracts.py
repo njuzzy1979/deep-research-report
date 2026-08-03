@@ -256,22 +256,21 @@ def _load_auditor_contract() -> dict:
 
 
 def test_auditor_contract_dimension_count_unchanged():
-    """dimensions=25、proposal_extra=5，共 30——2026-08-02 新增 negative_evidence_check 维度。"""
+    """dimensions=7（D1-D7）、proposal_extra=5（P1-P5），共 12——2026-08-03 写作风格改革后从 30 缩减。"""
     contract = _load_auditor_contract()
-    assert len(contract["dimensions"]) == 25
+    assert len(contract["dimensions"]) == 7
     assert len(contract.get("proposal_extra", [])) == 5
 
 
 def test_auditor_contract_all_dimensions_have_three_hints():
-    """核心交付断言：全部 30 个维度条目都具备 3 个 hint 字段。"""
+    """核心交付断言：全部 7 个维度条目（D1-D7）都具备 2 个 hint 字段（2026-08-03 改革后 what_triggers_warn_hint 已移除，WARN 由审计 rubrics 语义判读）。"""
     contract = _load_auditor_contract()
     required_hints = {
         "what_to_look_for_hint",
-        "what_triggers_warn_hint",
         "what_triggers_block_hint",
     }
-    all_entries = contract["dimensions"] + contract.get("proposal_extra", [])
-    assert len(all_entries) == 30
+    all_entries = contract["dimensions"]
+    assert len(all_entries) == 7
 
     missing = []
     for entry in all_entries:
@@ -283,10 +282,9 @@ def test_auditor_contract_all_dimensions_have_three_hints():
 
 
 def test_auditor_contract_batch_grouping_covers_all_ids_without_overlap():
-    """batch_grouping 覆盖全部 29 个维度 id，无重复无遗漏（按严重度分 3 批）。"""
+    """batch_grouping 覆盖全部 7 个维度 id（D1-D7），无重复无遗漏。2026-08-03 改革后维度从 30 缩减为 7。"""
     contract = _load_auditor_contract()
     all_ids = {d["id"] for d in contract["dimensions"]}
-    all_ids |= {d["id"] for d in contract.get("proposal_extra", [])}
 
     batch_grouping = contract.get("batch_grouping", {})
     batch1 = batch_grouping.get("batch1_high", [])

@@ -18,240 +18,60 @@
     },
     "dimensions": [
         {
-            "group": "大纲对照",
-            "id": "outline_coverage",
-            "method": "对照 outline.md + contract_check.py 数字数",
+            "group": "论证深度",
+            "id": "D1_argument_depth",
+            "method": "Warranty 逻辑桥梁检测 + 推理密度统计",
             "severity": "high",
-            "what_to_look_for_hint": "本章论证路径与关键素材点是否与 outline.md 当前章条目逐项对应，contract_check.py 的 QS1_cjk_chars 字数落在大纲预算 ±30% 区间内",
-            "what_triggers_warn_hint": "字数偏离预算 10%-30%，或存在 1 处大纲论证点未被直接覆盖但可通过其他节内容间接体现",
-            "what_triggers_block_hint": "字数偏离预算 >30%，或存在 outline.md 声明的关键论证路径/素材点在正文中完全未体现"
+            "what_to_look_for_hint": "每节至少一段含实质性 Warranty；推理句占比 25-40%",
+            "what_triggers_block_hint": "全章无实质性 Warranty 或 D1 <= 2 分"
         },
         {
-            "group": "证据",
-            "id": "evidence_density",
-            "method": "抽 3 段均可溯源",
+            "group": "诚实表述",
+            "id": "D2_honest_expression",
+            "method": "免责套话检测 + 确定性梯度判读",
+            "severity": "mid",
+            "what_to_look_for_hint": "不确定性用诚实表述而非免责套话包装",
+            "what_triggers_block_hint": "D2 <= 2 分"
+        },
+        {
+            "group": "可追溯性",
+            "id": "D3_traceability",
+            "method": "contract_check.py C6/C7",
             "severity": "high",
-            "what_to_look_for_hint": "随机抽取本章 3 个自然段，每段核心论断均能追溯到 claims-ledger.csv 记录或参考文献编号",
-            "what_triggers_warn_hint": "抽查 3 段中有 1 段的论断缺少明确来源标注但该论断非强表述、非核心结论",
-            "what_triggers_block_hint": "抽查 3 段中有 ≥1 段的核心论断完全无法溯源（无 [N] 引用也无 claims-ledger 记录）"
+            "what_to_look_for_hint": "关键主张可追溯至具体来源",
+            "what_triggers_block_hint": "引用格式违规或无法追溯"
         },
         {
-            "group": "证据",
-            "id": "cd_source_qualifier",
-            "method": "C/D 级来源标注限定词",
+            "group": "卡片消化",
+            "id": "D4_card_digestion",
+            "method": "card_overlap_check.py + 审计判读",
             "severity": "mid",
-            "what_to_look_for_hint": "引用 C/D 级来源处均带'据报道/尚待验证/据称'等限定词，未把 C/D 级证据当确定性结论直述",
-            "what_triggers_warn_hint": "存在 1-2 处 C/D 级来源引用缺少限定词，但该结论本身非关键论点",
-            "what_triggers_block_hint": "关键论点直接建立在无限定词的 C/D 级来源上，且该论点是本章核心结论的支撑"
+            "what_to_look_for_hint": "卡片被消化转写而非誊抄",
+            "what_triggers_block_hint": "非专有 OVERLAP-HIT >= 2 处"
         },
         {
-            "group": "证据",
-            "id": "no_vague_source",
-            "method": "无'据外媒报道'等空泛来源",
-            "severity": "mid",
-            "what_to_look_for_hint": "全文无'据外媒报道/有分析认为/业内人士透露'等无法溯源的空泛来源表述",
-            "what_triggers_warn_hint": "出现 1 处空泛来源表述，但不影响本章核心论断的可信度",
-            "what_triggers_block_hint": "空泛来源表述支撑本章核心论点，且无法用其他可溯源引用替代"
-        },
-        {
-            "group": "表述",
-            "id": "strong_claim",
-            "method": "claim_strength_check.py：强表述有无 A/B 证据",
+            "group": "结构完整性",
+            "id": "D5_structure",
+            "method": "contract_check.py C1/C2/C5",
             "severity": "high",
-            "what_to_look_for_hint": "'首次/最大/完全/秒级'等强表述均标注 [S/CXXX] 且经 claim_strength_check.py 判定有 A/B 级证据支撑",
-            "what_triggers_warn_hint": "强表述有引用标注但来源级别在报告中未明确核实为 A/B 级",
-            "what_triggers_block_hint": "claim_strength_check.py 报告存在无引用支撑的强表述（该脚本判定 exit 1 的项）"
+            "what_to_look_for_hint": "章首结论 blockquote 存在 + 局限说明 + 章间过渡",
+            "what_triggers_block_hint": "缺失本章结论或结构不完整"
         },
         {
-            "group": "表述",
-            "id": "logic_word",
-            "method": "因此/显然/必然前后逻辑链完整",
-            "severity": "mid",
-            "what_to_look_for_hint": "'因此/显然/必然'等逻辑词前有明确前提、后有对应结论，逻辑链完整可追溯",
-            "what_triggers_warn_hint": "逻辑词前提较弱但结论方向正确，读者需自行补 1 步推理方可衔接",
-            "what_triggers_block_hint": "逻辑词后的结论在前文找不到对应前提，或'显然/必然'用于本应有条件限定的推断"
-        },
-        {
-            "group": "表述",
-            "id": "negative_evidence_check",
-            "method": "全文搜索'未见/尚未见/尚无文献/未有研究/现有文献均未/无一……提出过'等消极性检索表述，逐处执行结论层级测试+删除测试（writing-standards.md 标准24）",
-            "severity": "mid",
-            "what_to_look_for_hint": "消极性检索表述紧邻的结论为描述性判断（'这是新的/此前未见提法'），或该结论同时有独立于文献空白之外的正面论证（理论内部机制自洽性/与已论证问题的呼应/局部证据支持）支撑",
-            "what_triggers_warn_hint": "消极性检索表述紧邻评价性结论，且该结论虽有其他支撑句但正面论证展开较薄弱",
-            "what_triggers_block_hint": "删除该消极性检索表述后，紧邻的评价性结论（'有贡献/是范式革命/具有理论价值'等）完全失去支撑——即消极性证据是该结论的唯一或核心论据"
-        },
-        {
-            "group": "结构",
-            "id": "conclusion_para",
-            "method": "本章结论段 3-5 句",
-            "severity": "mid",
-            "what_to_look_for_hint": "本章末尾有独立结论段，句数落在 3-5 句区间，概括本章核心论点",
-            "what_triggers_warn_hint": "结论段句数为 2 句或 6-7 句，内容仍完整但长度偏离建议区间",
-            "what_triggers_block_hint": "本章无独立结论段，或结论段仅 1 句/结论段缺失"
-        },
-        {
-            "group": "结构",
-            "id": "contribution_limitation",
-            "method": "语义扫描本章最后一个正文小节的收尾段落是否含 ≥1 句可识别的局限说明，不要求独立成段或字面标签",
-            "severity": "mid",
-            "what_to_look_for_hint": "本章最后一个正文小节的收尾段落中，能读出作者承认了本章分析的某个边界/假设/未覆盖维度",
-            "what_triggers_warn_hint": "局限性表述存在但泛化（如仅写'仍需进一步研究'），未指出具体边界",
-            "what_triggers_block_hint": "本章完全没有局限性表述，只写正向结论"
-        },
-        {
-            "group": "结构",
-            "id": "numbered_list_audit",
-            "method": "编号列表仅用于机制/流程",
-            "severity": "low",
-            "what_to_look_for_hint": "正文中编号列表（1. 2. 3.）仅出现在描述机制步骤或流程顺序处",
-            "what_triggers_warn_hint": "编号列表用于并列观点罗列，但内容确有先后顺序含义，边界判读模糊",
-            "what_triggers_block_hint": "编号列表用于无先后关系的并列观点或结论罗列（伪流程化编号）"
-        },
-        {
-            "group": "结构",
-            "id": "structural_consistency",
-            "method": "对比本章标题树与 outline.md 结构清单：标题文本变更→WARN；新增不在结构清单中的节→block；缺失声明应有节→block。标题文本以正文为准，结构清单提供分类和编号。",
-            "severity": "mid",
-            "what_triggers_block_hint": "存在不在 outline.md 结构清单中的 H3/H4 标题，或结构清单声明应有的节在正文中缺失",
-            "what_to_look_for_hint": "本章 H3/H4 标题与 outline.md 结构清单声明的节/小节一一对应，标题文本可有措辞差异但指代节次一致",
-            "what_triggers_warn_hint": "标题文本与 outline.md 声明存在措辞差异，但节次对应关系清楚，不构成结构缺失"
-        },
-        {
-            "group": "资产",
-            "id": "figure_reference",
-            "method": "图表在正文引用，图在文前",
-            "severity": "mid",
-            "what_to_look_for_hint": "每张图表在正文中被至少引用一次，且引用文字出现在图片/表格插入位置之前",
-            "what_triggers_warn_hint": "图表被引用但引用文字位置在图片之后（图文顺序颠倒）",
-            "what_triggers_block_hint": "存在图表插入正文但全文无任何文字引用，或引用的图号在本章不存在"
-        },
-        {
-            "group": "资产",
-            "id": "card_backfill",
-            "method": "核对 card-index.csv used_in_chapter 回填",
-            "severity": "low",
-            "what_to_look_for_hint": "本章引用的卡片 card_id 均已在 card-index.csv 对应行的 used_in_chapter 列回填本章号",
-            "what_triggers_warn_hint": "1 张卡片引用但 used_in_chapter 未回填，其余卡片均已回填",
-            "what_triggers_block_hint": "≥2 张卡片引用但 used_in_chapter 未回填，回填遗漏成片"
-        },
-        {
-            "group": "资产·转写",
-            "id": "card_overlap",
-            "method": "card_overlap_check.py：卡片字段-正文最长连续重合 ≥46字(P75)且非专有事实 → OVERLAP-HIT；单章非专有 OVERLAP-HIT ≥2处 → block。专有事实(外文原文直引/精确数字+单位/机构名/法条标准编号)豁免。n=12仅为探测粒度非判罚阈值。阈值源自方案§4.3.1对104张卡片+final-report.md的实测校准",
-            "severity": "mid",
-            "what_triggers_block_hint": "存在 ≥46 连续汉字的卡片字段-正文重合，且该片段经判读为判断/描述句而非专有事实，单章达 2 处及以上",
-            "thresholds": {
-                "ngram_probe": 12,
-                "block_len": 46,
-                "block_count": 2
-            },
-            "proprietary_exemptions": [
-                "外文原文直引",
-                "精确数字+单位",
-                "机构/项目专有名称",
-                "法条/标准编号"
-            ],
-            "what_to_look_for_hint": "card_overlap_check.py 判定各卡片字段与正文最长连续重合 <46 字，或达标片段均经判读为专有事实豁免",
-            "what_triggers_warn_hint": "存在 1 处非专有 OVERLAP-HIT（未达 block 的单章 2 处阈值）"
-        },
-        {
-            "group": "合约",
-            "id": "C1_h1",
-            "method": "contract_check.py：无 H1",
+            "group": "合规",
+            "id": "D6_compliance",
+            "method": "contract_check.py C1-C11 + QS1-QS4",
             "severity": "high",
-            "what_to_look_for_hint": "contract_check.py 的 C1_h1.count 为 0（分章文件不含 H1）",
-            "what_triggers_warn_hint": "H1 数量为 0 但发现同级别的空标题行（仅 '#' 无正文内容），易与合规写法混淆，需人工确认非误删标题层级",
-            "what_triggers_block_hint": "contract_check.py 判定 C1_h1.pass 为 False（count 超过合并模式上限）"
+            "what_to_look_for_hint": "合约 C1-C11 全部通过 + 量化 QS1-QS4 达标",
+            "what_triggers_block_hint": "任一 high 严重度合约项失败"
         },
         {
-            "group": "合约",
-            "id": "C2_manual_number",
-            "method": "contract_check.py：H2 无手动编号",
+            "group": "立项专项",
+            "id": "D7_proposal",
+            "method": "对照 writing-standards.md 标准 13-17",
             "severity": "high",
-            "what_to_look_for_hint": "contract_check.py 的 C2_manual_number.pass 为 True（无手动编号且无连续 ≥3 行粗体伪标题块）",
-            "what_triggers_warn_hint": "存在孤立的粗体强调行，但未达连续 3 行独占行的伪标题判定阈值",
-            "what_triggers_block_hint": "contract_check.py 报告 C2_manual_number.hits 或 bold_pseudo_heading_hits 非空"
-        },
-        {
-            "group": "合约",
-            "id": "C3_image_syntax",
-            "method": "contract_check.py：图片标准语法",
-            "severity": "mid",
-            "what_to_look_for_hint": "contract_check.py 的 C3_image_syntax.figure_count 达到大纲规划图数（--expect-figures 传入值）",
-            "what_triggers_warn_hint": "图片计数低于规划但差距在 1 张以内，或存在非标准语法的宽松图片引用（loose_image_count 高于 figure_count）",
-            "what_triggers_block_hint": "contract_check.py 判定 C3_image_syntax.pass 为 False（图数不足大纲规划）"
-        },
-        {
-            "group": "合约",
-            "id": "C4_table_caption",
-            "method": "contract_check.py：表格加粗题注",
-            "severity": "mid",
-            "what_to_look_for_hint": "contract_check.py 的 C4_table_caption.caption_count 达到 table_block_count（每个表格块均有加粗题注）",
-            "what_triggers_warn_hint": "题注格式不规范（如未加粗）但每个表格块确有对应题注文字",
-            "what_triggers_block_hint": "contract_check.py 判定 C4_table_caption.pass 为 False（存在表格块无题注）"
-        },
-        {
-            "group": "合约",
-            "id": "C5_banned",
-            "method": "contract_check.py：无禁止内容/密级",
-            "severity": "high",
-            "what_to_look_for_hint": "contract_check.py 的 C5_banned.hits 为空（无密级词/占位符/HTML标签/输出隔离标记残留）",
-            "what_triggers_warn_hint": "命中数量为 1 处且经判读确认为无害的示例性引用（如引用禁用词做举例说明，而非实际违规内容），需人工复核是否可豁免",
-            "what_triggers_block_hint": "contract_check.py 报告 C5_banned.hits 非空（尤其密级标注命中，一律阻断，门3安全前移）"
-        },
-        {
-            "group": "量化",
-            "id": "QS1_wordcount",
-            "method": "contract_check.py：字数 vs 预算 ±30%",
-            "severity": "mid",
-            "what_to_look_for_hint": "contract_check.py 的 QS1_cjk_chars 落在大纲预算 ±30% 区间内",
-            "what_triggers_warn_hint": "字数偏离预算 10%-30%",
-            "what_triggers_block_hint": "字数偏离预算 >30%"
-        },
-        {
-            "group": "量化",
-            "id": "QS2_figures",
-            "method": "contract_check.py：图片计数",
-            "severity": "low",
-            "what_to_look_for_hint": "contract_check.py 的 QS2_figures 计数与大纲规划图数一致",
-            "what_triggers_warn_hint": "图数与大纲规划相差 1 张",
-            "what_triggers_block_hint": "图数为 0 但大纲规划要求 ≥1 张图（QS2_figures 与 --expect-figures 比对命中数为 0）"
-        },
-        {
-            "group": "量化",
-            "id": "QS3_tables",
-            "method": "contract_check.py：表格计数",
-            "severity": "low",
-            "what_to_look_for_hint": "contract_check.py 的 QS3_tables 计数与本章内容对数据对比呈现的需要相符",
-            "what_triggers_warn_hint": "表格数为 0 但本章内容明显涉及多维度数据对比，宜用表格呈现",
-            "what_triggers_block_hint": "大纲或写作者自声明承诺本章含数据对比表格，但 QS3_tables 实际计数为 0"
-        },
-        {
-            "group": "量化",
-            "id": "QS4_paragraphs",
-            "method": "contract_check.py：段落长度分布(P50/P75/P90) + 超长段落(>600字)计数",
-            "severity": "low",
-            "what_to_look_for_hint": "contract_check.py 的 QS4_paragraphs 分布中位数(P50)落在 150-400 字理想区间，超长段落(>600字)计数低",
-            "what_triggers_warn_hint": "超长段落(>600字)计数 ≥1 个，建议提示作者拆分",
-            "what_triggers_block_hint": "超长段落(>600字)计数 ≥3 个，或 P90 远超 600 字，段落长度分布严重失衡"
-        },
-        {
-            "group": "结构",
-            "id": "chapter_transition",
-            "method": "语义扫描章尾最后一个正文小节的收尾段落是否含>=2句内容层面的章间过渡（非最后章），不要求引用块字面标签；检查同章内H3节间是否有>=1句内容承接过渡",
-            "severity": "mid",
-            "what_triggers_block_hint": "非最后章缺少章间过渡内容，或同章内相邻H3节间无内容承接过渡句",
-            "what_to_look_for_hint": "非最后章末尾的收尾段落中能读出 ≥2 句本章小结与下章过渡内容；同章内相邻 H3 节间有 ≥1 句内容承接过渡句",
-            "what_triggers_warn_hint": "章末过渡句数为 1 句（少于建议的 2 句但非完全缺失）"
-        },
-        {
-            "group": "表述",
-            "id": "reader_calibration",
-            "method": "抽查5个专有名词/缩写，确认首次出现时给出全称+1句中文解释",
-            "severity": "low",
-            "what_triggers_block_hint": "存在未展开的英文缩写（首次出现无全称+中文释义）",
-            "what_to_look_for_hint": "抽查的 5 个专有名词/缩写首次出现时均给出全称 + 1 句中文解释",
-            "what_triggers_warn_hint": "抽查 5 个中有 1 个缩写首次出现缺少全称，但上下文可推断含义"
+            "what_to_look_for_hint": "P1-P5 立项模块（仅 proposal 类型）",
+            "what_triggers_block_hint": "proposal 类型报告缺少必需立项模块"
         }
     ],
     "proposal_extra": [
@@ -316,42 +136,18 @@
     },
     "quant_source_rule": "量化维度数字必须来自 contract_check.py 等脚本的真实 stdout，不得 Agent 文本编造",
     "batch_grouping": {
-        "description": "分批兜底（方案 §C4 手段2）：仅在确认式仍超限时启用（如 proposal 档 29 维度）。按严重度分3批，非维度组。high 批不允许任何简化；mid/low 批降级须写台账（不静默）。",
         "batch1_high": [
-            "outline_coverage",
-            "evidence_density",
-            "strong_claim",
-            "C1_h1",
-            "C2_manual_number",
-            "C5_banned",
-            "P1_tech_metrics",
-            "P2_innovation"
+            "D1_argument_depth",
+            "D5_structure",
+            "D6_compliance",
+            "D7_proposal"
         ],
         "batch2_mid": [
-            "cd_source_qualifier",
-            "no_vague_source",
-            "logic_word",
-            "negative_evidence_check",
-            "conclusion_para",
-            "contribution_limitation",
-            "structural_consistency",
-            "figure_reference",
-            "card_overlap",
-            "C3_image_syntax",
-            "C4_table_caption",
-            "QS1_wordcount",
-            "chapter_transition",
-            "P3_trl",
-            "P4_milestone"
+            "D2_honest_expression",
+            "D3_traceability"
         ],
         "batch3_low": [
-            "numbered_list_audit",
-            "card_backfill",
-            "QS2_figures",
-            "QS3_tables",
-            "QS4_paragraphs",
-            "reader_calibration",
-            "P5_research_base"
+            "D4_card_digestion"
         ]
     }
 }

@@ -150,10 +150,29 @@ $ ls research/sources/
 
 ---
 
+### 2.0.1 搜集甄别——第一轮采用/剔除决策
+
+> **改革说明**（2026-08-03）：本步骤为素材阶段改革的组成部分——将来源可信度甄别前置到搜集完成后立即执行，后续阶段不再需要 Writer 自行判断"这个来源是否可信"。通过第一轮甄别的来源才登记入 `source-index.csv`。
+
+搜集完成后、登记到 `source-index.csv` 之前，对每份搜集到的资料进行第一轮甄别——决定采用或剔除。
+
+**甄别规则（4 条铁律）：**
+
+1. **匿名/无法验证发布者的来源**：直接剔除，不登记到 source-index.csv。在项目日志中记录剔除数量及原因。
+2. **明确标注为"个人观点/博客/论坛"且无机构背书的来源**：直接剔除，不登记。
+3. **数据明显过时（超过 5 年且无更新版本）的统计类来源**：直接剔除，除非该数据用于历史对比分析——此种情况保留并在 notes 中注明"历史对比用途"。
+4. **内容为纯观点/评论而无事实信息的来源**：标记为"仅供参考"，不进入事实核验台账（claims-ledger.csv），但可在卡片合成时作为背景参考（不入正文）。
+
+**甄别执行者**：`source_collector_agent`（多 Agent 协同体系下）或 orchestrator（单 Agent 档下）。
+
+**甄别记录**：剔除的来源及原因记录到项目日志（`research/logs/stage-2-exclusion-log.md`），包含剔除来源的标题/URL 和剔除依据。此日志用于阶段 8 红队审查时追溯"是否有重要信息被误删"。
+
+---
+
 ### 搜集完成后的整理
 
 搜集到的每份资料，登记到 `research/sources/source-index.csv`，字段：
-`source_id, title, language, author_or_org, publisher, publish_date, access_date, url_or_path, source_type, credibility_level, relevant_chapters, local_path, extraction_status, notes`
+`source_id, title, language, author_or_org, publisher, publish_date, access_date, url_or_path, source_type, credibility_level, adopted, visibility, relevant_chapters, local_path, extraction_status, notes`
 
 **先登记再抽取**。不跳步——登记是后续核验和引用的唯一凭证。
 
@@ -169,6 +188,8 @@ $ ls research/sources/
 | **D** | 自媒体、未署名转述、社交媒体、二手编译、逐字稿 | **仅作线索**，不直接入正文 |
 
 > **领域适配**：用户可为特定领域调整 A/B 级来源列表（如医疗领域的 FDA/WHO/NEJM，金融领域的 SEC/央行/审计报告）。
+
+> **可见性边界**（2026-08-03 更新）：A/B/C/D 分级标记的可见性边界为——阶段 2-3 的搜集者和核验者可见，用作决定"核验优先级"和"出现矛盾时以谁为准"的内部质控参考。**卡片合成（阶段 5）和写作（阶段 7）不接触分级标记**——Writer 收到的卡片全部是 adopted=true 且已去除分级信息的"已检验事实集"。`source-index.csv` 中的 `visibility` 字段固定为 `internal`，合约检查脚本 `contract_check.py` 的 C10/C11 规则会将任何泄露到 Writer 可见输出中的分级标记检测为 FATAL。
 
 ### 2.1.1 可信度升级路径（D4-9）
 
@@ -187,7 +208,11 @@ $ ls research/sources/
 
 为每份素材建立元数据记录（`research/sources/source-index.csv`），字段：
 
-`source_id, title, language, author_or_org, publisher, publish_date, access_date, url_or_path, source_type, credibility_level, relevant_chapters, local_path, extraction_status, notes`
+`source_id, title, language, author_or_org, publisher, publish_date, access_date, url_or_path, source_type, credibility_level, adopted, visibility, relevant_chapters, local_path, extraction_status, notes`
+
+**新增字段说明：**
+- `adopted`：`true`/`false`。搜集阶段默认 `true`；阶段 3 核验后将"误导/错误/无法证实"的主张对应的来源改为 `false`。`adopted=false` 的来源不入卡片池。
+- `visibility`：固定值 `internal`。标识此文件中的分级字段为内部质控数据，不对 Writer 可见。
 
 其中 `local_path` 为下载到本地的文件路径（相对项目根目录），`extraction_status` 为处理状态（待下载/已下载/已抽取/失败）。
 
