@@ -295,12 +295,15 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
     lines = []
     seen_warnings = []
 
-    # 前置件
+    # 前置件：第一个条目用 H1 作为报告主标题，其余用 H2（2026-08-03 大纲即合同）
     fm = structure.get("frontmatter", [])
-    for item in fm:
+    for idx, item in enumerate(fm):
         c_title = item.get("chapter_title", "")
         if c_title:
-            lines.append(f"# {c_title}")
+            if idx == 0:
+                lines.append(f"# {c_title}")
+            else:
+                lines.append(f"## {c_title}")
             lines.append("")
         for s in item.get("sections", []):
             if isinstance(s, dict):
@@ -308,7 +311,10 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
             else:
                 st = str(s)
             if st:
-                lines.append(f"## {st}")
+                if idx == 0:
+                    lines.append(f"## {st}")
+                else:
+                    lines.append(f"### {st}")
                 lines.append("")
 
     # 正文各章
@@ -347,8 +353,16 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
                         if content.startswith("---"):
                             parts = content.split("---", 2)
                             content = parts[-1] if len(parts) >= 3 else content
-                        # D1-5 层级下沉：使章容器 H2 成为该章唯一 H2
-                        content = _demote_headings(content.strip())
+                        # 大纲即合同：Writer 产出节标题（H3/H4）直接拼接，
+                        # 自然成为章容器 H2 的子级，无需 demotion（_demote_headings 已移除）。
+                        content = content.strip()
+                        # 大纲即合同守卫：Writer 产出不应含 H2（章容器由合并器插入）
+                        h2_in_draft = re.findall(r"^##\s+\S", content, re.MULTILINE)
+                        if h2_in_draft:
+                            seen_warnings.append(
+                                f"分章文件 {os.path.basename(str(df))} 含 H2 标题 {h2_in_draft}，"
+                                f"疑似 Writer 未遵循新模板（大纲即合同）。"
+                            )
                         lines.append(content)
                         lines.append("")
                     except Exception as e:

@@ -237,7 +237,7 @@ def generate_skeleton(
         proc = subprocess.run(
             cmd,
             cwd=str(Path(__file__).resolve().parent),
-            capture_output=True, text=True, encoding="utf-8",
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=300,
         )
     except (OSError, subprocess.SubprocessError) as e:

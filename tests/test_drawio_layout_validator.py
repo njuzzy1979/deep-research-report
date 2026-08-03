@@ -289,6 +289,38 @@ _G2_AUTO_EXEMPT_SWIMLANE_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
 </mxfile>
 """
 
+# 回归 fixture（问题9）：draw.io 桌面版普通「编组」(Group) 产出的容器 style
+# 恰为字面量 "group"（无 container=1），其孙节点（本身 style 不含任何豁免
+# 标记，只有其直接父 leg 容器带 container=1）坐标是相对该 group 原点的相对
+# 坐标——数值上恰好落在 topSibling 的绝对坐标范围内，但视觉上二者并不相交。
+# _is_auto_exempt 若不追溯祖先链，会把孙节点当普通顶层节点参与重叠检测，
+# 产生假阳性 HARD_OVERLAP（真实项目 1-1/1-2 图实测命中）。
+_G2_GROUP_GRANDCHILD_AUTO_EXEMPT_DRAWIO = """<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="test">
+  <diagram>
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="800">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="topSibling" value="空间态势认知智能框架研究理论体系概述" vertex="1" parent="1" style="fontSize=18;align=left;">
+          <mxGeometry x="0" y="0" width="316" height="122" as="geometry" />
+        </mxCell>
+        <mxCell id="grp1" value="" vertex="1" connectable="0" parent="1" style="group">
+          <mxGeometry x="20" y="0" width="270" height="138" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1" value="图例" vertex="1" parent="grp1" style="container=1;collapsible=0;">
+          <mxGeometry width="270" height="138" as="geometry" />
+        </mxCell>
+        <mxCell id="swatchlbl1" value="人机协同智能体协作模式说明" vertex="1" parent="grp1" style="fontSize=12;">
+          <mxGeometry x="36" y="82" width="164" height="26" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+"""
+
+
 
 
 @pytest.fixture
@@ -456,6 +488,47 @@ def test_check_g1_passes_valid_geometry():
     vertex_elems = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
     bad = dlv.check_g1(vertex_elems)
     assert bad == []
+
+
+def test_check_g1_missing_xy_on_group_child_is_not_geometry_invalid():
+    """draw.io 桌面版编组(Group)后，位于容器原点(0,0)的子节点合法地省略
+    mxGeometry 的 x/y（语义默认取0）——这不是几何损坏，只有 width/height
+    缺失或非数值才是（真实项目 leg16/leg27/leg14 等图例容器实测命中此形态，
+    此前被误判为 GEOMETRY_INVALID）。"""
+    import xml.etree.ElementTree as ET
+    xml_str = """<?xml version="1.0" encoding="UTF-8"?>
+    <mxfile host="test"><diagram><mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="leg1" value="图例" vertex="1" parent="1" style="container=1;collapsible=0;">
+        <mxGeometry width="270" height="138" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>
+    """
+    root = ET.fromstring(xml_str)
+    vertex_elems = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    bad = dlv.check_g1(vertex_elems)
+    assert bad == []
+
+
+def test_check_g1_missing_width_height_still_invalid():
+    """width/height 缺失没有 x/y 那样的合法默认语义，仍应判定为几何损坏——
+    确认 check_g1 的放宽只针对 x/y，不是整体放宽。"""
+    import xml.etree.ElementTree as ET
+    xml_str = """<?xml version="1.0" encoding="UTF-8"?>
+    <mxfile host="test"><diagram><mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="leg1" value="图例" vertex="1" parent="1" style="container=1;collapsible=0;">
+        <mxGeometry as="geometry" />
+      </mxCell>
+    </root></mxGraphModel></diagram></mxfile>
+    """
+    root = ET.fromstring(xml_str)
+    vertex_elems = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
+    bad = dlv.check_g1(vertex_elems)
+    bad_attrs = {b["attr"] for b in bad}
+    assert bad_attrs == {"width", "height"}
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +700,33 @@ def test_check_g2_overlap_auto_exempt_swimlane_suppresses_hit():
     root = ET.fromstring(_G2_AUTO_EXEMPT_SWIMLANE_DRAWIO)
     cells = [c for c in root.iter("mxCell") if c.get("vertex") == "1"]
     fail, warn = dlv.check_g2_overlap(cells)
+    assert fail == []
+    assert warn == []
+
+
+def test_check_g2_overlap_group_grandchild_without_id_to_cell_still_flags():
+    """未传 id_to_cell 时退化为旧行为（只看自身 style）——孙节点仍会被判定
+    为硬重叠，因为无法追溯祖先链。用于对照下面"传入 id_to_cell 后修复"的测试，
+    证明 id_to_cell 参数确实是修复生效的必要条件，而非默认就没有这个 bug。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_GROUP_GRANDCHILD_AUTO_EXEMPT_DRAWIO)
+    all_cells = list(root.iter("mxCell"))
+    vertex_cells = [c for c in all_cells if c.get("vertex") == "1"]
+    fail, warn = dlv.check_g2_overlap(vertex_cells)
+    assert len(fail) == 1
+    assert fail[0]["error_code"] == "HARD_OVERLAP"
+
+
+def test_check_g2_overlap_group_grandchild_auto_exempt_via_ancestor_chain():
+    """问题9 回归测试：传入 id_to_cell 后，_is_auto_exempt 沿祖先链向上追溯，
+    识别出 swatchlbl1 的祖父 grp1 是裸 "group" 容器，从而整体豁免，不再产生
+    假阳性 HARD_OVERLAP（真实项目 1-1/1-2 图实测命中的 bug）。"""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_G2_GROUP_GRANDCHILD_AUTO_EXEMPT_DRAWIO)
+    all_cells = list(root.iter("mxCell"))
+    vertex_cells = [c for c in all_cells if c.get("vertex") == "1"]
+    id_to_cell = {c.get("id"): c for c in all_cells if c.get("id") is not None}
+    fail, warn = dlv.check_g2_overlap(vertex_cells, id_to_cell=id_to_cell)
     assert fail == []
     assert warn == []
 

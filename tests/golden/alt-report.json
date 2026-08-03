@@ -69,7 +69,7 @@
     "C8_word_count_residue": {
       "hits": {},
       "pass": true,
-      "severity": "low"
+      "severity": "high"
     },
     "C9_local_bibliography": {
       "count": 0,

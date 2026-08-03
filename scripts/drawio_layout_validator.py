@@ -72,7 +72,7 @@ if sys.platform == "win32":
         pass
 
 SCHEMA_VERSION = "d5-layout-1"
-VALIDATOR_VERSION = "0.4.0-g12"
+VALIDATOR_VERSION = "0.4.1-g2-ancestor-fix"
 
 BAD_LITERALS = {"None", "nan", "NaN", "null", "NULL", "undefined", ""}
 
@@ -100,7 +100,14 @@ AUTO_EXEMPT_STYLE_MARKERS = ("swimlane", "group", "container=1")
 # ---------------------------------------------------------------------------
 
 def check_g1(vertex_elems):
-    """对每个 vertex 的 x/y/width/height 做合法性检查，返回损坏 issue 列表。"""
+    """对每个 vertex 的 x/y/width/height 做合法性检查，返回损坏 issue 列表。
+
+    x/y 允许缺失（不计入损坏）：mxGeometry 的 x/y 在 drawio 格式中语义上默认
+    为 0，被嵌套在 group/container 内、且恰好位于该容器原点（0,0）的子节点，
+    draw.io 桌面版保存时会省略这两个属性——这是实测证实的合法产物（例如用
+    draw.io 编组过的图例，其容器本身的第一个子节点常见此形态），不是几何
+    损坏。width/height 没有这一默认语义（0 宽高的节点在视觉上无意义），
+    缺失或非数值时仍判定为损坏。"""
     bad_cells = []
     for c in vertex_elems:
         g = c.find("mxGeometry")
@@ -111,6 +118,8 @@ def check_g1(vertex_elems):
         for attr in ("x", "y", "width", "height"):
             raw = g.get(attr)
             if raw is None:
+                if attr in ("x", "y"):
+                    continue  # 合法默认值 0，见上方 docstring
                 bad_cells.append({"id": cid, "attr": attr, "literal": None})
                 continue
             if raw in BAD_LITERALS:
@@ -176,9 +185,18 @@ def _estimate_lines_g2(text, box_w, fs):
 
 
 def _cell_aabb(cell):
-    """从 mxCell 提取 (x, y, w, h) 四元组。调用前须先经过 G1 判定几何合法。"""
+    """从 mxCell 提取 (x, y, w, h) 四元组。调用前须先经过 G1 判定几何合法。
+
+    x/y 缺失时按 drawio 语义默认取 0（见 check_g1 docstring）——这类 cell
+    通常是 group/container 内部子节点，其 x/y 是相对父容器的坐标而非绝对
+    画布坐标；本函数不做父子坐标换算，调用方需知悉：该 AABB 仅在"与同一
+    父容器内的兄弟节点比较"时才是准确的，与画布上其他顶层节点比较可能不
+    准确。当前 G2 的自动豁免机制（container=1 子节点整体豁免重叠检查）
+    刚好覆盖了这一场景，故不需要更复杂的坐标换算。"""
     g = cell.find("mxGeometry")
-    return (float(g.get("x")), float(g.get("y")), float(g.get("width")), float(g.get("height")))
+    x = float(g.get("x")) if g.get("x") is not None else 0.0
+    y = float(g.get("y")) if g.get("y") is not None else 0.0
+    return (x, y, float(g.get("width")), float(g.get("height")))
 
 
 def _centered_box(aabb, ink_w, ink_h, align):
@@ -228,11 +246,35 @@ def _participates_in_overlap(cell):
     return True
 
 
-def _is_auto_exempt(cell):
+def _is_auto_exempt(cell, id_to_cell=None):
     """style 含 swimlane/group/container=1 → 自动豁免（01 号文档 §3.3.2/§6.1，
-    无需人工登记）。"""
+    无需人工登记）。
+
+    向上追溯祖先链（实测证实必要）：draw.io 桌面版的普通 Group 操作产出的
+    group 容器（style 恰为字面量 "group"，无 container=1）其子节点的 x/y
+    是相对该 group 原点的坐标，而非绝对画布坐标——若只看子节点自身 style，
+    子节点会被当成普通顶层节点参与重叠检测，用相对坐标误判与绝对坐标节点
+    重叠（真实案例：1-1/1-2 图例内 swatchlbl 系列节点即是 group 的孙节点，
+    只有其直接父 leg 容器带 container=1，group 本身只有字面量 "group"）。
+    只要祖先链上任意一层命中 AUTO_EXEMPT_STYLE_MARKERS，该节点及其后代的
+    坐标就不再是画布绝对坐标，必须整体豁免。"""
     style = cell.get("style") or ""
-    return any(marker in style for marker in AUTO_EXEMPT_STYLE_MARKERS)
+    if any(marker in style for marker in AUTO_EXEMPT_STYLE_MARKERS):
+        return True
+    if id_to_cell is None:
+        return False
+    seen = set()
+    parent_id = cell.get("parent")
+    while parent_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent = id_to_cell.get(parent_id)
+        if parent is None:
+            break
+        parent_style = parent.get("style") or ""
+        if any(marker in parent_style for marker in AUTO_EXEMPT_STYLE_MARKERS):
+            return True
+        parent_id = parent.get("parent")
+    return False
 
 
 def _aabb_intersect(a, b):
@@ -247,7 +289,7 @@ def _aabb_intersect(a, b):
     return None
 
 
-def check_g2_overlap(vertex_elems, exempt_cell_ids=None):
+def check_g2_overlap(vertex_elems, exempt_cell_ids=None, id_to_cell=None):
     """01 号设计文档 §3.3.0 三态判定：
 
       AABB 不相交              → PASS（不产生 issue）
@@ -260,6 +302,9 @@ def check_g2_overlap(vertex_elems, exempt_cell_ids=None):
         exempt_cell_ids: 本次调用中应豁免的 cell id 集合（人工白名单，来自
             --exemptions；自动豁免见 _is_auto_exempt，在调用方过滤 candidates
             时一并处理，不在本函数内部重复判断）。
+        id_to_cell: 全部 mxCell 的 id→element 映射，供 _is_auto_exempt 向上
+            追溯祖先链判定祖先是否为 group/container（None 时退化为只看自身
+            style，不追溯祖先——调用方应始终传入以避免 group 孙节点漏判）。
 
     Returns:
         (fail_issues, warn_issues) 二元组，均为 dict 列表。
@@ -268,7 +313,7 @@ def check_g2_overlap(vertex_elems, exempt_cell_ids=None):
     candidates = [
         c for c in vertex_elems
         if _participates_in_overlap(c) and c.get("id") not in exempt_cell_ids
-        and not _is_auto_exempt(c)
+        and not _is_auto_exempt(c, id_to_cell=id_to_cell)
     ]
 
     fail_issues = []
@@ -615,6 +660,7 @@ def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
     all_cell_elems = list(root.iter("mxCell"))
     vertex_elems = [c for c in all_cell_elems if c.get("vertex") == "1"]
     item["vertex_total"] = len(vertex_elems)
+    id_to_cell = {c.get("id"): c for c in all_cell_elems if c.get("id") is not None}
 
     # --- G1 ---
     bad_cells = check_g1(vertex_elems)
@@ -642,7 +688,7 @@ def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
         bad_ids = {b["id"] for b in bad_cells}
         clean_vertex_elems = [c for c in vertex_elems if c.get("id") not in bad_ids]
         exempt_cell_ids = exempt_cell_ids or set()
-        g2_fail, g2_warn = check_g2_overlap(clean_vertex_elems, exempt_cell_ids=exempt_cell_ids)
+        g2_fail, g2_warn = check_g2_overlap(clean_vertex_elems, exempt_cell_ids=exempt_cell_ids, id_to_cell=id_to_cell)
         if g2_fail:
             item["passed"] = False
             item["checks"]["G2_overlap"] = "fail"
@@ -662,7 +708,7 @@ def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
             })
         auto_hit = sorted({
             c.get("id") for c in overlap_participants
-            if c.get("id") not in exempt_cell_ids and _is_auto_exempt(c)
+            if c.get("id") not in exempt_cell_ids and _is_auto_exempt(c, id_to_cell=id_to_cell)
         })
         if auto_hit:
             item["exemptions_applied"].append({

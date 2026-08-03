@@ -60,35 +60,33 @@ def merged_text():
 def test_fixture_faithfully_reproduces_writer_template_skeleton():
     """fixture 必须真实还原 merge_drafts 的**输入**形态。
 
-    这条用例存在的目的是：若未来有人为了让测试变绿而修改 fixture（比如把
-    ``## 本章结论`` 改成 ``### 本章结论``、或给草稿补上章容器 H2），本用例会
-    立即失败——真实性不可被静默削弱。
+    2026-08-03 更新：Writer 新模板不再产出 H2「## 本章结论」，改为 blockquote
+    「> **本章结论**：...」。fixture 应无 H2，以 blockquote 起始。
     """
     drafts = sorted(DRAFTS.glob("ch*.md"))
     assert len(drafts) == EXPECTED_CHAPTERS, "fixture 应含多章草稿"
     for f in drafts:
         lines = [ln for ln in f.read_text(encoding="utf-8").split("\n") if ln.strip()]
+        # 不应包含 H2
         h2s = [ln for ln in lines if re.match(r"^##\s+\S", ln)]
-        assert h2s, f"{f.name} 应含 H2"
-        assert h2s[0].strip() == "## 本章结论", (
-            f"{f.name} 的首个 H2 必须逐字为「## 本章结论」（writer-template R1 红线）"
+        assert not h2s, f"{f.name} 不应含 H2（新模板不使用 H2）"
+        # 应以 blockquote 本章结论起始
+        assert lines[0].startswith("> **本章结论**"), (
+            f"{f.name} 首行必须以 blockquote '> **本章结论**：' 开头"
         )
-        # 草稿中**不得**自带章容器 H2
-        for ln in h2s:
-            assert not re.match(r"^##\s+第\s*\d+\s*章", ln), (
-                f"{f.name} 不得自带章容器 H2（由合并器生成）"
-            )
 
 
-def test_fixture_contains_the_fatal_adjacent_h2_precondition():
-    """现有 md2docx fixture 不含"两个相邻 H2"组合，故缺陷从未被测出。
+def test_fixture_no_adjacent_h2_possible():
+    """2026-08-03 更新：新模板 Writer 不产出 H2，草稿与章容器之间永远不会构成相邻 H2。
 
-    本用例断言：合并**前**，草稿首个 H2 与合并器将插入的章容器 H2 会构成
-    相邻 H2——即本 fixture 确实覆盖了致命前置条件。
+    旧测试 test_fixture_contains_the_fatal_adjacent_h2_precondition 验证的是
+    旧格式下草稿 H2 与章容器 H2 必然相邻的事故前置条件。新格式下此问题从根源消除。
     """
     first = sorted(DRAFTS.glob("ch*.md"))[0]
     body = first.read_text(encoding="utf-8").lstrip()
-    assert body.startswith("## 本章结论"), "草稿应以 H2 开头，与章容器 H2 构成相邻组合"
+    # 新格式：草稿以 blockquote 起始（非 H2），不会与章容器 H2 构成相邻
+    assert body.startswith("> **本章结论**"), "草稿应以 blockquote 起始"
+    assert not re.match(r"^##\s", body), "草稿不应以 H2 起始"
 
 
 # ── I1/A4：每个 Heading 1 下必须有非空正文（用户投诉本体）─────
@@ -129,24 +127,34 @@ def test_i2_chapter_container_count_equals_declared(merged_text):
 
 
 def test_i3_no_duplicate_h2_after_merge(merged_text):
-    """D1-5 落地后，13 个并列的"本章结论"H2 应全部下沉为 H3。"""
+    """D1-5 移除后，blockquote 本章结论不占 heading 层级，无重复 H2。"""
     h2s = re.findall(r"^##\s+(.+?)\s*$", merged_text, re.MULTILINE)
     dup = [t for t, c in collections.Counter(h2s).items() if c > 1]
     assert dup == [], f"出现重复 H2: {dup}"
-    assert "本章结论" not in [t.strip() for t in h2s], "「本章结论」不应再是 H2"
+    assert "本章结论" not in [t.strip() for t in h2s], "「本章结论」不应是 H2"
 
 
-def test_a3_conclusion_heading_demoted_to_h3(merged_text):
-    """A3：``## 本章结论`` 经合并后应为 H3（节级），且每章各一个。"""
+def test_chapter_conclusion_is_blockquote_not_heading(merged_text):
+    """2026-08-03 更新：本章结论应为 blockquote（`> **本章结论**：...`），而非 H3 heading。"""
+    # 验证 blockquote 存在
+    blockquotes = re.findall(r"^>\s*\*\*本章结论\*\*", merged_text, re.MULTILINE)
+    assert len(blockquotes) >= EXPECTED_CHAPTERS, (
+        f"合并产物中应至少有 {EXPECTED_CHAPTERS} 个 blockquote 本章结论，实有 {len(blockquotes)}"
+    )
+    # 验证不在 H3 中
     h3s = [t.strip() for t in re.findall(r"^###\s+(.+?)\s*$", merged_text, re.MULTILINE)]
-    assert h3s.count("本章结论") == EXPECTED_CHAPTERS
+    assert "本章结论" not in h3s, "「本章结论」不应再是 H3"
 
 
-def test_original_h3_sections_demoted_to_h4(merged_text):
-    """草稿内的 H3 正文节应下沉为 H4（docx Heading 3）。"""
+def test_h3_sections_remain_h3_after_merge(merged_text):
+    """2026-08-03 更新：Writer 的 H3 节标题在合并后保持 H3（不 demote）。"""
+    h3s = [t.strip() for t in re.findall(r"^###\s+(.+?)\s*$", merged_text, re.MULTILINE)]
+    assert "技术代际划分依据" in h3s
+    assert "六层认知升维模型" in h3s
+    # 不应被 demote 到 H4
     h4s = [t.strip() for t in re.findall(r"^####\s+(.+?)\s*$", merged_text, re.MULTILINE)]
-    assert "技术代际划分依据" in h4s
-    assert "六层认知升维模型" in h4s
+    assert "技术代际划分依据" not in h4s, "H3 节标题不应被 demote 为 H4"
+    assert "六层认知升维模型" not in h4s, "H3 节标题不应被 demote 为 H4"
 
 
 # ── I4/A2：重复拼接（现有用例无一覆盖）──────────────────────
@@ -225,7 +233,7 @@ def test_full_chain_merge_then_docx_readback(tmp_path, monkeypatch):
     proc = subprocess.run(
         [sys.executable, "-m", "md2docx", str(merged_md), str(docx_out)],
         cwd=str(Path(md.__file__).resolve().parent),
-        capture_output=True, text=True, encoding="utf-8",
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert docx_out.exists(), f"md2docx 未产出 docx: {(proc.stderr or proc.stdout)[-600:]}"
 
@@ -251,6 +259,12 @@ def test_full_chain_merge_then_docx_readback(tmp_path, monkeypatch):
     # 正文章各一个 Heading 1（附录另计）
     chapter_h1 = [t for t in h1 if "缩略语对照" not in t]
     assert len(chapter_h1) == EXPECTED_CHAPTERS, f"正文章 Heading 1 应为 {EXPECTED_CHAPTERS} 个，实际 {h1}"
-    # 「本章结论」下沉后应出现在 Heading 2 层，且不占用 Heading 1
+    # 2026-08-03 更新：本章结论为 blockquote，不出现在任何 heading 层级
     assert "本章结论" not in h1, "「本章结论」不得是 Heading 1"
-    assert h2.count("本章结论") == EXPECTED_CHAPTERS
+    assert "本章结论" not in h2, "「本章结论」不得是 Heading 2（应为 blockquote 正文）"
+    # 验证 blockquote 中的本章结论存在于正文段落中
+    normal_paras = [p.text for p in d.paragraphs if p.style.name not in ("Heading 1", "Heading 2", "Heading 3")]
+    conclusion_count = sum(1 for t in normal_paras if "本章结论" in t)
+    assert conclusion_count >= EXPECTED_CHAPTERS, (
+        f"正文中应至少有 {EXPECTED_CHAPTERS} 处 blockquote 本章结论，实有 {conclusion_count}"
+    )

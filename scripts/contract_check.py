@@ -10,7 +10,7 @@
     C5 无禁止内容（含密级词 / 输出隔离标记残留）
     C6 引用格式统一性（纯数字引用/斜杠分隔/S变体/独立参考文献节）
     C7 SRC 引用残留（合并后检查）
-    C8 字数统计残留（全文约/本章字数）
+    C8 字数统计残留（全文约/本章字数/写作者自声明——2026-08-03 升级：自声明已移至独立文件）
     C9 局部参考文献节（每章独立参考文献体系）
   观察层 C10-C11（跨模型兼容性优化方案 §二 A3，第一阶段非阻塞）
     C10（F7）信源分级前缀泄露（如 "[A] xxx" 独占行首）——只计数不判负
@@ -81,6 +81,8 @@ BANNED_PATTERNS = {
     "密级标注": re.compile(r"绝密|机密|秘密|内部资料|\b内部\b|涉密"),
     # F1: 输出隔离标记残留（AGENT-OUTPUT-START/END 标记行，含可选 nonce 后缀）
     "输出隔离标记残留": RE_ENVELOPE_MARKER,
+    # 2026-08-03: blockquote 章首标签变体检测（Writer 应写 `> **本章结论**：`，不得使用变体）
+    "blockquote标签变体": re.compile(r"^>\s*\*\*本章(?:摘要|概览|要点|核心|概述|总结)\*\*", re.MULTILINE),
 }
 
 # 标题手动编号模式（C2）：H2-H4 后紧跟阿拉伯数字或中文数字编号
@@ -115,10 +117,14 @@ S_VARIANT_REF_PATTERN = re.compile(r"\[S-?\d+\]")
 # C7: SRC 残留检测
 SRC_RESIDUE_PATTERN = re.compile(r"\[SRC-")
 
-# C8: 字数统计残留
+# C8: 字数统计/自声明残留（2026-08-03 升级为 FATAL：自声明已在独立文件 research/claims/各章节自声明.md，章草稿零容忍）
 WORD_COUNT_RESIDUE_PATTERNS = {
     "全文约": re.compile(r"全文约\s*\d+\s*字"),
     "本章字数": re.compile(r"本章字数"),
+    "写作者自声明": re.compile(r"写作者自声明"),
+    "素材缺口标记": re.compile(r"素材缺口标记"),
+    "used_in_chapter": re.compile(r"used_in_chapter"),
+    "card_id": re.compile(r"引用的 card_id"),
     "篇幅预算残留": re.compile(r"^\s*>\s*\*\*篇幅预算\*\*", re.MULTILINE),
 }
 
@@ -278,6 +284,15 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     ]
     # C2 增强：粗体伪标题检测 —— 连续 ≥3 行匹配模式
     c2_bold_hits = _detect_bold_pseudo_headings(lines)
+    # C2 增强（2026-08-03）：分章文件中不应出现 H2（Writer 不写 H2，章容器由 merge 插入）
+    # 注意：仅非 merged 模式生效——merged 模式下的章容器 H2 由管道合法生成，已有豁免
+    if not merged:
+        c2_h2_in_draft = [
+            ln.strip() for ln in lines
+            if re.match(r"^##\s+\S", ln)
+        ]
+        if c2_h2_in_draft:
+            c2_hits.append(f"[H2在分章文件中违规] {c2_h2_in_draft[0][:80]}")
     c2_pass = len(c2_hits) == 0 and len(c2_bold_hits) == 0
 
     # C3: 图片标准语法计数
@@ -396,7 +411,7 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C5_banned": {"hits": c5_hits, "pass": c5_pass, "severity": "high"},
             "C6_reference_format": {**c6_result, "severity": "high"},
             "C7_src_residue": {"hits": c7_hits, "count": c7_count, "pass": c7_pass, "severity": c7_severity},
-            "C8_word_count_residue": {"hits": c8_hits, "pass": c8_pass, "severity": "low"},
+            "C8_word_count_residue": {"hits": c8_hits, "pass": c8_pass, "severity": "high"},
             "C9_local_bibliography": {"hits": c9_hits_paragraphs, "count": len(c9_hits_paragraphs),
                                        "pass": c9_pass, "severity": "high", **c9_extra_fields},
             "C10_source_tier_prefix": {"hits": c10_hits, "count": len(c10_hits),
@@ -413,7 +428,7 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
         },
     }
     # 高严重度合约项（C1/C2/C5/C6/C9，stage9 下+C7）任一失败 → 整体 fail
-    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography"]
+    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C8_word_count_residue", "C9_local_bibliography"]
     if stage == "stage9":
         high_severity_keys.append("C7_src_residue")
     # 致命级合约项（C2 在合并终稿模式下升级为 fatal）——失败直接阻断，不可降级
@@ -532,8 +547,8 @@ def format_text_report(r: dict) -> str:
     lines.append(f"{c7_mark} C7 SRC残留: {c7['count']} 处 (严重度={c7['severity']})")
 
     c8 = c["C8_word_count_residue"]
-    c8_mark = WARN if c8["hits"] else OK
-    lines.append(f"{c8_mark} C8 字数统计残留: {'无' if not c8['hits'] else c8['hits']}")
+    c8_mark = FAIL if c8["hits"] else OK
+    lines.append(f"{c8_mark} C8 字数统计/自声明残留(FATAL): {'无' if not c8['hits'] else c8['hits']}")
 
     c9 = c["C9_local_bibliography"]
     if "h2_total" in c9:

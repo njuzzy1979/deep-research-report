@@ -137,14 +137,53 @@ def check_banned_forms(
     return violations
 
 
+def _extract_chapter_no(draft_path: str) -> int | None:
+    """从草稿文件名中提取章号（如 ``ch01-理论范式革命.md`` -> 1）。
+
+    提取不到时返回 None——调用方应将其视为"无法判定章节归属"，
+    保守地不跳过任何 scope 检查（宁可误报也不漏检，与 `_scope_covers_chapter`
+    的"提取不到章号→按覆盖处理"配合，两处保守方向一致）。
+    """
+    m = re.search(r"ch0*(\d+)", Path(draft_path).stem, re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def _scope_covers_chapter(scope: str, chapter_no: int | None) -> bool:
+    """判断 glossary 条目的 ``scope`` 字段是否覆盖给定章号。
+
+    scope 是自由文本（如"全报告"、"第1章、第9章"、"第3章；第4-5章理论前提"），
+    不是结构化字段——用正则提取其中出现的所有"第N章"/"第N-M章"模式，取并集
+    作为该术语的适用章节集合。``scope`` 含"全报告"或提取不到任何章号模式时，
+    视为覆盖全部章节（宁可误报也不漏检：术语一致性检查的目的是防止表述漂移，
+    范围判定不明确时不应静默放行）。
+    """
+    if chapter_no is None or "全报告" in scope:
+        return True
+    chapter_nos: set[int] = set()
+    for m in re.finditer(r"第\s*(\d+)\s*(?:[-–—至]\s*(\d+)\s*)?章", scope):
+        start = int(m.group(1))
+        end = int(m.group(2)) if m.group(2) else start
+        chapter_nos.update(range(start, end + 1))
+    if not chapter_nos:
+        return True
+    return chapter_no in chapter_nos
+
+
 def check_preferred_form_fidelity(
-    body_text: str, entries: list[dict[str, Any]]
+    body_text: str, entries: list[dict[str, Any]], chapter_no: int | None = None
 ) -> list[dict[str, Any]]:
     """检测原创核心概念的 preferred_form 是否在正文中被使用。
 
     对于 scope="全报告" 的原创概念，检查 preferred_form 的基础形式
     （不含括号内英文部分）是否至少出现一次。
     如果正文中出现了接近但不完全匹配的变体，报告为非逐字引用。
+
+    **章节归属过滤（问题修复）**：此前本函数对全部原创核心概念一律检查，
+    不看 ``scope`` 字段——导致 scope 明确限定为"第4章"的术语（如动态空间
+    本体）在校验第1章草稿时也被要求逐字出现，产生对不属于该章节术语的
+    虚假 FAIL（真实项目 ch01 草稿实测命中 4 处此类误报）。现在先用
+    `_scope_covers_chapter` 判断该术语的 scope 是否覆盖 `chapter_no` 对应的
+    章节，不覆盖则跳过该条目的逐字校验。
     """
     violations: list[dict[str, Any]] = []
 
@@ -153,11 +192,23 @@ def check_preferred_form_fidelity(
         if category != "原创核心概念":
             continue
 
+        scope = entry.get("scope", "") or ""
+        if not _scope_covers_chapter(scope, chapter_no):
+            continue
+
         term_id = entry.get("term_id", "UNKNOWN")
         preferred = entry.get("preferred_form", "")
 
-        # 提取基础中文形式（去除括号内的英文/缩写部分）
-        base_form = re.sub(r"\s*\([^)]*\)", "", preferred).strip()
+        # 提取基础中文形式（去除括号内的英文/缩写部分）。glossary 中的
+        # preferred_form 一律使用全角括号"（）"（如"SCIF理论闭环（SCI-SCIF-
+        # SCOS-SCA-NG-SSA Theoretical Loop）"），此前只匹配半角"()"导致
+        # 全角括号完全匹配不到、base_form 退化为整个原始字符串（含英文全称）
+        # ——而术语首次出现时正文按 glossary 自身规则会在括号内插入"，以下
+        # 简称XXX"（如"...Theoretical Loop，以下简称SCIF闭环）"），这使得
+        # 要求整段（含英文）逐字重现的检查在术语表自己规定的合法写法下也会
+        # 误报 FAIL（真实项目 ch01 草稿 GL-009 实测命中）。改为同时匹配
+        # 全角/半角括号，正确剥离后只比对括号外的中文基础形式。
+        base_form = re.sub(r"\s*[\(（][^\)）]*[\)）]", "", preferred).strip()
 
         # 检查 base_form 是否在正文中出现
         if base_form not in body_text:
@@ -235,9 +286,10 @@ def run_check(draft_path: str, glossary_path: str) -> dict[str, Any]:
     """执行术语一致性检查并返回结构化结果。"""
     entries = extract_yaml_glossary(glossary_path)
     body_text = extract_body_text(draft_path)
+    chapter_no = _extract_chapter_no(draft_path)
 
     banned_violations = check_banned_forms(body_text, entries)
-    form_violations = check_preferred_form_fidelity(body_text, entries)
+    form_violations = check_preferred_form_fidelity(body_text, entries, chapter_no=chapter_no)
 
     all_violations = banned_violations + form_violations
     passed = len(all_violations) == 0

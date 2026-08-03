@@ -548,17 +548,8 @@ def run_finalize_pipeline(
 
     try:
         merged_content = assemble_merged(structure, drafts_dir)
-        # 合并后处理：C1 要求至多 1 个 H1（# 标题），但 assemble_merged 按
-        # frontmatter 条目生成了多个 H1（如"# 摘要"、"# 关键词与术语说明"）。
-        # md2docx 恰好需要一个 H1 作为报告主标题，保留第一个，其余降级为 H2。
-        lines = merged_content.split("\n")
-        h1_count = 0
-        for i, line in enumerate(lines):
-            if H1_LINE_PATTERN.match(line):
-                h1_count += 1
-                if h1_count > 1:
-                    lines[i] = "#" + line  # "# 标题" -> "## 标题"
-        merged_content = "\n".join(lines)
+        # 2026-08-03: assemble_merged() 已前置处理 frontmatter H1（首个H1其余H2），
+        # 不再需要此处的 H1→H2 降级后处理。
         Path(work_path).parent.mkdir(parents=True, exist_ok=True)
         Path(work_path).write_text(merged_content, encoding="utf-8")
     except Exception as e:  # noqa: BLE001

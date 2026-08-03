@@ -176,7 +176,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cover", dest="cover_path", type=str, default=None,
         help="封面 YAML 文件路径（优先级高于正文 frontmatter）；"
+        "未传时自动检测 input 同级目录下 research/cover.md 或 cover.md；"
         "封面字段 = cover.md YAML > 正文 md YAML > CLI 参数 > 默认值",
+    )
+    parser.add_argument(
+        "--no-cover", dest="no_cover", action="store_true", default=False,
+        help="禁用封面自动检测（cover.md 存在时也不加载）",
     )
     parser.add_argument(
         "--outline", dest="outline_path", type=str, default=None,
@@ -198,6 +203,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     verbosity.add_argument("-q", "--quiet", action="store_true", default=False, help="控制台仅在非 0 退出码时输出")
 
     return parser
+
+
+def _resolve_cover_path(explicit_cover: str | None, input_path: str) -> str | None:
+    """解析封面路径：显式传入优先，否则自动检测 research/cover.md。
+
+    若 cover.md 存在且未被显式禁用，自动加载并输出提示。
+    """
+    if explicit_cover:
+        return os.path.abspath(explicit_cover)
+    # 自动检测：在 input markdown 文件所在目录的 research/cover.md
+    input_dir = os.path.dirname(os.path.abspath(input_path))
+    candidate = os.path.join(input_dir, "research", "cover.md")
+    if os.path.exists(candidate):
+        print(f"[INFO] 自动检测到 {candidate} 并加载为封面。使用 --no-cover 可禁用此行为。")
+        return candidate
+    # 也尝试 input 同级目录
+    candidate2 = os.path.join(input_dir, "cover.md")
+    if os.path.exists(candidate2):
+        print(f"[INFO] 自动检测到 {candidate2} 并加载为封面。使用 --no-cover 可禁用此行为。")
+        return candidate2
+    return None
 
 
 def _default_output_path(input_path: str) -> str:
@@ -244,7 +270,7 @@ def parse_args(argv: list[str] | None = None) -> RunOptions:
         date=ns.date,
         header_short=ns.header_short,
         build_date=ns.build_date,
-        cover_path=os.path.abspath(ns.cover_path) if ns.cover_path else None,
+        cover_path=_resolve_cover_path(ns.cover_path, input_path) if not ns.no_cover else None,
         outline_path=os.path.abspath(ns.outline_path) if ns.outline_path else None,
         verbose=ns.verbose,
         quiet=ns.quiet,

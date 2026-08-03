@@ -139,6 +139,7 @@ def _normalize_list_manifest(entries: list, outline_path=None) -> list[dict]:
             "priority": e.get("priority", "required"),
             "chapter": e.get("chapter"),
             "description": e.get("description", ""),
+            "output_files": e.get("output_files", []),
             "source": "figures_manifest_list",
         })
     return out
@@ -374,11 +375,112 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
 # 主入口
 # ---------------------------------------------------------------------------
 
+def check_figure_path_consistency(
+    outline_path: Path,
+    figures_dir: Path,
+    merged_md_path: Path = None,
+) -> dict:
+    """检查图片文件名的三方一致性：manifest vs 磁盘 vs markdown 引用。
+
+    Returns:
+        dict: {passed, items[], summary}
+    """
+    from pathlib import Path as _Path
+    import unicodedata as _ud
+
+    items = []
+    manifest = extract_manifest_from_yaml(outline_path)
+    if not manifest:
+        return {"passed": True, "items": [], "summary": "无 figures_manifest，跳过一致性检查"}
+
+    arch_figs = manifest.get("architecture_figures", [])
+    all_entries = list(arch_figs)
+
+    if not all_entries:
+        return {"passed": True, "items": [], "summary": "figures_manifest 为空"}
+
+    # 收集 markdown 引用路径
+    md_refs = {}  # figure_no → set of referenced basenames
+    if merged_md_path and _Path(merged_md_path).exists():
+        import re as _re
+        md_text = _Path(merged_md_path).read_text(encoding="utf-8", errors="replace")
+        for m in _re.finditer(r'!\[图\s*(\d+-\d+)[^\]]*\]\(([^)]+)\)', md_text):
+            fno = m.group(1)
+            ref_path = m.group(2)
+            ref_basename = _Path(ref_path).name
+            md_refs.setdefault(fno, set()).add(ref_basename)
+
+    for entry in all_entries:
+        fno = entry.get("figure_no", "?")
+        output_files = entry.get("output_files", [])
+        # 从 output_files 提取期望的 .png 文件名
+        expected_names = {_Path(f).name for f in output_files if f.endswith('.png')}
+
+        item = {
+            "figure_id": entry.get("figure_id", "?"),
+            "figure_no": fno,
+            "title": entry.get("title", ""),
+            "passed": True,
+            "issues": [],
+        }
+
+        # 检查1: manifest 声明的精确文件名在磁盘上是否存在
+        disk_matches = set()
+        for ename in expected_names:
+            fp = figures_dir / ename
+            if fp.exists():
+                disk_matches.add(ename)
+            else:
+                item["passed"] = False
+                item["issues"].append(
+                    f"[FATAL] manifest 声明文件不存在: {ename}"
+                )
+
+        # 检查2: markdown 引用的 basename 与磁盘文件名是否一致
+        refs = md_refs.get(fno, set())
+        for ref in refs:
+            disk_path = figures_dir / ref
+            if not disk_path.exists():
+                item["passed"] = False
+                item["issues"].append(
+                    f"[FATAL] markdown 引用文件不存在: {ref}"
+                )
+            elif expected_names and ref not in expected_names:
+                item["issues"].append(
+                    f"[WARN] markdown 引用 {ref} 与 manifest 声明不一致，"
+                    f"manifest 声明: {expected_names}"
+                )
+
+        # 检查3: glob 诊断——列出磁盘上同图号的实际文件
+        if fno and fno != "?":
+            glob_matches = sorted(figures_dir.glob(f"*{fno}*.png"))
+            if len(glob_matches) > 1 and not item["passed"]:
+                item["issues"].append(
+                    f"[INFO] 磁盘上存在 {len(glob_matches)} 个同图号文件: "
+                    f"{[p.name for p in glob_matches]}"
+                )
+
+        items.append(item)
+
+    failed = [i for i in items if not i["passed"]]
+    return {
+        "passed": len(failed) == 0,
+        "items": items,
+        "failed_count": len(failed),
+        "summary": (
+            f"三方一致性: {len(items) - len(failed)}/{len(items)} 通过"
+            if items else "无条目可检查"
+        ),
+    }
+
+
 def run_figure_gate(
     outline_path: Path,
     figures_dir: Path,
     stage: str = "stage6",
     strict: bool = False,
+    markdown_path: Path = None,
+    check_consistency: bool = False,
 ) -> dict:
     """运行图表门禁检查。
 
@@ -486,6 +588,12 @@ def run_figure_gate(
 
     passed = len(missing_total) == 0 and len(invalid_total) == 0
 
+    consistency_result = None
+    if check_consistency:
+        consistency_result = check_figure_path_consistency(
+            outline_path, figures_dir, markdown_path
+        )
+
     return {
         "passed": passed,
         "total": len(checklist),
@@ -510,6 +618,7 @@ def run_figure_gate(
         "items": results,
         "stage": stage,
         "source": source,
+        "consistency": consistency_result,
     }
 
 

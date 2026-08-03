@@ -21,10 +21,11 @@
     "C2_manual_number": {
       "bold_pseudo_heading_count": 0,
       "bold_pseudo_heading_hits": [],
-      "count": 2,
+      "count": 3,
       "hits": [
         "## 第一章 军事需求与现状分析",
-        "## 第二章 研究目标与技术指标"
+        "## 第二章 研究目标与技术指标",
+        "[H2在分章文件中违规] ## 摘要"
       ],
       "pass": false,
       "severity": "high"
@@ -65,7 +66,7 @@
     "C8_word_count_residue": {
       "hits": {},
       "pass": true,
-      "severity": "low"
+      "severity": "high"
     },
     "C9_local_bibliography": {
       "count": 0,
