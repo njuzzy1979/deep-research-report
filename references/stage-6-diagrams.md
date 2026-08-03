@@ -103,6 +103,8 @@ print('PNG 300dpi OK, size:', img.size)
 
 **陷阱 3：需要精确绕行的边必须显式写 `<Array as="points">` 途经点。** `exitY`/`entryY`/`curved` 等样式提示只约束边的起终点在节点上的连接位置，不约束中间走线路径。这些提示依赖人在编辑器中交互式拖线产生的历史路径点，在纯脚本批量生成 `-x -f png` 下 orthogonal 路由器不会主动采纳——它会选择"看起来最短"的正交路径，可能直接穿过中间的兄弟节点。需要精确绕开第三方节点的边（如反馈边跨越多个兄弟节点），必须在 XML 中显式写入 `<Array as="points"><mxPoint x=".." y=".."/></Array>`。
 
+**陷阱 4：画布内不应嵌入内部引用编号。** `[SRC-XXX]`/`[G-XXX]`/`[T-XXX]` 等是内部追溯编号。导出 PNG 后，这些编号被固化为位图像素——阶段 9 的引用转换不会更新它们。同一条证据，图中残留 `[T-032]`，正文已转换为 `[12]`，读者面对两个不互通的编号体系。正确做法：图注证据使用人类可读描述（机构+年份+关键发现），追溯路径留在正文 Markdown 的 `[SRC-XXX]` 引用中。出图后应跑 `drawio_layout_validator.py` 确认 G13 判据（`CANVAS_CITATION_RESIDUE`）无命中。
+
 > **⚠️ 如果 draw.io 桌面版不可用**（未安装 / `tool-paths.json` 路径为空且 `where draw.io` 找不到）：
 > 1. **降级导出**：使用 draw.io 在线版（https://app.diagrams.net/）手动打开 `.drawio` 文件 → File → Export as → PNG（设置 300dpi，`scale=300/96≈3.125`）
 > 2. **在线版也不可用** → 使用 MCP `mcp__drawio__create_diagram` 的 `mermaid` 参数仅输出 Mermaid 渲染（无 .drawio 源文件编辑能力），标注该图"无源文件，后续修改需重做"

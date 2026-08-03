@@ -420,7 +420,32 @@ def check_g7(all_cell_elems):
 
 
 # ---------------------------------------------------------------------------
-# G12：跨图引用检测（SKILL.md 反例 26，如 "图3-1"/"图 3-1" 出现在本图节点文本
+# G13：画布内引用标记检测（SKILL.md 反例 27，如 "[G-027]"/"[T-032]"/"[SRC-016]"
+# 出现在画布节点文本中——这些是内部台账编号，导出 PNG 后固化为位图像素，
+# 阶段 9 引用转换不会更新它们，且对读者无意义。应替换为人类可读证据描述。
+# ---------------------------------------------------------------------------
+
+CANVAS_CITATION_PAT = re.compile(
+    r'\[(?:SRC|G|T|S|A|C)-\d+\]'    # [SRC-001] / [G-027] / [T-032] 等
+    r'|\[(?:CM|CO|CASE)-\d+\]'       # claim_id 变体
+)
+
+
+def check_g13_canvas_citation(all_cell_elems):
+    """检测节点文本内容中残留的内部引用编号，返回命中的 (cell_id, matched_text) 列表。
+
+    与 G12（跨图引用）和 G6（内嵌图注）互补——G13 检测的不是图号引用，
+    而是 claim_id/source_id 等内部质控编号。这些编号对读者无意义且不会在
+    阶段 9 被转换（PNG 是位图）。
+    """
+    hits = []
+    for c in all_cell_elems:
+        value = c.get("value") or ""
+        text = _strip_html_g2(value)
+        matches = CANVAS_CITATION_PAT.findall(text)
+        for m in matches:
+            hits.append((c.get("id", "?"), m))
+    return hits
 # 内容中——真实案例：3-3 图的 in1/in2 引用了"图3-1"/"图3-2"，这种在画布内直接
 # 指向其他图号的写法会增加读者跨图翻阅的阅读负担，应改写为不依赖图号的自足描述）
 # ---------------------------------------------------------------------------
@@ -635,6 +660,7 @@ def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
             "G7_fake_diagram": "pass",
             "G10a_topology": "not_applicable",
             "G12_cross_figure_ref": "pass",
+            "G13_canvas_citation": "pass",
         },
         "issues": [],
         "exemptions_applied": [],
@@ -773,6 +799,27 @@ def validate_one_file(path: Path, ir_path=None, exempt_cell_ids=None) -> dict:
             "retryable": True,
         })
 
+    # --- G13：画布内引用标记检测（SKILL.md 反例 27） ---
+    g13_hits = check_g13_canvas_citation(all_cell_elems)
+    if g13_hits:
+        item["passed"] = False
+        item["checks"]["G13_canvas_citation"] = "fail"
+        cell_ids = sorted({cid for cid, _ in g13_hits})
+        item["issues"].append({
+            "check": "G13_canvas_citation",
+            "error_code": "CANVAS_CITATION_RESIDUE",
+            "severity": "error",
+            "cells": g13_hits,
+            "message": f"{len(cell_ids)} 个节点文本含内部引用编号: {g13_hits}",
+            "feedback": (
+                f"节点 {', '.join(cell_ids)} 的文本中出现了 [SRC-XXX]/[G-XXX]/"
+                "[T-XXX] 等内部台账编号。这些编号导出 PNG 后固化为位图像素，"
+                "阶段 9 引用转换不会更新它们，且对读者无意义。应替换为人类可读"
+                "的证据描述（机构+年份+关键发现），追溯路径留在正文 Markdown。"
+            ),
+            "retryable": True,
+        })
+
     # --- G10a：拓扑-模式一致性 ---
     layout_mode = _load_layout_mode(ir_path)
     if layout_mode is None:
@@ -886,7 +933,7 @@ def format_report(result: dict) -> str:
     """对齐 figure_gate.py 的 format_report() 风格。"""
     lines = [
         "=" * 60,
-        "布局质量门禁报告 (drawio_layout_validator) — G1+G2+G6+G7+G10a+G12",
+        "布局质量门禁报告 (drawio_layout_validator) — G1+G2+G6+G7+G10a+G12+G13",
         "=" * 60,
         "",
     ]
