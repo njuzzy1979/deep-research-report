@@ -143,20 +143,21 @@ def extract_metadata(
     # ------------------------------------------------------------------
     yaml_defaults = yaml_defaults or {}
 
-    # title：优先取 h1_text；无 H1 → FATAL（E-SYS-01）
+    # title：优先取 h1_text；无 H1 → WARNING + 回退链（CLI --title > 默认值）
     if h1_text:
         title = h1_text
     else:
+        fallback = cli_overrides.get("title") or "研究报告"
+        title = fallback
         issues.append(
             Issue(
-                level=Level.FATAL,
-                code="E-SYS-01",
+                level=Level.WARNING,
+                code="W-META-01",
                 stage="assemble",
-                message="文档缺少 H1 标题（无法确定报告主标题），中止 IR 构建",
-                suggestion="请在 md 文件开头添加一级标题（# 标题）",
+                message=f"文档缺少 H1 标题，使用回退标题「{fallback}」",
+                suggestion="建议通过 --cover cover.md 提供完整的封面标题，或使用 --title 指定报告标题",
             )
         )
-        title = ""
 
     # subtitle：md 副标题 > CLI --subtitle（YAML 不含此字段）
     subtitle = md_subtitle or cli_overrides.get("subtitle") or None
@@ -241,7 +242,7 @@ if __name__ == "__main__":
     assert len(result.title_short) <= 6, f"title_short too long: {result.title_short!r}"
     print("测试1 通过：正常流程")
 
-    # 测试2：无 H1 → FATAL
+    # 测试2：无 H1 → WARNING + 默认标题（2026-08-03 降级）
     collector2 = IssueCollector()
     result2 = extract_metadata(
         meta_lines=[],
@@ -250,9 +251,22 @@ if __name__ == "__main__":
         yaml_defaults={},
         issues=collector2,
     )
-    assert result2.title == "", f"title should be empty on FATAL, got: {result2.title!r}"
-    assert collector2.has_fatal(), "should have FATAL when H1 missing"
-    print("测试2 通过：无 H1 → FATAL")
+    assert result2.title == "研究报告", f"无 H1 应回退默认标题，got: {result2.title!r}"
+    assert not collector2.has_fatal(), "无 H1 不应产生 FATAL"
+    print("测试2 通过：无 H1 → WARNING + 默认标题")
+
+    # 测试2b：无 H1 但有 CLI --title → WARNING + CLI 标题（2026-08-03 新增）
+    collector2b = IssueCollector()
+    result2b = extract_metadata(
+        meta_lines=[],
+        h1_text=None,
+        cli_overrides={"title": "测试报告"},
+        yaml_defaults={},
+        issues=collector2b,
+    )
+    assert result2b.title == "测试报告", f"无 H1 应回退 CLI title，got: {result2b.title!r}"
+    assert not collector2b.has_fatal(), "有回退标题时不应产生 FATAL"
+    print("测试2b 通过：无 H1 + CLI title → WARNING + CLI 标题")
 
     # 测试3：CLI 兜底生效
     collector3 = IssueCollector()

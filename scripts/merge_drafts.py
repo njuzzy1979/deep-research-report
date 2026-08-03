@@ -295,15 +295,12 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
     lines = []
     seen_warnings = []
 
-    # 前置件：第一个条目用 H1 作为报告主标题，其余用 H2（2026-08-03 大纲即合同）
+    # 前置件：全部 H2（2026-08-03 大纲即合同：封面标题由 cover.md 承载）
     fm = structure.get("frontmatter", [])
-    for idx, item in enumerate(fm):
+    for item in fm:
         c_title = item.get("chapter_title", "")
         if c_title:
-            if idx == 0:
-                lines.append(f"# {c_title}")
-            else:
-                lines.append(f"## {c_title}")
+            lines.append(f"## {c_title}")
             lines.append("")
         for s in item.get("sections", []):
             if isinstance(s, dict):
@@ -311,10 +308,7 @@ def assemble_merged(structure: dict, drafts_dir: str) -> str:
             else:
                 st = str(s)
             if st:
-                if idx == 0:
-                    lines.append(f"## {st}")
-                else:
-                    lines.append(f"### {st}")
+                lines.append(f"### {st}")
                 lines.append("")
 
     # 正文各章

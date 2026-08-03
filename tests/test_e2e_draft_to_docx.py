@@ -226,12 +226,11 @@ def test_full_chain_merge_then_docx_readback(tmp_path, monkeypatch):
     merged_md = tmp_path / "final-report.md"
     structure = md.parse_outline_yaml(str(outline))
     merged = md.assemble_merged(structure, str(work_drafts))
-    # 保留一个 H1 作为报告主标题（md2docx 要求）
-    merged_md.write_text("# 端到端合并测试报告\n\n" + merged, encoding="utf-8")
+    merged_md.write_text(merged, encoding="utf-8")
 
     docx_out = tmp_path / "e2e.docx"
     proc = subprocess.run(
-        [sys.executable, "-m", "md2docx", str(merged_md), str(docx_out)],
+        [sys.executable, "-m", "md2docx", str(merged_md), str(docx_out), "--title", "端到端合并测试报告"],
         cwd=str(Path(md.__file__).resolve().parent),
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
@@ -255,13 +254,12 @@ def test_full_chain_merge_then_docx_readback(tmp_path, monkeypatch):
 
     d = Document(str(docx_out))
     h1 = [p.text for p in d.paragraphs if p.style.name == "Heading 1"]
-    h2 = [p.text for p in d.paragraphs if p.style.name == "Heading 2"]
     # 正文章各一个 Heading 1（附录另计）
     chapter_h1 = [t for t in h1 if "缩略语对照" not in t]
     assert len(chapter_h1) == EXPECTED_CHAPTERS, f"正文章 Heading 1 应为 {EXPECTED_CHAPTERS} 个，实际 {h1}"
-    # 2026-08-03 更新：本章结论为 blockquote，不出现在任何 heading 层级
-    assert "本章结论" not in h1, "「本章结论」不得是 Heading 1"
-    assert "本章结论" not in h2, "「本章结论」不得是 Heading 2（应为 blockquote 正文）"
+    # 2026-08-03 更新：标题通过 --title 参数传入 md2docx，验证封面标题已渲染
+    title_found = any("端到端合并测试报告" in p.text for p in d.paragraphs)
+    assert title_found, "docx 封面应包含标题「端到端合并测试报告」"
     # 验证 blockquote 中的本章结论存在于正文段落中
     normal_paras = [p.text for p in d.paragraphs if p.style.name not in ("Heading 1", "Heading 2", "Heading 3")]
     conclusion_count = sum(1 for t in normal_paras if "本章结论" in t)

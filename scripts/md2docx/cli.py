@@ -161,7 +161,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
 
     # 元数据补充组（04 §1.1；仅在 md 头部元数据块对应字段缺失时生效，见 §1.2）
-    parser.add_argument("--title", default=None, help="标题兜底值（md 无 H1 时不适用，见 FATAL 场景）")
+    parser.add_argument("--title", default=None, help="报告标题。md 无 H1 时作为回退；封面标题优先级：cover.md > H1 > --title > 默认值「研究报告」")
     parser.add_argument("--subtitle", default=None, help="副标题兜底值")
     parser.add_argument("--report-type", default=None, help="报告类型兜底值")
     parser.add_argument("--org", dest="organization", default=None, help="机构名兜底值")
