@@ -145,14 +145,14 @@ STYLE_SPECS: dict[str, StyleSpec] = {
         left_indent_cm=1.0,
     ),  # V3.0 §3.3；左边框色见 COLOR_QUOTE_BORDER（I7）
     "Caption Figure": StyleSpec(
-        name="Caption Figure", cjk_font="宋体", latin_font="Times New Roman", size_pt=9.0,
-        bold=False, italic=False, color_hex=COLOR_CAPTION_GRAY, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=6.0, space_after_pt=0.0, alignment=ALIGN_CENTER,
+        name="Caption Figure", cjk_font="黑体", latin_font="Times New Roman", size_pt=9.0,
+        bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
+        space_before_pt=6.0, space_after_pt=12.0, alignment=ALIGN_CENTER,
     ),  # V3.0 §3.3/§十一（I6）
     "Caption Table": StyleSpec(
-        name="Caption Table", cjk_font="宋体", latin_font="Times New Roman", size_pt=9.0,
-        bold=False, italic=False, color_hex=COLOR_CAPTION_GRAY, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=0.0, space_after_pt=6.0, alignment=ALIGN_CENTER,
+        name="Caption Table", cjk_font="黑体", latin_font="Times New Roman", size_pt=9.0,
+        bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
+        space_before_pt=12.0, space_after_pt=6.0, alignment=ALIGN_CENTER,
     ),  # V3.0 §3.3/§十一（I6）
     "Table Source": StyleSpec(
         name="Table Source", cjk_font="宋体", latin_font="Times New Roman", size_pt=9.0,

@@ -49,11 +49,23 @@
       "pass": true,
       "severity": "warn"
     },
+    "C19_hr_abuse": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "warn"
+    },
     "C1_h1": {
       "count": 1,
       "limit": 1,
       "pass": true,
       "severity": "high"
+    },
+    "C20_bold_pseudo_heading": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "warn"
     },
     "C2_manual_number": {
       "bold_pseudo_heading_count": 0,

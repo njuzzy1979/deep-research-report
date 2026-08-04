@@ -297,7 +297,7 @@ def build(
     # ==================================================================
     # 步骤4：表解析（Token 流 → TableIR）
     # ==================================================================
-    table_irs, consumed_caption_ids = resolve_tables(tokens, issues, chapter_map)
+    table_irs, consumed_table_ids = resolve_tables(tokens, issues, chapter_map)
     table_registry: dict[str, TableIR] = {
         t.table_id: t
         for t in table_irs
@@ -307,12 +307,7 @@ def build(
     # ==================================================================
     # 步骤5：分页分节规划（breaks.py 唯一 PageBreakIR 生成点）
     # ==================================================================
-    body_table_count = sum(
-        1 for t in table_irs if t.kind == TableIR  # TableKind.BODY
-    )
-    # 注意：TableIR.kind 是 TableKind 枚举，需正确引用
     from ..ir import TableKind
-
     body_table_count = sum(
         1 for t in table_irs if t.kind == TableKind.BODY
     )
@@ -470,9 +465,14 @@ def build(
         if isinstance(t, ParagraphToken):
             _flush_list_buffer()
             # 跳过已被 resolve_tables 消费的题注段落（避免与 TableIR 题注重复渲染）
-            if id(t) in consumed_caption_ids:
+            # consumed_table_ids 是 resolve_tables() 返回的 tuple 第二元素——
+            # 包含全部已被表格消费的 ParagraphToken 的 id()。
+            if id(t) in consumed_table_ids:
                 in_table_span = False
                 continue
+            # 表来源行（*数据来源：xxx*）: resolve_tables 显式决定不消费（tables.py:275），
+            # 因此来源行会同时以 TableIR 来源行 + ParagraphIR 斜体段落两种形态渲染。
+            # 这是已知的设计决策，非 bug。
             in_table_span = False
             token_to_element_map[token_idx] = len(elements)
             elements.append(

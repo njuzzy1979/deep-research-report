@@ -84,37 +84,36 @@ def plan_breaks_and_sections(
             first_chapter_line = hir.source_line
 
     # ------------------------------------------------------------------
-    # PB-A.5：H3 前分页移除——清除紧邻 H3（及更深层级标题）前的 PageBreakIR。
-    # `---` 水平线只应在章间边界产生分页，章内作为节分隔符使用时不应触发换页。
-    # 此步骤在 PB-A（HrToken→PageBreakIR）之后、PB-B（H2 补插）之前执行，
-    # 确保 Pb-A.5 移除后 PB-B 仍可为真正缺少分页的 H2 补插。
+    # PB-A.5：章内分页移除——仅保留章间（H2 前）分页，移除所有其他分页
+    # Writer 可能违规使用 `---` 作为章节内部（H3 间、粗体文本前）分隔符，
+    # 但这些 `---` 不应触发分页——仅章间边界（H2）需要换页。
+    # 策略：向前跳过 BlankToken，检查下一个实质 Token 是否为 H2。
+    # 是 H2 → 保留分页（章间边界）。不是 H2 → 移除分页（章内分隔符）。
     # ------------------------------------------------------------------
     stream_after_pba = stream
     stream = []
     for i, t in enumerate(stream_after_pba):
         if isinstance(t, PageBreakIR):
-            # 向前跳过 BlankToken，检查下一个实质 Token 是否为 H3+
-            next_is_h3 = False
+            next_is_chapter = False
             for j in range(i + 1, len(stream_after_pba)):
                 nxt = stream_after_pba[j]
                 if isinstance(nxt, BlankToken):
                     continue
-                if isinstance(nxt, HeadingToken) and nxt.level >= 3:
-                    next_is_h3 = True
+                if isinstance(nxt, HeadingToken) and nxt.level == 2:
+                    next_is_chapter = True
                 break
-            if next_is_h3:
-                # 该 PageBreakIR 紧邻 H3 标题——章内节分隔符，不触发分页
+            if not next_is_chapter:
                 if issues is not None:
                     issues.append(
                         Issue(
                             level=Level.INFO,
                             code="I-PB-04",
                             stage="assemble",
-                            message="紧邻 H3 标题的显式分页被移除（章内节分隔，非章间边界）",
+                            message="位于章内（非 H2 边界）的显式分页被移除",
                             source_line=t.source_line,
                         )
                     )
-                continue  # 跳过此 PageBreakIR
+                continue  # 跳过此 PageBreakIR（章内分隔符）
         stream.append(t)
 
     # ------------------------------------------------------------------

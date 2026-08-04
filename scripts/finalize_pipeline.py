@@ -113,10 +113,17 @@ def _replace_h1_with_h2(text: str) -> tuple:
 
 
 def _get_chapters_from_structure(outline_structure: dict) -> list:
-    """从 outline structure 中提取章节列表，兼容 chapters/bodymatter 两种键名。"""
+    """从 outline structure 中提取全部章节（正文章 + 附录章）。
+
+    v1 格式：bodymatter + appendix 两个独立键
+    v2 格式：单一 chapters 键（已被 normalize_outline_structure 转为 v1）
+    本函数拼接正文章和附录章，返回完整的文档序章列表。
+    """
     if not outline_structure:
         return []
-    return outline_structure.get("chapters") or outline_structure.get("bodymatter") or []
+    body = outline_structure.get("chapters") or outline_structure.get("bodymatter") or []
+    appendix = outline_structure.get("appendix") or []
+    return (list(body) if not isinstance(body, list) else body) + (list(appendix) if not isinstance(appendix, list) else appendix)
 
 
 def step_inject_bibliography(body_text: str, bib_text: str, outline_structure: dict) -> str:

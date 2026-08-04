@@ -184,6 +184,14 @@ SELFCLAIM_PATTERNS = {
 # C16: YAML frontmatter 存在性检查 —— 终稿文件应以 --- 开头和结尾的 YAML 块
 YAML_FM_PATTERN = re.compile(r"^---\s*\n.*?\n---", re.DOTALL)
 
+# C19: --- 水平线滥用检测 —— 分章文件（非合并）中 ^---$ 出现次数 >1 → WARN
+# 章首 blockquote 与第一个 H3 之间允许至多 1 条 ---（模板骨架行为）
+HR_COUNT_PATTERN = re.compile(r"^---$", re.MULTILINE)
+
+# C20: 粗体伪标题检测 —— 粗体文本独占成行（如 **Agent 1：XXX**）
+# 在 docx 中渲染为普通段落样式，不进入导航窗格、不被目录引用
+BOLD_PSEUDO_HEADING_PATTERN = re.compile(r"^\*\*[^*]+\*\*\s*$", re.MULTILINE)
+
 
 def read_text(path: str) -> str:
     """二进制安全读取，处理 BOM / CRLF。"""
@@ -461,6 +469,34 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     # C18: 文件路径规范检查（warn）
     c18_result = _check_c18_paths(file_path)
 
+    # C19: --- 水平线滥用检测（仅阶段 7 分章文件生效）
+    c19_hits = []
+    if not merged:
+        c19_count = len(HR_COUNT_PATTERN.findall(clean))
+        if c19_count > 1:
+            c19_hits = [f"检测到 {c19_count} 处 --- 水平线（允许至多 1 条）"]
+    c19_result = {
+        "hits": c19_hits,
+        "count": len(c19_hits),
+        "pass": len(c19_hits) == 0,
+        "severity": "warn",
+    }
+
+    # C20: 粗体伪标题检测（仅阶段 7 分章文件生效）
+    c20_hits = []
+    if not merged:
+        c20_matches = BOLD_PSEUDO_HEADING_PATTERN.findall(clean)
+        # 过滤掉已知合法的粗体行（如 "**表X-Y：xxx**" 表注格式）
+        c20_real = [m for m in c20_matches if not m.startswith("**表") and len(m) > 6]
+        if len(c20_real) >= 3:
+            c20_hits = [f"检测到 {len(c20_real)} 处粗体伪标题（如 {c20_real[0][:40]}...），建议改用 #### H4 标题"]
+    c20_result = {
+        "hits": c20_hits,
+        "count": len(c20_hits),
+        "pass": len(c20_hits) == 0,
+        "severity": "warn",
+    }
+
     # QS1: 正文字数
     word_count = count_cjk_chars(text)
 
@@ -496,6 +532,8 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "C16_yaml_frontmatter": c16_result,
             "C17_card_index": c17_result,
             "C18_paths": c18_result,
+            "C19_hr_abuse": c19_result,
+            "C20_bold_pseudo_heading": c20_result,
         },
         "quant": {
             "QS1_cjk_chars": word_count,
@@ -921,6 +959,16 @@ def format_text_report(r):
             if c18.get("hits"):
                 for h in c18["hits"][:3]:
                     lines.append(f"      - {h}")
+
+    if "C19_hr_abuse" in c:
+        c19 = c["C19_hr_abuse"]
+        c19_mark = WARN if not c19["pass"] else OK
+        lines.append(f"{c19_mark} C19 水平线滥用(WARN): {'合规' if c19['pass'] else c19.get('hits', ['?'])[0] if c19.get('hits') else '?'}")
+
+    if "C20_bold_pseudo_heading" in c:
+        c20 = c["C20_bold_pseudo_heading"]
+        c20_mark = WARN if not c20["pass"] else OK
+        lines.append(f"{c20_mark} C20 粗体伪标题(WARN): {'合规' if c20['pass'] else c20.get('hits', ['?'])[0] if c20.get('hits') else '?'}")
 
     lines.extend([
         "",

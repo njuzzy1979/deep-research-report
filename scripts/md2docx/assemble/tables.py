@@ -202,14 +202,18 @@ def resolve_tables(
             为 None 时按空表处理（全部正文表降级为 chapter_no=0）。
 
     Returns:
-        按文档序排列的 TableIR 列表 + 已被表格消费的 ParagraphToken id 集合
-        （题注行——builder 需跳过这些已消费的段落以避免重复渲染）。
+        按文档序排列的 TableIR 列表，以及已被表格消费的 ParagraphToken 的
+        id() 集合（调用方必须跳过这些段落以避免重复渲染题注）。
     """
     if not tokens:
         return [], set()
 
     _chapter_map = chapter_map or []
     seq_counters: dict[int, int] = {}
+
+    # 已消费的 ParagraphToken（按 id 追踪）。调用方必须跳过这些段落
+    # 以避免 TableIR 的 SEQ 域题注与原始粗体段落重复渲染。
+    consumed_ids: set[int] = set()
 
     n = len(tokens)
 
@@ -228,11 +232,8 @@ def resolve_tables(
 
     if not table_spans:
         # 无表格，但仍需扫描孤立题注（02 §B.2 第5项）
-        _detect_orphan_captions(tokens, set(), issues)
-        return [], set()
-
-    # 已消费的 ParagraphToken（按 id 追踪，用于后续孤立题注检测）
-    consumed_para_ids: set[int] = set()
+        _detect_orphan_captions(tokens, consumed_ids, issues)
+        return [], consumed_ids
 
     results: list[TableIR] = []
 
@@ -259,7 +260,7 @@ def resolve_tables(
                     if m:
                         caption_match = m
                         caption_token = prev_token
-                        consumed_para_ids.add(id(prev_token))
+                        consumed_ids.add(id(prev_token))
 
         # ---- 向后看：来源行检测 ----
         source_note: list[InlineRun] | None = None
@@ -360,9 +361,9 @@ def resolve_tables(
         )
 
     # ---- 孤立题注检测（02 §B.2 第5项） ----
-    _detect_orphan_captions(tokens, consumed_para_ids, issues)
+    _detect_orphan_captions(tokens, consumed_ids, issues)
 
-    return results, consumed_para_ids
+    return results, consumed_ids
 
 
 # ---------------------------------------------------------------------------
@@ -665,6 +666,29 @@ if __name__ == "__main__":
         any(i.code == "W-TBL-03" for i in c9),
         f"实际: {[(i.code,) for i in c9]}",
     )
+
+    # ---- 测试11：consumed_ids 非空且包含特定 ParagraphToken 的 id ----
+    print("\n=== 测试11：consumed_ids 传递验证 ===")
+    c11 = IssueCollector()
+    # 构造含题注的表格 token 流：题注段 + 表格行
+    caption_para = ParagraphToken(
+        source_line=1,
+        runs=[InlineRun(text="表1-1 测试表", bold=True)]
+    )
+    tokens11 = [caption_para, TableRowToken(source_line=2, cells=[["A","B"]])]
+    r11, c11_ids = resolve_tables(tokens11, c11, [(1, 1)])
+    check("consumed_ids 非空（含题注）", len(c11_ids) >= 1,
+          f"实际 {len(c11_ids)} 个")
+    check("consumed_ids 包含题注 Token 的 id",
+          id(caption_para) in c11_ids,
+          f"consumed_ids={c11_ids}, expected={id(caption_para)}")
+
+    # 无题注的表格 token 流——consumed_ids 应为空
+    c12 = IssueCollector()
+    tokens12 = [TableRowToken(source_line=1, cells=[["X","Y"]])]
+    r12, c12_ids = resolve_tables(tokens12, c12, [(1, 1)])
+    check("consumed_ids 为空（无题注）", len(c12_ids) == 0,
+          f"实际 {len(c12_ids)} 个")
 
     # --- 汇总 ---
     print(f"\n{'='*50}")
