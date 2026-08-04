@@ -871,6 +871,7 @@ def classify_and_number(
                     "text": raw,
                     "source_line": line,
                     "orig_num": None,
+                        "markdown_level": h.level,
                     "orig_letter": None,
                     "markdown_level": h.level,
                 })
@@ -966,6 +967,7 @@ def classify_and_number(
                         "text": raw,
                         "source_line": line,
                         "orig_num": None,
+                        "markdown_level": h.level,
                         "orig_letter": None,
                         "markdown_level": h.level,
                     })
@@ -1008,6 +1010,7 @@ def classify_and_number(
                     "raw_text": raw,
                     "text": stripped,
                     "source_line": line,
+                        "markdown_level": h.level,
                     "orig_num": None,
                     "orig_letter": None,
                     "markdown_level": h.level,
@@ -1035,6 +1038,7 @@ def classify_and_number(
                     "raw_text": raw,
                     "text": stripped,
                     "source_line": line,
+                        "markdown_level": h.level,
                     "orig_num": None,
                     "orig_letter": None,
                     "markdown_level": h.level,

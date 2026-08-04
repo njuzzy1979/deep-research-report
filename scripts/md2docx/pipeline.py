@@ -310,6 +310,9 @@ def run(options: RunOptions) -> int:
                         suggestion=None,
                     )
                 )
+                # 将 cover.md 的 header_short 注入 IR 元数据（页眉优先使用封面简称，而非自动截断标题）
+                if cover_metadata.get("header_short") and document_ir and document_ir.metadata:
+                    document_ir.metadata.title_short = cover_metadata["header_short"]
             else:
                 issues.append(
                     Issue(

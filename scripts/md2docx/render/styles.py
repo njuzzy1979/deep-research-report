@@ -75,17 +75,25 @@ def _get_or_create_rFonts(rPr) -> OxmlElement:
     return rFonts
 
 
-def _set_east_asian_font(style, font_name: str) -> None:
-    """在样式 rPr 的 rFonts 元素上设置 w:eastAsia 属性。
+def _set_style_fonts(style, latin_font: str, cjk_font: str) -> None:
+    """Unified font setter -- removes old rFonts to purge theme attrs, then rebuilds.
 
-    python-docx 不提供 eastAsia 字体的直接 API，必须通过 OXML 手写设置。
+    python-docx template Heading styles carry w:asciiTheme/w:eastAsiaTheme/w:hAnsiTheme
+    (majorHAnsi -> Calibri, majorEastAsia -> MS Gothic). Word behaviour is undefined
+    when explicit font names coexist with theme attrs -- delete old rFonts entirely.
     """
     rPr = style.element.find(qn("w:rPr"))
     if rPr is None:
         rPr = OxmlElement("w:rPr")
-        style.element.append(rPr)
-    rFonts = _get_or_create_rFonts(rPr)
-    rFonts.set(qn("w:eastAsia"), font_name)
+        style.element.insert(0, rPr)
+    for old in rPr.findall(qn("w:rFonts")):
+        rPr.remove(old)
+    rFonts = OxmlElement("w:rFonts")
+    rFonts.set(qn("w:ascii"), latin_font)
+    rFonts.set(qn("w:hAnsi"), latin_font)
+    rFonts.set(qn("w:eastAsia"), cjk_font)
+    rFonts.set(qn("w:cs"), latin_font)
+    rPr.insert(0, rFonts)
 
 
 def _apply_line_spacing(pf, line_spacing: str) -> None:
@@ -131,8 +139,7 @@ def _apply_style_spec(style, spec: StyleSpec, flags: BehaviorFlags) -> None:
     对齐、首行缩进（双写）、左缩进。
     """
     # ---- 字体 ----
-    style.font.name = spec.latin_font  # 西文字体（python-docx 原生 API）
-    _set_east_asian_font(style, spec.cjk_font)  # 中文字体（OXML 手写）
+    _set_style_fonts(style, spec.latin_font, spec.cjk_font)
 
     # ---- 字号 ----
     style.font.size = Pt(spec.size_pt)
@@ -164,6 +171,11 @@ def _apply_style_spec(style, spec: StyleSpec, flags: BehaviorFlags) -> None:
     # 左缩进
     if spec.left_indent_cm is not None:
         pf.left_indent = Cm(spec.left_indent_cm)
+
+    # V-08 硬约束：所有分页由 PageBreakIR 驱动，不得依赖 Word 样式默认值。
+    # python-docx 空白 Document 模板的 Heading 3 等样式内置了 pageBreakBefore，
+    # rebuild 样式时不会自动清除——必须显式覆盖为 False 以消除不可控分页。
+    pf.page_break_before = False
 
 
 def _set_left_border(style, color_hex: str, sz: int = 8) -> None:

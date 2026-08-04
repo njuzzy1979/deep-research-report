@@ -42,7 +42,7 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     # 若 HeadingIR.markdown_level 已设置（来自 assemble 层），render_heading()
     # 会优先使用 markdown_level 作为 Word 标题级别，以保留 TOC 层级关系。
     # 此处登记的值 2 仅作为 markdown_level 缺失时的兜底。
-    HeadingKind.FRONT_MATTER: 2,
+    HeadingKind.FRONT_MATTER: 1,
     HeadingKind.SUBSECTION: 3,
     HeadingKind.PLAIN: 4,
 }
@@ -104,7 +104,9 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
     # markdown_level=1（H1 前端件如"# 摘要"）上封顶为 2，
     # 避免 Word Heading 1 吞并后续 Heading 2 形成虚假父子关系。
     if heading.kind == HeadingKind.FRONT_MATTER and heading.markdown_level is not None:
-        level = max(2, heading.markdown_level)
+        # 将markdown层级减1映射到Word层级: ##→Heading1, ###→Heading2
+        # "前言"等前置件章节在语义上与正文Chapter同级(Heading 1)
+        level = max(1, heading.markdown_level - 1)
     style_name = f"Heading {level}"
     style = styles.get(style_name)
     if style is not None:

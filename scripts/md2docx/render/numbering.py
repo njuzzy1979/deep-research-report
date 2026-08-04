@@ -57,7 +57,7 @@ NO_NUMBERING_ID = 0  # OOXML 官方"关闭编号"值
 # lvlText 模板常量（本次 plan §6.2 章节/附录编号方案，见上方模块 docstring
 # "章节编号是否应使用中文数字"一节的完整推导）
 # ---------------------------------------------------------------------------
-_CHAPTER_LVL0_TEXT = "第%1章"  # 章标题模板：decimal 数字体系渲染为"第1章"
+_CHAPTER_LVL0_TEXT = "第%1章"  # 章标题模板；后缀空格由 w:suff 控制
 _APPENDIX_LVL0_TEXT = "附录%1"  # 附录标题模板：upperLetter 数字体系渲染为"附录A"
 
 
@@ -81,6 +81,12 @@ def _make_lvl(ilvl: int, num_fmt: str, lvl_text: str, start: int = 1) -> OxmlEle
     jc_el = OxmlElement("w:lvlJc")
     jc_el.set(qn("w:val"), "left")
     lvl.append(jc_el)
+
+    # 编号后缀：使用空格（space）而非制表符（tab）——
+    # Word 默认 tab 导致编号与标题文字间距过大且不可控。
+    suff_el = OxmlElement("w:suff")
+    suff_el.set(qn("w:val"), "space")
+    lvl.append(suff_el)
 
     return lvl
 
