@@ -319,8 +319,8 @@ if __name__ == "__main__":
     # 3. 验证 'Heading 1' 字号为 24pt、bold=True
     assert "Heading 1" in result
     h1_style = result["Heading 1"]
-    assert h1_style.font.size == Pt(24.0), (
-        f"Heading 1 字号期望 24pt，实际 {h1_style.font.size}"
+    assert h1_style.font.size == Pt(14.0), (
+        f"Heading 1 字号期望 14pt，实际 {h1_style.font.size}"
     )
     assert h1_style.font.bold is True, "Heading 1 bold 期望 True"
 

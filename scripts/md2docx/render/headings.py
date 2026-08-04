@@ -25,7 +25,7 @@ from .oxml_helpers import add_run_segments
 # HeadingKind → Word 样式级别映射
 # ---------------------------------------------------------------------------
 # Word 命名样式  Heading 1       Heading 2       Heading 3       Heading 4       Heading 5
-# 中文语义       章（24pt 粗体） 节（16pt 粗体） 小节（14pt 粗体）段落小标题     斜体小标题
+# 中文语义       章（14pt 粗体） 节（14pt 粗体） 小节（14pt 粗体）段落小标题     斜体小标题
 # 编号来源       多级列表 ilvl0  多级列表 ilvl1  多级列表 ilvl2  无编号         无编号
 #
 # MAIN_TITLE 映射到 Heading 1 仅为防御性兜底 —— 封面标题由 cover.py 渲染，

@@ -113,30 +113,30 @@ STYLE_SPECS: dict[str, StyleSpec] = {
         first_line_indent_cm=BODY_FIRST_LINE_INDENT_CM, first_line_chars=BODY_FIRST_LINE_CHARS,
     ),  # V3.0 §2/§3.3
     "Heading 1": StyleSpec(
-        name="Heading 1", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=24.0,
+        name="Heading 1", cjk_font="黑体", latin_font="Times New Roman", size_pt=14.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
         space_before_pt=0.0, space_after_pt=18.0, alignment=ALIGN_LEFT,
-    ),  # V3.0 §3.2（章，顶格左对齐）
+    ),  # V3.0 §3.2（章，四号 14pt）
     "Heading 2": StyleSpec(
-        name="Heading 2", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=16.0,
+        name="Heading 2", cjk_font="黑体", latin_font="Times New Roman", size_pt=14.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=24.0, space_after_pt=12.0, alignment=ALIGN_LEFT,
-    ),  # V3.0 §3.2（节）
+        space_before_pt=12.0, space_after_pt=12.0, alignment=ALIGN_LEFT,
+    ),  # V3.0 §3.2（节，四号 14pt）
     "Heading 3": StyleSpec(
-        name="Heading 3", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=14.0,
+        name="Heading 3", cjk_font="黑体", latin_font="Times New Roman", size_pt=14.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=18.0, space_after_pt=8.0, alignment=ALIGN_LEFT,
-    ),  # V3.0 §3.2（小节）
+        space_before_pt=8.0, space_after_pt=8.0, alignment=ALIGN_LEFT,
+    ),  # V3.0 §3.2（小节，四号 14pt）
     "Heading 4": StyleSpec(
-        name="Heading 4", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=12.0,
+        name="Heading 4", cjk_font="黑体", latin_font="Times New Roman", size_pt=12.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=12.0, space_after_pt=6.0, alignment=ALIGN_LEFT,
-    ),  # V3.0 §3.2（段落小标题）
+        space_before_pt=6.0, space_after_pt=6.0, alignment=ALIGN_LEFT,
+    ),  # V3.0 §3.2（段落小标题，小四 12pt）
     "Heading 5": StyleSpec(
-        name="Heading 5", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=12.0,
+        name="Heading 5", cjk_font="黑体", latin_font="Times New Roman", size_pt=12.0,
         bold=True, italic=True, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
-        space_before_pt=8.0, space_after_pt=4.0, alignment=ALIGN_LEFT,
-    ),  # V3.0 §3.2
+        space_before_pt=6.0, space_after_pt=4.0, alignment=ALIGN_LEFT,
+    ),  # V3.0 §3.2（小四 12pt Bold Italic）
     "Quote": StyleSpec(
         name="Quote", cjk_font="宋体", latin_font="Times New Roman", size_pt=10.5,
         bold=False, italic=True, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_ONE_HALF,
@@ -180,7 +180,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
         space_before_pt=0.0, space_after_pt=0.0, alignment=ALIGN_LEFT,
     ),  # V3.0 §10.2
     "Table Header": StyleSpec(
-        name="Table Header", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=10.0,
+        name="Table Header", cjk_font="黑体", latin_font="Times New Roman", size_pt=10.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
         space_before_pt=0.0, space_after_pt=0.0, alignment=ALIGN_CENTER,
         first_line_indent_cm=0.0, left_indent_cm=0.0,
@@ -192,7 +192,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
         first_line_indent_cm=0.0, left_indent_cm=0.0,
     ),  # V3.0 §5.1（历史问题13：表体字号 10.5pt，非 12pt）
     "TOC Heading": StyleSpec(
-        name="TOC Heading", cjk_font="微软雅黑", latin_font="Times New Roman", size_pt=16.0,
+        name="TOC Heading", cjk_font="黑体", latin_font="Times New Roman", size_pt=14.0,
         bold=True, italic=False, color_hex=COLOR_BLACK, line_spacing=LINE_SPACING_SINGLE,
         # 段前/段后未在 M1 中给出精确值，采用与 Heading 2（同级视觉权重的节标题）
         # 一致的间距作为合理推断，供实现阶段按实际排版效果微调。
@@ -219,7 +219,7 @@ class CoverElementSpec:
 
 
 COVER_ELEMENTS: dict[str, CoverElementSpec] = {
-    "title": CoverElementSpec(28.0, True, COLOR_BLACK, ALIGN_CENTER, 0.0, 12.0),
+    "title": CoverElementSpec(18.0, True, COLOR_BLACK, ALIGN_CENTER, 0.0, 12.0),
     "subtitle": CoverElementSpec(14.0, False, COLOR_BLACK, ALIGN_CENTER, 0.0, 24.0),
     "report_type": CoverElementSpec(16.0, False, COLOR_BLACK, ALIGN_CENTER, 0.0, 36.0),
     "organization": CoverElementSpec(14.0, True, COLOR_BLACK, ALIGN_CENTER, 0.0, 6.0),
