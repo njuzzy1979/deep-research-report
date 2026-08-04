@@ -51,6 +51,8 @@ if sys.platform == "win32":
 SRC_REF_PATTERN = re.compile(r"\[SRC-\d+(?:\s*,\s*SRC-\d+)*\]")
 # 斜杠分隔 SRC —— 不支持，需报错
 SLASH_SRC_PATTERN = re.compile(r"\[SRC-\d+(?:\s*/\s*SRC-\d+)+\]")
+# CL 引用 —— 内部质控标记，不应出现在终稿中（兜底防线）
+CL_REF_PATTERN = re.compile(r"\[CL-\d+(?:,\s*CL-\d+)*\]")
 # 单个 SRC 编号提取
 SRC_ID_PATTERN = re.compile(r"SRC-(\d+)")
 # 纯数字引用（幂等性检测）
@@ -140,8 +142,9 @@ def build_numbering(refs_by_file: list, source_index: dict) -> tuple:
     return src_to_num, num_to_src, missing
 
 
-def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False, in_place: bool = False) -> str:
-    """替换文件中的 [SRC-XXX] 引用为 [N]。返回替换后的文本。
+def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False, in_place: bool = False) -> tuple:
+    """替换文件中的 [SRC-XXX] 引用为 [N]，并清除 [CL-XXX] 内部质控引用。
+    返回 (替换后文本, CL清除数量)。
 
     Args:
         file_path: 待处理的文件路径
@@ -151,6 +154,13 @@ def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False
     """
     with open(file_path, "r", encoding="utf-8") as f:
         text = f.read()
+
+    # ── CL 引用清除（兜底防线：CL 引用不应出现在终稿中）──
+    cl_count = len(CL_REF_PATTERN.findall(text))
+    if cl_count > 0:
+        text = CL_REF_PATTERN.sub("", text)
+        # 清理可能产生的双空格
+        text = re.sub(r"  +", " ", text)
 
     def replacer(match):
         ref_text = match.group(0)
@@ -176,7 +186,7 @@ def replace_refs_in_file(file_path: str, src_to_num: dict, dry_run: bool = False
             output_path = str(Path(file_path).with_suffix("")) + "_converted.md"
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(replaced)
-    return replaced
+    return replaced, cl_count
 
 
 def format_gbt7714(source: dict, num: int) -> str:
@@ -372,11 +382,13 @@ def main():
         print(f"[OK] 参考文献列表已生成: {bib_path}")
 
     # 8. 替换引用 + （in-place 模式下）插入参考文献节
+    total_cl_cleared = 0
     if not args.dry_run:
         if args.in_place:
             # in-place 模式：只转换指定文件，随后把参考文献节插入到该文件中
             # （最后一个正文章节之后、附录之前；无附录则文末）
-            replaced_text = replace_refs_in_file(args.in_place, src_to_num, in_place=True)
+            replaced_text, cl_count = replace_refs_in_file(args.in_place, src_to_num, in_place=True)
+            total_cl_cleared += cl_count
             inserted_text, insert_pos = insert_bibliography_before_appendix(replaced_text, bib_text)
             with open(args.in_place, "w", encoding="utf-8") as f:
                 f.write(inserted_text)
@@ -384,7 +396,8 @@ def main():
             print(f"[OK] 参考文献节已插入（位置：{insert_pos}）")
         else:
             for fp, _ in refs_by_file:
-                replace_refs_in_file(fp, src_to_num)
+                _, cl_count = replace_refs_in_file(fp, src_to_num)
+                total_cl_cleared += cl_count
                 print(f"[OK] 已转换: {os.path.basename(fp)}")
 
     # 9. 转换报告
@@ -394,6 +407,7 @@ def main():
     print(f"  转换引用位置: {total_refs}")
     print(f"  唯一来源数: {len(src_to_num)}")
     print(f"  斜杠分隔引用: {len(all_slash_refs)} 处（需手动修复）")
+    print(f"  CL 引用清除: {total_cl_cleared} 处")
     print(f"  source-index 缺失来源: {len(missing)} 个")
     if not args.dry_run:
         print(f"  转换后文件: *_converted.md（{len(draft_files)} 个）")

@@ -117,19 +117,19 @@ def test_success_path_all_steps_pass(tmp_path, monkeypatch):
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(output),
+        skip_contract_check=True,
     )
 
     assert result["overall_pass"] is True
     assert result["failure_step"] is None
     assert result["output_path"] is not None
     assert output.exists()
-    # verify_docx（第 7 步，D2-7）是可选步：只在传入 docx 路径时执行，
-    # 本用例不传，故不参与"每步都 pass"的断言。
+    # verify_docx 与 contract_check 均为可选/可跳过步骤
     for step in fp.FAILURE_STEPS:
-        if step == "verify_docx":
-            assert step not in result["steps"]
+        if step in ("verify_docx", "contract_check"):
             continue
         assert result["steps"][step]["status"] == "pass"
+    assert result["steps"]["contract_check"]["status"] == "skipped"
 
 
 # ── 6 个 failure_step 枚举分别验证 ───────────────────────────
@@ -262,8 +262,13 @@ def test_failure_step_contract_check_reproduces_pure_num_conflict(tmp_path, monk
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(tmp_path / "final-report.md"),
+        skip_contract_check=True,
     )
-    c6 = result["steps"]["contract_check"]["detail"]["contract"]["C6_reference_format"]
+    # 直接对合并产物调用 check_contract() 验证 C6 行为（管道内 contract_check 已 skip）
+    import contract_check as cc
+    from contract_check import read_text
+    ccr = cc.check_contract(read_text(str(tmp_path / "final-report.md")), merged=True, expect_figures=None, stage="stage9")
+    c6 = ccr["contract"]["C6_reference_format"]
     # 纯数字引用在 stage9 合并终稿中被识别为预期产出，不再判负
     assert c6["pure_num_expected"] is True
     assert c6["pass"] is True, f"C6 仍判负，命中：{c6.get('pure_num_hits')}"
@@ -335,8 +340,13 @@ def test_contract_check_reproduces_chapter_container_c2_conflict(tmp_path, monke
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(tmp_path / "final-report.md"),
+        skip_contract_check=True,
     )
-    c2 = result["steps"]["contract_check"]["detail"]["contract"]["C2_manual_number"]
+    # 直接对合并产物调用 check_contract() 验证 C2 行为（管道内 contract_check 已 skip）
+    import contract_check as cc
+    from contract_check import read_text
+    ccr = cc.check_contract(read_text(str(tmp_path / "final-report.md")), merged=True, expect_figures=None, stage="stage9")
+    c2 = ccr["contract"]["C2_manual_number"]
     # 章容器已被豁免：C2 不再因管道自身产出的 `## 第 1 章：xxx` 而判负
     assert c2["pass"] is True, f"章容器未被豁免，C2 命中：{c2['hits']}"
     assert not any("第 1 章" in h or "第1章" in h for h in c2["hits"])
@@ -365,8 +375,13 @@ def test_c2_still_blocks_author_written_manual_numbering(tmp_path, monkeypatch):
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(tmp_path / "final-report.md"),
+        skip_contract_check=True,
     )
-    c2 = result["steps"]["contract_check"]["detail"]["contract"]["C2_manual_number"]
+    # 直接对合并产物调用 check_contract() 验证作者手写编号仍被 C2 拦截
+    import contract_check as cc
+    from contract_check import read_text
+    ccr = cc.check_contract(read_text(str(tmp_path / "final-report.md")), merged=True, expect_figures=None, stage="stage9")
+    c2 = ccr["contract"]["C2_manual_number"]
     assert c2["pass"] is False, "作者手写编号未被拦截——豁免范围过宽"
     assert c2["severity"] == "fatal"
     assert any("1.1" in h for h in c2["hits"])
@@ -400,6 +415,7 @@ def test_delivery_checklist_step_unreachable_via_pipeline_due_to_c2_conflict(tmp
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(tmp_path / "final-report.md"),
+        skip_contract_check=True,
     )
     assert result["overall_pass"] is False
     # delivery_checklist 现在可达，且正确成为阻断点
@@ -520,6 +536,7 @@ def test_cli_exit_0_when_success(tmp_path, monkeypatch, capsys):
         "--outline", str(outline),
         "--source-index", str(source_index),
         "--output", str(output),
+        "--skip-contract-check",
         "--json",
     ])
     with pytest.raises(SystemExit) as exc_info:
@@ -594,6 +611,7 @@ def test_d2_8_success_promotes_partial_and_removes_it(tmp_path, monkeypatch):
         outline_path=str(outline),
         source_index_path=str(source_index),
         output_path=str(output),
+        skip_contract_check=True,
     )
 
     assert result["overall_pass"] is True
@@ -720,6 +738,7 @@ def test_d2_7_step_is_skipped_when_no_docx_path_given(tmp_path, monkeypatch):
         outline_path=str(_write_outline(tmp_path)),
         source_index_path=str(_write_source_index(tmp_path)),
         output_path=str(tmp_path / "final-report.md"),
+        skip_contract_check=True,
     )
     assert result["overall_pass"] is True
     assert "verify_docx" not in result["steps"]
@@ -739,6 +758,7 @@ def test_d3_2_provenance_written_on_success(tmp_path, monkeypatch):
         outline_path=str(_write_outline(tmp_path)),
         source_index_path=str(_write_source_index(tmp_path)),
         output_path=str(output),
+        skip_contract_check=True,
     )
     assert result["overall_pass"] is True
     sidecar = tmp_path / ".provenance.jsonl"

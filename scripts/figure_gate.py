@@ -245,6 +245,8 @@ def build_checklist_from_manifest(manifest: dict, stage: str) -> list[dict]:
     """
     checklist = []
     # 架构图：在 stage6 CHECKPOINT 和 stage9 都需要检查
+    # stage6 产出为 .drawio 原始文件；stage9 产出为 .png 导出版本
+    arch_ext = "drawio" if stage in ("stage6",) else "png"
     for fig in manifest.get("architecture_figures", []):
         fid = fig.get("figure_id", "?")
         fno = fig.get("figure_no", "?")
@@ -255,7 +257,7 @@ def build_checklist_from_manifest(manifest: dict, stage: str) -> list[dict]:
             "type": "architecture",
             "tool": fig.get("tool", "drawio"),
             "priority": fig.get("priority", "required"),
-            "glob_pattern": f"*{fno}*.png",
+            "glob_pattern": f"*{fno}*.{arch_ext}",
             "source": "figures_manifest",
         })
     # 数据图表：stage9 才检查（stage6 时尚未产出）
@@ -292,6 +294,11 @@ def _validate_png(png_path: Path) -> tuple:
     通道——**刻意不进 errors**：实测真实项目 15/15 架构图均无 dpi 元数据，
     若计入硬失败会使门禁 15/15 全红，验收永不通过，反向逼迫实施者放宽门禁
     （D3 §3.4 明确警示的反模式）。warnings 只提升可观测性，不改变 pass/fail。
+
+    DPI 容差：draw.io 桌面版 CLI 导出时 pHYs chunk 使用整数像素/米（11811），
+    导致 DPI = 11811 × 0.0254 = 299.9994。为此增加 0.5 浮点容差：
+    - dpi < 299.5 → 硬错误 (INVALID)
+    - 299.5 ≤ dpi < 300 → 仅 warning，不放行阻断
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -312,8 +319,13 @@ def _validate_png(png_path: Path) -> tuple:
 
     if not dpi or not dpi[0]:
         warnings.append(f"{png_path.name}: 缺少 DPI 元数据，无法核验 300dpi 要求")
-    elif dpi[0] < 300:
+    elif dpi[0] < 299.5:
         errors.append(f"{png_path.name}: DPI={dpi[0]} < 300")
+    elif dpi[0] < 300:
+        warnings.append(
+            f"{png_path.name}: [WARN] DPI 略低于 300（实测 {dpi[0]:.1f}），"
+            f"但仍在容差范围内已放行"
+        )
     return errors, warnings
 
 
@@ -342,6 +354,10 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
             result["found"] = True
             result["files"] = [m.name for m in matches]
             for png_path in matches:
+                if png_path.suffix.lower() == ".drawio":
+                    # drawio 文件跳过像素级校验，但标记为有效（已由 drawio_layout_validator 验证）
+                    result["valid"] = True
+                    continue
                 if png_path.suffix.lower() != ".png":
                     continue
                 errs, warns = _validate_png(png_path)

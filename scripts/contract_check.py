@@ -116,6 +116,9 @@ S_VARIANT_REF_PATTERN = re.compile(r"\[S-?\d+\]")
 # C7: SRC 残留检测
 SRC_RESIDUE_PATTERN = re.compile(r"\[SRC-")
 
+# C12: CL 引用残留检测（内部质控标记不应出现在终稿中）
+CL_RESIDUE_PATTERN = re.compile(r"\[CL-")
+
 # C8: 字数统计/自声明残留（2026-08-03 升级为 FATAL：自声明已在独立文件 research/claims/各章节自声明.md，章草稿零容忍）
 WORD_COUNT_RESIDUE_PATTERNS = {
     "全文约": re.compile(r"全文约\s*\d+\s*字"),
@@ -167,6 +170,19 @@ F7_SOURCE_TIER_PREFIX_PATTERN = re.compile(r"^\s*\[[ABCD]\]", re.MULTILINE)
 # C11（F8）: claim_id 泄露（如 [CM021]、[CO012] 等草稿期内部标注残留正文）
 # 参考出处：references/stage-7-writing.md:148
 F8_CLAIM_ID_LEAK_PATTERN = re.compile(r"\[[A-Z]{1,3}\d{3}\]")
+
+# C13: 图片文件名存在性检查 —— 从正文 ![图X-Y ...](figures/文件名) 引用中提取文件名
+IMAGE_REF_PATTERN = re.compile(r"!\[[^\]]*\]\(figures/([^\)]+)\)")
+
+# C15: 自声明残留检测 —— 这些块应在阶段 9 合并前被剥离
+SELFCLAIM_PATTERNS = {
+    "理解陈述": re.compile(r"理解陈述"),
+    "字数统计": re.compile(r"字数统计"),
+    "写作者自声明": re.compile(r"写作者自声明"),
+}
+
+# C16: YAML frontmatter 存在性检查 —— 终稿文件应以 --- 开头和结尾的 YAML 块
+YAML_FM_PATTERN = re.compile(r"^---\s*\n.*?\n---", re.DOTALL)
 
 
 def read_text(path: str) -> str:
@@ -262,7 +278,9 @@ def compute_paragraph_stats(text: str) -> dict:
             "longest": lengths[-1]}
 
 
-def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7") -> dict:
+def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7",
+                   figures_dir=None, claims_ledger_path=None, card_index_path=None,
+                   file_path=None, subset=None) -> dict:
     """执行 C1-C9 + QS1-QS3，返回结构化结果。"""
     clean = strip_code_blocks(text)
     lines = clean.split("\n")
@@ -390,6 +408,54 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
     c11_hits = F8_CLAIM_ID_LEAK_PATTERN.findall(clean)
     c11_pass = len(c11_hits) == 0
 
+    # C12: CL 引用残留检测 —— FATAL。
+    # CL 引用（如 [CL-001]）是内部质控元数据，不应出现在终稿中。
+    # convert_references.py 的 CL 清除是兜底防线，此处是交付门禁的最后一道检查。
+    c12_hits = CL_RESIDUE_PATTERN.findall(clean)
+    c12_result = {
+        "hits": c12_hits[:20],
+        "count": len(c12_hits),
+        "pass": len(c12_hits) == 0,
+        "severity": "fatal",
+    }
+
+    # C13: 图片文件名存在性检查（fatal，仅 stage7 分章文件阶段执行）
+    c13_result = _check_c13_images(text, figures_dir)
+
+    # C14: claims 分布检查（warn，不阻断）—— 解析 claims-ledger.csv 统计各章 adopted=true 的 claims 数
+    if claims_ledger_path:
+        try:
+            import csv
+            chapter_counts = {}
+            with open(claims_ledger_path, "r", encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    adopted = row.get("adopted", "").strip().lower()
+                    if adopted == "true":
+                        ch = row.get("chapter", "").strip()
+                        if ch:
+                            chapter_counts[ch] = chapter_counts.get(ch, 0) + 1
+            c14_result = _check_c14_claims_distribution(chapter_counts)
+        except Exception as e:
+            c14_result = {"pass": True, "skipped": True, "severity": "warn", "error": str(e)}
+    else:
+        c14_result = _check_c14_claims_distribution(None)
+
+    # C15: 自声明残留检测（fatal）
+    c15_result = _check_c15_self_claims(text)
+
+    # C16: YAML frontmatter 存在性检查（fatal，仅 merged=True 时执行）
+    if merged:
+        c16_result = _check_c16_yaml_frontmatter(text)
+    else:
+        c16_result = {"pass": True, "severity": "fatal", "skipped": True}
+
+    # C17: card-index.csv 字段非空检查（fatal）
+    c17_result = _check_c17_card_index(card_index_path)
+
+    # C18: 文件路径规范检查（warn）
+    c18_result = _check_c18_paths(file_path)
+
     # QS1: 正文字数
     word_count = count_cjk_chars(text)
 
@@ -418,6 +484,13 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
                                         "pass": c10_pass, "severity": "high"},
             "C11_claim_id_leak": {"hits": c11_hits, "count": len(c11_hits),
                                    "pass": c11_pass, "severity": "high"},
+            "C12_cl_residue": c12_result,
+            "C13_image_files": c13_result,
+            "C14_claims_distribution": c14_result,
+            "C15_self_claim_residue": c15_result,
+            "C16_yaml_frontmatter": c16_result,
+            "C17_card_index": c17_result,
+            "C18_paths": c18_result,
         },
         "quant": {
             "QS1_cjk_chars": word_count,
@@ -427,14 +500,29 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
             "QS4_paragraphs": compute_paragraph_stats(text),
         },
     }
+    # 如果指定了 subset，仅保留指定的合约项（按前缀匹配，如 C17 匹配 C17_card_index）
+    if subset:
+        result["contract"] = {
+            k: v for k, v in result["contract"].items()
+            if any(k.startswith(s + "_") or k == s for s in subset)
+        }
+        result["subset_applied"] = subset
     # 高严重度合约项（C1/C2/C5/C6/C9，stage9 下+C7）任一失败 → 整体 fail
-    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C8_word_count_residue", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak"]
+    high_severity_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C8_word_count_residue", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak", "C12_cl_residue", "C13_image_files", "C15_self_claim_residue", "C17_card_index"]
     if stage == "stage9":
         high_severity_keys.append("C7_src_residue")
+    if merged and stage == "stage9":
+        high_severity_keys.append("C16_yaml_frontmatter")
+    # 若 subset 已过滤合约项，同步过滤 high_severity_keys（按前缀匹配）
+    if subset:
+        high_severity_keys = [
+            k for k in high_severity_keys
+            if any(k.startswith(s + "_") or k == s for s in subset)
+        ]
     # 致命级合约项（C2 在合并终稿模式下升级为 fatal）——失败直接阻断，不可降级
     fatal_keys = []
     for k in high_severity_keys:
-        if result["contract"][k].get("severity") == "fatal":
+        if not result["contract"][k]["pass"]:
             fatal_keys.append(k)
     result["overall_pass"] = all(result["contract"][k]["pass"] for k in high_severity_keys)
     result["fatal_keys"] = fatal_keys
@@ -504,12 +592,166 @@ def _check_c6_references(text: str, *, merged: bool = False, stage: str = "stage
     return result
 
 
-def format_text_report(r: dict) -> str:
+def _check_c13_images(text, figures_dir=None):
+    """C13: 检查正文中引用的图片文件是否在 figures/ 目录中存在。"""
+    if figures_dir is None:
+        return {"pass": True, "hits": [], "count": 0, "severity": "fatal", "skipped": True}
+    refs = IMAGE_REF_PATTERN.findall(text)
+    missing = []
+    for ref in refs:
+        fpath = figures_dir / ref
+        if not fpath.exists():
+            missing.append(ref)
+    return {
+        "hits": missing,
+        "count": len(missing),
+        "pass": len(missing) == 0,
+        "severity": "fatal",
+        "total_refs": len(refs),
+    }
+
+
+def _check_c14_claims_distribution(chapter_claims_map=None):
+    """C14: 检查各章 adopted=true 的 claims 是否 ≥3 条。"""
+    if chapter_claims_map is None:
+        return {"pass": True, "skipped": True, "severity": "warn"}
+    thin_chapters = {ch: cnt for ch, cnt in chapter_claims_map.items() if cnt < 3}
+    return {
+        "hits": list(thin_chapters.keys()),
+        "pass": len(thin_chapters) == 0,
+        "severity": "warn",
+        "details": chapter_claims_map,
+    }
+
+
+def _check_c15_self_claims(text):
+    """C15: 检查分章文件中是否包含自声明残留。"""
+    hits = {}
+    for name, pat in SELFCLAIM_PATTERNS.items():
+        found = pat.findall(text)
+        if found:
+            hits[name] = len(found)
+    return {
+        "hits": hits,
+        "pass": len(hits) == 0,
+        "severity": "fatal",
+    }
+
+
+def _check_c16_yaml_frontmatter(text):
+    """C16: 检查终稿文件是否包含 YAML frontmatter。"""
+    has_fm = bool(YAML_FM_PATTERN.match(text))
+    return {
+        "pass": has_fm,
+        "severity": "fatal",
+    }
+
+
+def _check_c17_card_index(card_index_path=None):
+    """C17: 检查 card-index.csv 中 card_file_path 列是否 100% 非空。"""
+    if card_index_path is None:
+        return {"pass": True, "skipped": True, "severity": "fatal"}
+    import csv
+    p = Path(card_index_path)
+    if not p.exists():
+        return {"pass": False, "hits": ["文件不存在"], "count": 1, "severity": "fatal"}
+    with open(p, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    empty_paths = [r.get('card_id', f'row{i}') for i, r in enumerate(rows) if not (r.get('card_file_path') or '').strip()]
+    return {
+        "hits": empty_paths[:20],
+        "count": len(empty_paths),
+        "pass": len(empty_paths) == 0,
+        "severity": "fatal",
+        "total_cards": len(rows),
+    }
+
+
+def _check_c18_paths(file_path_str=None):
+    """C18: 检查分章文件是否落在 research/drafts/ 目录下（非子目录），自声明文件是否在 research/drafts/ 直放。"""
+    if file_path_str is None:
+        return {"pass": True, "skipped": True, "severity": "warn"}
+    p = Path(file_path_str)
+    issues = []
+    if 'selfclaim' in p.parts or 'selfclaims' in p.parts:
+        issues.append(f"自声明文件不应在 selfclaims/ 子目录: {p}")
+    return {
+        "hits": issues,
+        "count": len(issues),
+        "pass": len(issues) == 0,
+        "severity": "warn",
+        "file_path": str(p),
+    }
+
+
+def _format_subset_text_report(r, c, q, mark):
+    """当 --subset 使用时，以通用格式显示仅包含的合约项。"""
+    lines = [
+        f"=== 合约 + 量化检查：{r['file']} （模式：{r['mode']} / 阶段：{r.get('stage', 'stage7')} / 子集：{r['subset_applied']}）===",
+        "",
+        "-- 合约项（subset 过滤后）--",
+    ]
+    for key in sorted(c.keys()):
+        item = c[key]
+        sev = item.get("severity", "mid")
+        sev_tag = {"fatal": "FATAL", "high": "HIGH", "mid": "MID", "warn": "WARN"}.get(sev, sev.upper())
+        if item.get("skipped"):
+            lines.append(f"     {key}({sev_tag}): 跳过")
+        elif item.get("pass"):
+            lines.append(f"{OK} {key}({sev_tag}): 通过")
+        else:
+            hits_str = ""
+            if "hits" in item:
+                h = item["hits"]
+                if isinstance(h, dict) and h:
+                    hits_str = f" — {h}"
+                elif isinstance(h, list) and h:
+                    hits_str = f" — {h[:3]}"
+                elif isinstance(h, (int, float)) and h > 0:
+                    hits_str = f" — {h} 处"
+            extra = ""
+            if "count" in item:
+                extra += f" count={item['count']}"
+            if "total_cards" in item:
+                extra += f" total_cards={item['total_cards']}"
+            lines.append(f"{FAIL} {key}({sev_tag}): 失败{hits_str}{extra}")
+
+    # 量化层
+    lines.extend([
+        "",
+        "-- 量化层 QS1-QS4 --",
+        f"     QS1 正文字数(中文): {q['QS1_cjk_chars']} 字 (约 {q['QS1_est_pages']} 页)",
+        f"     QS2 图片引用数: {q['QS2_figures']}",
+        f"     QS3 表格数: {q['QS3_tables']}",
+    ])
+    qs4 = q.get("QS4_paragraphs", {})
+    if qs4 and qs4.get("count", 0) > 0:
+        lines.extend([
+            f"     QS4 段落总数: {qs4['count']} | 平均: {qs4['mean']} 字",
+        ])
+    lines.append("")
+    # 判定
+    fatal_keys = r.get("fatal_keys", [])
+    if fatal_keys:
+        lines.append(f"=== 总判定: FATAL (致命项 {fatal_keys} 失败) ===")
+    elif r["overall_pass"]:
+        lines.append(f"=== 总判定: PASS ===")
+    else:
+        lines.append(f"=== 总判定: FAIL ===")
+    return "\n".join(lines)
+
+
+def format_text_report(r):
     c = r["contract"]
     q = r["quant"]
 
     def mark(p):
         return OK if p else FAIL
+
+    # 当使用了 --subset 时，使用通用显示模式（因为部分合约项可能被过滤掉）
+    if r.get("subset_applied"):
+        return _format_subset_text_report(r, c, q, mark)
 
     lines = [
         f"=== 合约 + 量化检查：{r['file']} （模式：{r['mode']} / 阶段：{r.get('stage', 'stage7')}）===",
@@ -561,7 +803,7 @@ def format_text_report(r: dict) -> str:
     else:
         lines.append(f"{mark(c9['pass'])} C9 局部参考文献节: {c9['count']} 处 (应为 0)")
 
-    # C10/C11（写作改革方案 P2）：已升级为 FATAL 阻断，severity="high"，
+    # C10/C11/C12（写作改革方案 P2）：已升级为 FATAL 阻断，severity="high" 或 "fatal"，
     # 命中即用 FAIL 标记。
     c10 = c["C10_source_tier_prefix"]
     c10_mark = FAIL if c10["count"] > 0 else OK
@@ -576,6 +818,67 @@ def format_text_report(r: dict) -> str:
     if c11.get("hits"):
         for h in c11["hits"][:5]:
             lines.append(f"      - {h}")
+
+    c12 = c["C12_cl_residue"]
+    c12_mark = FAIL if c12["count"] > 0 else OK
+    lines.append(f"{c12_mark} C12 CL引用残留(FATAL): {c12['count']} 处")
+    if c12.get("hits"):
+        for h in c12["hits"][:5]:
+            lines.append(f"      - {h}")
+
+    c13 = c["C13_image_files"]
+    if c13.get("skipped"):
+        lines.append(f"     C13 图片文件存在性: 跳过（未指定 figures_dir）")
+    else:
+        c13_mark = FAIL if c13["count"] > 0 else OK
+        lines.append(f"{c13_mark} C13 图片文件存在性(FATAL): {c13.get('total_refs', 0)} 引用 / {c13['count']} 缺失")
+        if c13.get("hits"):
+            for h in c13["hits"][:5]:
+                lines.append(f"      - 缺失: {h}")
+
+    c14 = c["C14_claims_distribution"]
+    if c14.get("skipped"):
+        lines.append(f"     C14 claims分布: 跳过（未指定 claims_ledger）")
+    else:
+        c14_mark = WARN if not c14["pass"] else OK
+        thin = c14.get("hits", [])
+        lines.append(f"{c14_mark} C14 claims分布(WARN): {'各章均≥3条' if c14['pass'] else f'不足章: {thin}'}")
+        if c14.get("details"):
+            detail_str = ", ".join(f"{ch}:{cnt}" for ch, cnt in sorted(c14["details"].items()))
+            lines.append(f"      - 各章adopted分布: {detail_str}")
+
+    c15 = c["C15_self_claim_residue"]
+    c15_mark = FAIL if c15.get("hits") else OK
+    lines.append(f"{c15_mark} C15 自声明残留(FATAL): {'无' if not c15.get('hits') else c15['hits']}")
+
+    c16 = c["C16_yaml_frontmatter"]
+    if c16.get("skipped"):
+        lines.append(f"     C16 YAML frontmatter: 跳过（非 merged 模式）")
+    else:
+        c16_mark = FAIL if not c16["pass"] else OK
+        lines.append(f"{c16_mark} C16 YAML frontmatter(FATAL): {'存在' if c16['pass'] else '缺失'}")
+
+    if "C17_card_index" in c:
+        c17 = c["C17_card_index"]
+        if c17.get("skipped"):
+            lines.append(f"     C17 card-index字段非空: 跳过（未指定 card_index_path）")
+        else:
+            c17_mark = FAIL if c17["count"] > 0 else OK
+            lines.append(f"{c17_mark} C17 card-index字段非空(FATAL): {c17.get('total_cards', '?')} 卡 / {c17['count']} 空路径")
+            if c17.get("hits"):
+                for h in c17["hits"][:5]:
+                    lines.append(f"      - card_id={h}")
+
+    if "C18_paths" in c:
+        c18 = c["C18_paths"]
+        if c18.get("skipped"):
+            lines.append(f"     C18 文件路径规范: 跳过（未指定 file_path）")
+        else:
+            c18_mark = WARN if c18.get("hits") else OK
+            lines.append(f"{c18_mark} C18 文件路径规范(WARN): {'合规' if c18['pass'] else c18['hits']}")
+            if c18.get("hits"):
+                for h in c18["hits"][:3]:
+                    lines.append(f"      - {h}")
 
     lines.extend([
         "",
@@ -593,9 +896,12 @@ def format_text_report(r: dict) -> str:
             f"     QS4 超长段落(>600字): {qs4['over_600']} 个 (建议拆分)",
         ])
     lines.append("")
-    high_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak"]
-    if r.get("stage") == "stage9":
+    all_high_keys = ["C1_h1", "C2_manual_number", "C5_banned", "C6_reference_format", "C9_local_bibliography", "C10_source_tier_prefix", "C11_claim_id_leak", "C12_cl_residue", "C13_image_files", "C15_self_claim_residue", "C17_card_index"]
+    high_keys = [k for k in all_high_keys if k in c]
+    if r.get("stage") == "stage9" and "C7_src_residue" in c:
         high_keys.append("C7_src_residue")
+    if r.get("mode") == "merged" and r.get("stage") == "stage9" and "C16_yaml_frontmatter" in c:
+        high_keys.append("C16_yaml_frontmatter")
     failed = [k for k in high_keys if not c[k]["pass"]]
     fatal_failed = [k for k in (r.get("fatal_keys", [])) if not c[k]["pass"]]
     if fatal_failed:
@@ -626,6 +932,14 @@ def main():
     parser.add_argument("--expect-figures", type=int, default=None, help="C3 与大纲规划图数比对")
     parser.add_argument("--stage", choices=["stage7", "stage9"], default="stage7",
                         help="检查阶段：stage7（C7=WARN不阻断）| stage9（C7=FATAL阻断）默认 stage7")
+    parser.add_argument("--figures-dir", type=str, default=None,
+                        help="figures 目录路径（C13 图片文件存在性检查，仅 stage7 生效）")
+    parser.add_argument("--claims-ledger", type=str, default=None,
+                        help="claims-ledger.csv 路径（C14 claims 分布检查）")
+    parser.add_argument("--card-index-path", type=str, default=None,
+                        help="card-index.csv 路径（C17 字段非空检查）")
+    parser.add_argument("--subset", type=str, default=None,
+                        help="仅运行指定规则子集，逗号分隔（如 C1,C2,C3）")
     args = parser.parse_args()
 
     if not Path(args.file).exists():
@@ -633,7 +947,12 @@ def main():
         sys.exit(2)
 
     text = read_text(args.file)
-    result = check_contract(text, args.merged, args.expect_figures, args.stage)
+    figures_dir = Path(args.figures_dir) if args.figures_dir else None
+    subset_list = [s.strip() for s in args.subset.split(",")] if args.subset else None
+    result = check_contract(text, args.merged, args.expect_figures, args.stage,
+                            figures_dir=figures_dir, claims_ledger_path=args.claims_ledger,
+                            card_index_path=args.card_index_path,
+                            file_path=args.file, subset=subset_list)
     result["file"] = args.file
 
     if args.json:

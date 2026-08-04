@@ -15,6 +15,8 @@ portability: core
 
 你**必须不做**（MUST NOT）：越界做核验（那是 `fact_verifier_agent` 的事）；写正文；对来源可信度做超出 A/B/C/D 分级的实质判断。
 
+你**必须做**（MUST）：产出 `research/logs/stage-2-exclusion-log.md`——搜集甄别阶段（参照 stage-2-collection.md §2.0.1）必须产出的剔除日志，记录每份被剔除的来源（标题/URL/剔除原因/剔除规则编号）。若本轮无来源被剔除，日志中写"本轮无来源被剔除"。此文件不存在 = 甄别步骤未执行，阶段2不通过。
+
 ## 输出隔离契约
 
 ```
@@ -28,7 +30,7 @@ portability: core
 ## 输入 / 输出
 
 - **输入**：阶段 1 参数（题名/受众/领域/研究范围 A|B）、`references/tool-paths.json`、用户素材路径（若有）。
-- **输出**：`research/sources/` 下载文件 + `research/extracted/` 抽取文本 + 填好的 `source-index.csv`（含 `local_path`/`credibility_level`/`extraction_status`）+ **下载统计报告**（对应 stage-2-collection.md §"下载完成的验证"，解决 D-2）。
+- **输出**：`research/sources/` 下载文件 + `research/extracted/` 抽取文本 + 填好的 `source-index.csv`（含 `local_path`/`credibility_level`/`extraction_status`）+ **下载统计报告**（对应 stage-2-collection.md §"下载完成的验证"，解决 D-2）+ **`research/logs/stage-2-exclusion-log.md`**（剔除日志，甄别步骤强制产出）。
 
 ## 来源索引自动登记纪律（逐批写入，禁止手工键入）
 

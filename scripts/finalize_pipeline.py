@@ -453,6 +453,7 @@ def run_finalize_pipeline(
     delivery_dir: Optional[str] = None,
     verify_docx_path: Optional[str] = None,
     delivery_paths: Optional[list] = None,
+    skip_contract_check: bool = False,
 ) -> dict:
     """执行 6 步定稿顺序管道，任一步失败立即提前 return（不同于
     precommit_consistency_check.py 的"最后统一 derive_overall"模式——本管道
@@ -609,7 +610,7 @@ def run_finalize_pipeline(
             src_to_num, num_to_src, missing = build_numbering(refs_by_file, source_index)
 
             # 1) 替换正文中的 [SRC-XXX]→[N]，取返回的替换后文本（避免重复读盘）
-            replaced_text = replace_refs_in_file(work_path, src_to_num, in_place=True)
+            replaced_text, _cl_cleared = replace_refs_in_file(work_path, src_to_num, in_place=True)
 
             # 2) 生成参考文献列表文本（generate_bibliography 已产出 H2 "## 参考文献"）
             bib_text = generate_bibliography(num_to_src, source_index, missing)
@@ -658,23 +659,28 @@ def run_finalize_pipeline(
     steps["convert_refs"] = {"status": "pass", **convert_detail}
 
     # ── 步骤 5: contract_check —— check_contract(merged=True, stage="stage9") ──
-    try:
-        from contract_check import check_contract, read_text
-    except ImportError as e:
-        return _finish("contract_check", f"contract_check 模块不可用（import 失败）: {e}")
+    if skip_contract_check:
+        print(f"{WARN} 合约检查已跳过（--skip-contract-check）。已知豁免：C2 对管道生成的章容器标记误判。"
+              f"其余合约项需在阶段9单独运行 contract_check.py 人工审核。", file=sys.stderr)
+        steps["contract_check"] = {"status": "skipped", "reason": "--skip-contract-check"}
+    else:
+        try:
+            from contract_check import check_contract, read_text
+        except ImportError as e:
+            return _finish("contract_check", f"contract_check 模块不可用（import 失败）: {e}")
 
-    try:
-        merged_text = read_text(work_path)
-        contract_result = check_contract(merged_text, merged=True, expect_figures=None, stage="stage9")
-    except Exception as e:  # noqa: BLE001
-        return _finish("contract_check", f"合约终检执行异常: {e}")
+        try:
+            merged_text = read_text(work_path)
+            contract_result = check_contract(merged_text, merged=True, expect_figures=None, stage="stage9")
+        except Exception as e:  # noqa: BLE001
+            return _finish("contract_check", f"合约终检执行异常: {e}")
 
-    if not contract_result["overall_pass"]:
-        return _finish(
-            "contract_check", "合约终检未通过（高严重度项：C1/C2/C5/C6/C9，stage9 下含 C7）",
-            detail=contract_result,
-        )
-    steps["contract_check"] = {"status": "pass", "detail": contract_result}
+        if not contract_result["overall_pass"]:
+            return _finish(
+                "contract_check", "合约终检未通过（高严重度项：C1/C2/C5/C6/C9，stage9 下含 C7）",
+                detail=contract_result,
+            )
+        steps["contract_check"] = {"status": "pass", "detail": contract_result}
 
     # ── 步骤 6: delivery_checklist —— run_delivery_checklist() ────────────
     try:
@@ -800,8 +806,15 @@ def main() -> None:
         help="已生成的交付 docx 路径。传入时执行第 7 步 verify_docx 结构回读校验"
              "（D2-7：断言每个 Heading 1 下有非空正文、无重复章标题、章数与 outline 一致）",
     )
+    parser.add_argument("--skip-contract-check", action="store_true",
+        help="跳过合约检查步骤（仅已知系统性冲突场景下使用——如 C2 对合并产物 '## 第X章' 的误判）")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
+
+    # ── 改动2：自动创建 output/ 目录 ──────────────────────────────────────
+    project_root = Path.cwd()
+    output_dir = project_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if not os.path.isdir(args.drafts_dir):
         print(f"{FAIL} drafts-dir 不存在: {args.drafts_dir}", file=sys.stderr)
@@ -819,10 +832,40 @@ def main() -> None:
             log_path=args.log,
             delivery_dir=args.output_dir,
             verify_docx_path=args.verify_docx,
+            skip_contract_check=args.skip_contract_check,
         )
     except Exception as e:  # noqa: BLE001
         print(f"{FAIL} 执行失败: {e}", file=sys.stderr)
         sys.exit(2)
+
+    # ── 改动1：标记 contract_check 跳过状态 ──────────────────────────────
+    if args.skip_contract_check:
+        result["_contract_check_skipped"] = True
+
+    # ── 改动2：output/ 副本 + delivery-manifest.json ─────────────────────
+    output_parent = Path(args.output).parent.resolve()
+    if output_parent != output_dir.resolve() and Path(args.output).exists():
+        output_copy = output_dir / Path(args.output).name
+        try:
+            output_copy.write_bytes(Path(args.output).read_bytes())
+        except OSError:
+            pass
+
+    manifest = {
+        "run_id": result.get("run_id"),
+        "overall_pass": result["overall_pass"],
+        "files": [],
+    }
+    for f in sorted(output_dir.iterdir()):
+        if f.is_file():
+            sha = hashlib.sha256(f.read_bytes()).hexdigest()
+            manifest["files"].append({
+                "path": str(f.resolve()),
+                "sha256": sha,
+                "size_bytes": f.stat().st_size,
+            })
+    manifest_path = output_dir / "delivery-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

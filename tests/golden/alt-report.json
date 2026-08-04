@@ -12,6 +12,45 @@
       "pass": true,
       "severity": "high"
     },
+    "C12_cl_residue": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "fatal"
+    },
+    "C13_image_files": {
+      "count": 0,
+      "hits": [],
+      "pass": true,
+      "severity": "fatal",
+      "skipped": true
+    },
+    "C14_claims_distribution": {
+      "pass": true,
+      "severity": "warn",
+      "skipped": true
+    },
+    "C15_self_claim_residue": {
+      "hits": {},
+      "pass": true,
+      "severity": "fatal"
+    },
+    "C16_yaml_frontmatter": {
+      "pass": false,
+      "severity": "fatal"
+    },
+    "C17_card_index": {
+      "pass": true,
+      "severity": "fatal",
+      "skipped": true
+    },
+    "C18_paths": {
+      "count": 0,
+      "file_path": "C:\\Users\\张\\.claude\\skills\\deep-research-report\\tests\\fixtures\\alt-sample\\alt-report.md",
+      "hits": [],
+      "pass": true,
+      "severity": "warn"
+    },
     "C1_h1": {
       "count": 1,
       "limit": 1,
@@ -78,7 +117,9 @@
       "severity": "high"
     }
   },
-  "fatal_keys": [],
+  "fatal_keys": [
+    "C2_manual_number"
+  ],
   "mode": "merged",
   "overall_pass": false,
   "quant": {
