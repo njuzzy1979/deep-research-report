@@ -422,15 +422,12 @@ def main():
     total_cl_cleared = 0
     if not args.dry_run:
         if args.in_place:
-            # in-place 模式：只转换指定文件，随后把参考文献节插入到该文件中
-            # （最后一个正文章节之后、附录之前；无附录则文末）
+            # in-place 模式：只转换指定文件（SRC→[N]），不追加参考文献节
+            # 参考文献文本由 finalize_pipeline 的 step_inject_bibliography 自动注入终稿
             replaced_text, cl_count = replace_refs_in_file(args.in_place, src_to_num, in_place=True)
             total_cl_cleared += cl_count
-            inserted_text, insert_pos = insert_bibliography_before_appendix(replaced_text, bib_text)
-            with open(args.in_place, "w", encoding="utf-8") as f:
-                f.write(inserted_text)
             print(f"[OK] 已原地转换: {os.path.basename(args.in_place)}（备份: {os.path.basename(args.in_place)}.bak）")
-            print(f"[OK] 参考文献节已插入（位置：{insert_pos}）")
+            print("[INFO] 参考文献文本已由 finalize_pipeline 自动注入终稿（不再在此处追加独立节）")
         else:
             for fp, _ in refs_by_file:
                 _, cl_count = replace_refs_in_file(fp, src_to_num)
