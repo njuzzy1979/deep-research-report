@@ -40,6 +40,33 @@ portability: core
   - `research/figures/<图号>-<描述>.drawio.png`（PNG 300dpi+，docx 嵌入格式）
   - `research/figures/<图号>-<描述>.drawio.svg`（人工编辑用）
   - `research/figures/color-registry.csv`（概念→颜色映射注册，如尚不存在则创建）
+  - `research/figures/figure-path-map.json`（v3 新增——图号→文件名注册表，Writer 消费的确定性契约）
+
+### 出图后——自动写入 figure-path-map.json
+
+每完成一张图（`.drawio` 文件已写入 + `.drawio.png` 已导出），调用
+`update_figure_path_map(figure_no, entry)` 向 `research/figures/figure-path-map.json`
+追加一条记录。entry 格式：
+
+```json
+{
+  "figure_no": "1-1",
+  "title": "图片标题",
+  "type": "architecture",
+  "belongs_to_chapter": 1,
+  "files": {
+    "drawio": "research/figures/1-1-xxx.drawio",
+    "drawio_png": "research/figures/1-1-xxx.drawio.png",
+    "drawio_svg": "research/figures/1-1-xxx.drawio.svg"
+  },
+  "markdown_ref": "![图1-1 图片标题](figures/1-1-xxx.drawio.png)"
+}
+```
+
+全部 42 张完成后，调用 `finalize_figure_path_map()` 写入 `total_architecture_figures` 计数。
+文件始终以 `.partial` 状态写入——只写已完成条目，最后一步转正（重命名为 `figure-path-map.json`）。
+
+实现提示：使用已有的 `scripts/update_figure_path_map.py` 工具脚本（自带 schema 验证）。
 
 ## 出图规范（stage-6-diagrams.md / chart-quality-constraints）
 
@@ -47,7 +74,16 @@ portability: core
 - 所有 Mermaid 产出**必须渲染为 PNG**（通过 mmdc 或 drawio MCP 降级路径），不得仅停留在 Markdown 代码块中
 - 配色限灰度 7 档 + 暗红 #D62728；同概念跨图颜色一致（查 color-registry.csv）
 - PNG 必须达到 300dpi+（通过 PIL 写入 DPI 元数据），宽度 ≥ 1102px
-- 文件命名：`<图号>-<描述>.<扩展名>`，如 `2-1-技术架构全景.drawio`
+- **🔴 IRON RULE: IMAGE-NAMING —— 文件命名（违反即 FATAL）**：
+
+  图片文件名**必须**使用 `outline.md` 的 `figures_manifest.architecture_figures[*].output_files` 中
+  声明的精确文件名。不得自行决定中英文缩写、连字符增删、或任何形式的改写。
+
+  如果 `output_files` 不存在（旧版 outline），使用确定性 fallback 规则：
+    `{figure_no}-{title}.{ext}`
+    其中 `title` = `figures_manifest` 中声明的精确标题文本（逐字，不截断）
+
+  导出 PNG 时，`.drawio.png` 文件名必须与 `.drawio` 源文件仅差扩展名。
 
 ### 自检：交付前必须跑两级机器门禁（D4-6 / D5-B3，已切换 blocking）
 

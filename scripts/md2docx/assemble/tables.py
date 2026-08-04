@@ -202,10 +202,11 @@ def resolve_tables(
             为 None 时按空表处理（全部正文表降级为 chapter_no=0）。
 
     Returns:
-        按文档序排列的 TableIR 列表。
+        按文档序排列的 TableIR 列表 + 已被表格消费的 ParagraphToken id 集合
+        （题注行——builder 需跳过这些已消费的段落以避免重复渲染）。
     """
     if not tokens:
-        return []
+        return [], set()
 
     _chapter_map = chapter_map or []
     seq_counters: dict[int, int] = {}
@@ -228,7 +229,7 @@ def resolve_tables(
     if not table_spans:
         # 无表格，但仍需扫描孤立题注（02 §B.2 第5项）
         _detect_orphan_captions(tokens, set(), issues)
-        return []
+        return [], set()
 
     # 已消费的 ParagraphToken（按 id 追踪，用于后续孤立题注检测）
     consumed_para_ids: set[int] = set()
@@ -361,7 +362,7 @@ def resolve_tables(
     # ---- 孤立题注检测（02 §B.2 第5项） ----
     _detect_orphan_captions(tokens, consumed_para_ids, issues)
 
-    return results
+    return results, consumed_para_ids
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +430,7 @@ if __name__ == "__main__":
             source_line=42,
         ),
     ]
-    r1 = resolve_tables(tokens1, c1, [(1, 1)])
+    r1, _ = resolve_tables(tokens1, c1, [(1, 1)])
     check("返回 1 个 TableIR", len(r1) == 1, f"实际 {len(r1)}")
     if r1:
         t = r1[0]
@@ -480,7 +481,7 @@ if __name__ == "__main__":
             source_line=71,
         ),
     ]
-    r2 = resolve_tables(tokens2, c2, [])
+    r2, _ = resolve_tables(tokens2, c2, [])
     check("返回 1 个 TableIR", len(r2) == 1, f"实际 {len(r2)}")
     if r2:
         t = r2[0]
@@ -505,7 +506,7 @@ if __name__ == "__main__":
             source_line=101,
         ),
     ]
-    r3 = resolve_tables(tokens3, c3, [])
+    r3, _ = resolve_tables(tokens3, c3, [])
     check("返回空列表（无表格）", len(r3) == 0, f"实际 {len(r3)}")
     check("有 W-TBL-01", any(i.code == "W-TBL-01" for i in c3),
           f"实际: {[(i.code,) for i in c3]}")
@@ -525,7 +526,7 @@ if __name__ == "__main__":
             source_line=37,
         ),
     ]
-    r4 = resolve_tables(tokens4, c4, [(1, 1)])
+    r4, _ = resolve_tables(tokens4, c4, [(1, 1)])
     check("返回 1 个 TableIR", len(r4) == 1, f"实际 {len(r4)}")
     if r4:
         # 注意：实际解析后的 ParagraphToken 可能不含 ** 标记，
@@ -543,7 +544,7 @@ if __name__ == "__main__":
     # --- 测试5：空列表 ---
     print("\n=== 测试5：空列表 ===")
     c5 = IssueCollector()
-    r5 = resolve_tables([], c5, [])
+    r5, _ = resolve_tables([], c5, [])
     check("返回空列表", len(r5) == 0, f"实际 {len(r5)}")
     check("无 issues", len(list(c5)) == 0, f"实际 {len(list(c5))}")
 
@@ -565,7 +566,7 @@ if __name__ == "__main__":
             source_line=13,
         ),
     ]
-    r6 = resolve_tables(tokens6, c6, [(2, 1)])
+    r6, _ = resolve_tables(tokens6, c6, [(2, 1)])
     check("返回 1 个 TableIR", len(r6) == 1, f"实际 {len(r6)}")
     if r6 and r6[0].source_note:
         check(
@@ -591,7 +592,7 @@ if __name__ == "__main__":
             source_line=13,
         ),
     ]
-    r7 = resolve_tables(tokens7, c7, [(3, 1)])
+    r7, _ = resolve_tables(tokens7, c7, [(3, 1)])
     check("返回 1 个 TableIR", len(r7) == 1, f"实际 {len(r7)}")
     if r7:
         check(
@@ -630,7 +631,7 @@ if __name__ == "__main__":
             source_line=21,
         ),
     ]
-    r8 = resolve_tables(tokens8, c8, [(1, 1)])
+    r8, _ = resolve_tables(tokens8, c8, [(1, 1)])
     check("返回 2 个 TableIR", len(r8) == 2, f"实际 {len(r8)}")
     if len(r8) >= 2:
         check("第1个=BODY", r8[0].kind == TableKind.BODY, str(r8[0].kind))
@@ -651,7 +652,7 @@ if __name__ == "__main__":
             source_line=37,
         ),
     ]
-    r9 = resolve_tables(tokens9, c9, [(1, 1)])
+    r9, _ = resolve_tables(tokens9, c9, [(1, 1)])
     check("返回 1 个 TableIR", len(r9) == 1, f"实际 {len(r9)}")
     if r9:
         check(

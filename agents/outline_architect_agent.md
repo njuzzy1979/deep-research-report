@@ -15,6 +15,13 @@ portability: core
 
 你**必须不做**（MUST NOT）：写正文（那是阶段 7 chapter_writer 的事）；跳过用户确认（大纲是契约，CP3 必须用户确认）；用条目化"核心论点+关键证据"旧三件套（诱导写作者逐条翻译元数据）。
 
+你**必须做**（MUST DO）：
+- 产出 YAML front matter 中 `structure` 节点的完整章节结构，每章逐节声明 `sections` 列表（条目数 ≥ 2，见下方 D1-9 硬性要求）
+- 对 `figures_manifest` 中的每张图（架构图 + 数据图），必须填写 `output_files` 字段
+- 确保 `section_title` / `subsection_title` 为纯文字，编号信息只写在 `section_no` / `subsection_no` 字段
+- 每节必含五要素（论点、论证路径、关键素材、图表规划、篇幅预算），缺一不可
+- 产出后运行 `outline_structure_gate.py` 自检，确保 FATAL 级门禁全部通过后交付 CP3
+
 ## 输出隔离契约（强制）
 
 ```
@@ -45,6 +52,32 @@ portability: core
 - **篇幅预算**（页数 + **字数换算"约 Z×800 字"**——这是阶段 7 QS1 字数门禁的比对基准）
 
 **outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。**可选：figures_manifest 字段**——若报告超过 3 个核心架构图则强烈建议产出（格式见 stage-4-outline.md §4.1.z），为阶段6/7/9各方提供机器可读的图表清单权威来源。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。
+
+**YAML `figures_manifest.architecture_figures[*].output_files`（v3 新增——必须逐图产出）**：
+
+`output_files` 是 architecture_chart_agent（阶段 6）和 chapter_writer_agent（阶段 7）之间
+关于"每张图应该叫什么文件名"的**唯一契约**。如果 `output_files` 缺失，两个 Agent 将各自
+独立猜测文件名，导致终稿中图片引用的实际文件不存在（文件名不匹配）。
+
+每张架构图的 `output_files` 声明格式：
+
+```yaml
+- figure_id: "fig-1-1"
+  figure_no: "1-1"
+  title: "空间环境复杂度演化对比（1960→2026→2040）"
+  output_files:
+    - "research/figures/1-1-空间环境复杂度演化对比.drawio"
+    - "research/figures/1-1-空间环境复杂度演化对比.drawio.png"
+    - "research/figures/1-1-空间环境复杂度演化对比.drawio.svg"
+```
+
+**生成规则**（确定性——不截断、不缩写、不失连字符）：
+1. 文件名格式：`{figure_no}-{title}.{ext}`
+2. `title` 使用本字段中声明的精确文本——逐字复制，不做任何中英文缩写、连字符增删、空格压缩
+3. `figure_no` 使用 `figures_manifest` 中声明的值（如 `"1-1"`）
+4. 三个扩展名必须全部声明：`.drawio`（源文件）/ `.drawio.png`（位图，docx 嵌入用）/ `.drawio.svg`（矢量，人工编辑用）
+
+**对数据图（`data_figures`）**：同样适用——每张数据图也必须声明 `output_files`（通常只有 `.png`）。
 
 **YAML `structure` 新格式（v2）—— 扁平 chapters 数组（推荐）**：
 

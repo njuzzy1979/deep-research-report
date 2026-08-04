@@ -242,4 +242,13 @@ python scripts/figure_gate.py --outline research/outline.md \
 
 > **⚠️ 门禁通过 ≠ 图可用。** figure_gate.py 的 G1-G12 判据只排除"明确的几何/语法缺陷"，不保证"良好的视觉呈现"。以下问题机器门禁**无法检测**：容器声明顺序导致的子节点被遮盖、走线穿过第三方节点、文字被挤压导致可读性差。**门禁全绿后，必须导出 PNG 并人工逐张确认视觉呈现**，发现问题回生成脚本修改而非手工编辑 `.drawio` 文件。
 
+### figure-path-map.json 生成（v3 新增——阶段6 CHECKPOINT 前置条件）
+
+architecture_chart_agent 每完成一张图，调用 `update_figure_path_map.py --action add` 追加条目。
+全部完成后，调用 `--action finalize` 转正 `research/figures/figure-path-map.json`。
+此文件是 Writer 嵌入图片时的"文件名唯一契约"——Writer 从中查表而非自行构造文件名。
+
+文件 schema 见 `interface-redesign-v3.md` §3.1；工具脚本见 `scripts/update_figure_path_map.py`。
+阶段6 CHECKPOINT 增加判据：`figure-path-map.json` 存在且 `total_architecture_figures` == `figures_manifest.architecture_figures` 长度。
+
 🔴 CHECKPOINT · 🛑 STOP：总览图和核心章架构图就位、且 `figure_gate.py` exit code 为 0 后进入阶段 7。总览图未完成、核心章缺架构图、或门禁未通过 → 回到阶段 6.1 补充。

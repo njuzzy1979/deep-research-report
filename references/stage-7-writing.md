@@ -186,6 +186,20 @@ portability: core
 3. **按 `writing-standards.md` 标准 0 检查后台外泄**：骨架 + 证据成文后，逐句检查是否混入了证据分级、来源取舍、核验状态、claim_id、方法论自评等后台内容，命中即改写为成品判断 + 脚注或删除（呼应 §7.0 铁律 4、§7.2.3 后台外泄审计）。
 4. **确认本章所需架构图已就位**：检查 `research/figures/` 中是否存在本章规划的核心架构图（总览图/架构图/流程图）的 PNG 文件。架构图由 `architecture_chart_agent`（Sonnet）在阶段 6 产出，此时应已就位。**如有缺失，Writer 不得自行绘制架构图——上报 orchestrator，由 orchestrator 判断：调用 `architecture_chart_agent` 补图 / 降级为文字描述 / 记录到质量门槛备注。**
 5. **嵌入架构图**：将架构图以 `![图X-Y 标题](research/figures/图X-Y-描述.png)` 格式嵌入 Markdown 正文对应位置。确保首次引用在图之前（写作标准 6）。每个图注需说明图的逻辑或来源。
+
+### 图片引用——使用速查表（v3 新增）
+
+Writer 在嵌入图片时，**不得自行构造图片文件名**。必须使用 orchestrator 注入的
+"本章图片引用速查表"（从 `research/figures/figure-path-map.json` 中提取当前章条目）。
+
+速查表中每条含 `markdown_ref` 字段——完整的 `![图X-Y 标题](figures/文件名.drawio.png)` 语法。
+Writer 逐字复制 `markdown_ref` 到正文中，不做任何修改。
+
+违反此规则的常见模式（v3 起视为 FATAL）：
+- 将文件名中的中英文连字符改写（如 `SCIF-Agent` → `SCIFAgent`）
+- 修改扩展名（`.drawio.png` → `.drawio` 或 `.png`）
+- 不使用速查表提供的精确文件名
+
 5.5 **产出本章规划表格**（表格是 Markdown 正文的一部分，Writer 自行编制，不走独立 Agent）：
    a. 从大纲条目中确认本章的表格规划（如有 `figures_manifest.tables`，按 `table_no` + `title` 产出；否则按大纲 Markdown 正文的"图表规划"行产出）
    b. 表格题注规范：使用 `**表X-Y：标题**` 加粗格式（作为 Markdown 正文的一部分），位于表格上方

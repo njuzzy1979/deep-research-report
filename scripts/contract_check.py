@@ -280,7 +280,7 @@ def compute_paragraph_stats(text: str) -> dict:
 
 def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7",
                    figures_dir=None, claims_ledger_path=None, card_index_path=None,
-                   file_path=None, subset=None) -> dict:
+                   file_path=None, subset=None, figure_path_map=None, chapter=None) -> dict:
     """执行 C1-C9 + QS1-QS3，返回结构化结果。"""
     clean = strip_code_blocks(text)
     lines = clean.split("\n")
@@ -419,8 +419,13 @@ def check_contract(text: str, merged: bool, expect_figures, stage: str = "stage7
         "severity": "fatal",
     }
 
-    # C13: 图片文件名存在性检查（fatal，仅 stage7 分章文件阶段执行）
-    c13_result = _check_c13_images(text, figures_dir)
+    # C13: 图片文件名存在性检查（fatal）—— 双重验证：精确成员 + 文件存在性
+    if figures_dir or figure_path_map:
+        c13_result = _check_c13_images(text, figures_dir=figures_dir,
+                                        figure_path_map=figure_path_map,
+                                        chapter=chapter)
+    else:
+        c13_result = {"pass": True, "skipped": True, "severity": "fatal"}
 
     # C14: claims 分布检查（warn，不阻断）—— 解析 claims-ledger.csv 统计各章 adopted=true 的 claims 数
     if claims_ledger_path:
@@ -592,20 +597,57 @@ def _check_c6_references(text: str, *, merged: bool = False, stage: str = "stage
     return result
 
 
-def _check_c13_images(text, figures_dir=None):
-    """C13: 检查正文中引用的图片文件是否在 figures/ 目录中存在。"""
-    if figures_dir is None:
-        return {"pass": True, "hits": [], "count": 0, "severity": "fatal", "skipped": True}
+def _check_c13_images(text, figures_dir=None, figure_path_map=None, chapter=None):
+    """C13: 图片文件名双重验证 —— 精确成员判断 + 文件存在性。
+
+    第一重：从 figure-path-map.json 中检查 ref 文件名是否在注册表中（精确成员判断）。
+    第二重：检查 ref 文件是否实际存在于磁盘（os.path.exists）。
+    任一失败 → FATAL。
+    """
     refs = IMAGE_REF_PATTERN.findall(text)
+    if not refs:
+        return {"pass": True, "hits": [], "count": 0, "severity": "fatal", "total_refs": 0}
+
     missing = []
-    for ref in refs:
-        fpath = figures_dir / ref
-        if not fpath.exists():
-            missing.append(ref)
+
+    # 第一重：从 figure-path-map.json 中检查精确成员
+    if figure_path_map:
+        import json
+        with open(figure_path_map, 'r', encoding='utf-8') as f:
+            path_map = json.load(f)
+        expected_set = set()
+        figures = path_map.get("figures", {})
+        if chapter and chapter in figures:
+            # 仅检查指定章节的图片注册
+            entry = figures[chapter]
+            png = entry.get("files", {}).get("drawio_png", "")
+            if png:
+                expected_set.add(Path(png).name)
+        else:
+            for entry in figures.values():
+                png = entry.get("files", {}).get("drawio_png", "")
+                if png:
+                    expected_set.add(Path(png).name)
+        for ref in refs:
+            if ref not in expected_set:
+                missing.append(f"fig-path-map-mismatch:{ref}")
+
+    # 第二重：检查实际文件存在性
+    if figures_dir:
+        for ref in refs:
+            fpath = Path(figures_dir) / ref
+            if not fpath.exists():
+                # 避免重复记录（同一文件可能两重检查都失败）
+                tag = "file-not-found"
+                if not figure_path_map:
+                    missing.append(ref)
+                else:
+                    missing.append(f"{tag}:{ref}")
+
     return {
-        "hits": missing,
+        "hits": missing[:20],
         "count": len(missing),
-        "pass": len(missing) == 0,
+        "pass": len(missing) == 0 and len(refs) > 0,
         "severity": "fatal",
         "total_refs": len(refs),
     }
@@ -934,6 +976,10 @@ def main():
                         help="检查阶段：stage7（C7=WARN不阻断）| stage9（C7=FATAL阻断）默认 stage7")
     parser.add_argument("--figures-dir", type=str, default=None,
                         help="figures 目录路径（C13 图片文件存在性检查，仅 stage7 生效）")
+    parser.add_argument("--figure-path-map", type=str, default=None,
+                        help="figure-path-map.json 路径（C13 精确成员判断，双重验证第一重）")
+    parser.add_argument("--chapter", type=str, default=None,
+                        help="章节标识（如 ch01，配合 --figure-path-map 限定检查范围）")
     parser.add_argument("--claims-ledger", type=str, default=None,
                         help="claims-ledger.csv 路径（C14 claims 分布检查）")
     parser.add_argument("--card-index-path", type=str, default=None,
@@ -952,7 +998,8 @@ def main():
     result = check_contract(text, args.merged, args.expect_figures, args.stage,
                             figures_dir=figures_dir, claims_ledger_path=args.claims_ledger,
                             card_index_path=args.card_index_path,
-                            file_path=args.file, subset=subset_list)
+                            file_path=args.file, subset=subset_list,
+                            figure_path_map=args.figure_path_map, chapter=args.chapter)
     result["file"] = args.file
 
     if args.json:

@@ -19,8 +19,6 @@
       "severity": "fatal"
     },
     "C13_image_files": {
-      "count": 0,
-      "hits": [],
       "pass": true,
       "severity": "fatal",
       "skipped": true

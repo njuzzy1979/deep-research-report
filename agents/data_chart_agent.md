@@ -19,6 +19,8 @@ portability: core
 
 你**必须不做**（MUST NOT）：写正文（那是 `chapter_writer_agent` 的职责）；产出架构图/流程图（那是 `architecture_chart_agent` 阶段 6 的职责）；自创配色（必须用灰度色板，数据图表使用 matplotlib 样式模板的单色+灰度区分策略）；使用禁止图表类型（3D 图表、>5 扇区饼图、双 Y 轴滥用）。
 
+你**必须做**（MUST）：出图后将数据图信息回传给 orchestrator——包括 figure_no、title、实际输出的 PNG 文件路径。orchestrator 用这些信息调用 `update_figure_path_map.py` 追加到 `figure-path-map.json`。
+
 ## 输出隔离契约
 
 ```
@@ -39,6 +41,7 @@ portability: core
 - **输出**：
   - `research/figures/<图号>-<描述>.png`（PNG 300dpi，docx 嵌入格式）
   - 更新 `research/figures/color-registry.csv`（如本图表引入新概念/实体）
+  - **回填 `research/figures/figure-path-map.json`**：数据图完成后，orchestrator 将数据图条目追加到 `figure-path-map.json`（与 architecture_chart_agent 共享同一个注册表）。条目格式与架构图相同——含 `figure_no`/`title`/`type`/`files`/`markdown_ref`。
 
 ## 出图规范
 
@@ -51,6 +54,7 @@ portability: core
   - 多维比较 → 雷达图
   - 禁止：3D 图表、>5 扇区饼图
 - **保存参数**：`dpi=300` + `bbox_inches='tight'`
+- **文件命名**：数据图文件名遵循 `figures_manifest.data_figures[*].output_files` 声明的精确文件名（如有）。没有声明时使用确定性规则：`{figure_no}-{title}.png`。
 - **中文字体**：使用 mplstyle 中配置的宋体
 - **配色**：数据图表使用灰度区分策略（不同系列用不同灰度值），强调色仅限暗红 #D62728
 - **hatch 辅助区分**：饼图使用阴影线（hatch）区分扇区，多系列折线图使用不同 dash 样式 + 图例标注

@@ -387,6 +387,170 @@ def check_figure_exists(figures_dir: Path, entry: dict) -> dict:
     return result
 
 
+def _validate_via_path_map(path_map_path: str, figures_dir: Path) -> dict:
+    """精确模式：通过 figure-path-map.json 逐文件路径验证。
+
+    --figure-path-map 传入时启用，不再使用 glob 模糊匹配。改为：
+    1. 读取 figure-path-map.json（如不存在 → exit 2）
+    2. 遍历 figures 字典中的每条 entry
+    3. 提取 files.drawio_png 路径
+    4. 转换为相对 figures_dir 的路径或绝对路径
+    5. 逐文件检查存在性 + DPI + 宽度
+    6. 返回与 run_figure_gate 相同格式的检查结果
+
+    Args:
+        path_map_path: figure-path-map.json 文件路径
+        figures_dir: research/figures/ 目录路径
+
+    Returns:
+        与 run_figure_gate 相同格式的结果 dict
+    """
+    import json as _json
+
+    map_path = Path(path_map_path)
+    if not map_path.exists():
+        print(
+            f"[FATAL] figure-path-map.json 不存在: {map_path}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    try:
+        with open(map_path, "r", encoding="utf-8") as f:
+            path_map = _json.load(f)
+    except _json.JSONDecodeError as e:
+        print(
+            f"[FATAL] figure-path-map.json 解析失败: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    figures = path_map.get("figures", {})
+    if not figures:
+        return {
+            "passed": True,
+            "total": 0,
+            "found": 0,
+            "missing": 0,
+            "invalid": 0,
+            "items": [],
+            "stage": "stage9",
+            "source": "figure_path_map",
+            "note": "figure-path-map.json 中无 figures 条目",
+        }
+
+    results = []
+    for fig_key, fig_entry in figures.items():
+        if not isinstance(fig_entry, dict):
+            continue
+
+        files = fig_entry.get("files", {})
+        png_rel = files.get("drawio_png", "")
+
+        item = {
+            "figure_id": fig_key,
+            "figure_no": fig_entry.get("figure_no", fig_key),
+            "title": fig_entry.get(
+                "title", fig_entry.get("fig_title", "")
+            ),
+            "type": fig_entry.get(
+                "type", fig_entry.get("fig_type", "architecture")
+            ),
+            "priority": fig_entry.get("priority", "required"),
+            "found": False,
+            "files": [],
+            "valid": False,
+            "errors": [],
+            "warnings": [],
+            "source": "figure_path_map",
+        }
+
+        if not png_rel:
+            item["errors"].append("files.drawio_png 未指定")
+            results.append(item)
+            continue
+
+        # 转换为绝对路径：先尝试相对 figures_dir，再尝试绝对路径
+        png_path = figures_dir / png_rel
+        if not png_path.exists():
+            # 尝试作为绝对路径
+            png_path = Path(png_rel)
+
+        if not png_path.exists():
+            item["errors"].append(f"文件不存在: {png_rel}")
+            results.append(item)
+            continue
+
+        item["found"] = True
+        item["files"] = [png_path.name]
+
+        if png_path.suffix.lower() == ".png":
+            errs, warns = _validate_png(png_path)
+            item["errors"].extend(errs)
+            item["warnings"].extend(warns)
+        elif png_path.suffix.lower() == ".drawio":
+            item["valid"] = True
+
+        item["valid"] = item["found"] and len(item["errors"]) == 0
+        results.append(item)
+
+    # 汇总（与 run_figure_gate 口径一致）
+    required_results = [r for r in results if r["priority"] == "required"]
+    missing_required = [r for r in required_results if not r["found"]]
+    invalid_required = [
+        r for r in required_results if r["found"] and not r["valid"]
+    ]
+    optional_missing = [
+        r for r in results
+        if r["priority"] != "required" and not r["found"]
+    ]
+    optional_invalid = [
+        r for r in results
+        if r["priority"] != "required" and r["found"] and not r["valid"]
+    ]
+
+    passed = len(missing_required) == 0 and len(invalid_required) == 0
+
+    return {
+        "passed": passed,
+        "total": len(results),
+        "found": sum(1 for r in results if r["found"]),
+        "missing": len(missing_required),
+        "invalid": len(invalid_required),
+        "missing_items": [
+            {
+                "figure_id": r["figure_id"],
+                "figure_no": r["figure_no"],
+                "title": r["title"],
+                "type": r["type"],
+            }
+            for r in missing_required
+        ],
+        "invalid_items": [
+            {
+                "figure_id": r["figure_id"],
+                "figure_no": r["figure_no"],
+                "title": r["title"],
+                "type": r["type"],
+                "errors": r["errors"],
+            }
+            for r in invalid_required
+        ],
+        "optional_missing": [
+            {
+                "figure_id": r["figure_id"],
+                "figure_no": r["figure_no"],
+                "title": r["title"],
+                "type": r["type"],
+            }
+            for r in optional_missing
+        ],
+        "items": results,
+        "stage": "stage9",
+        "source": "figure_path_map",
+    }
+
+
 # ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
@@ -745,18 +909,25 @@ def main():
         "--json", action="store_true",
         help="输出 JSON 格式"
     )
+    parser.add_argument(
+        "--figure-path-map", type=str, default=None,
+        help="figure-path-map.json 路径（v3 新增——启用精确模式：逐文件路径验证）"
+    )
 
     args = parser.parse_args()
 
     outline_path = Path(args.outline)
     figures_dir = Path(args.figures_dir)
 
-    result = run_figure_gate(
-        outline_path=outline_path,
-        figures_dir=figures_dir,
-        stage=args.stage,
-        strict=args.strict,
-    )
+    if args.figure_path_map:
+        result = _validate_via_path_map(args.figure_path_map, figures_dir)
+    else:
+        result = run_figure_gate(
+            outline_path=outline_path,
+            figures_dir=figures_dir,
+            stage=args.stage,
+            strict=args.strict,
+        )
 
     if args.json:
         import json

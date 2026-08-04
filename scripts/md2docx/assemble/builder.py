@@ -297,7 +297,7 @@ def build(
     # ==================================================================
     # 步骤4：表解析（Token 流 → TableIR）
     # ==================================================================
-    table_irs = resolve_tables(tokens, issues, chapter_map)
+    table_irs, consumed_caption_ids = resolve_tables(tokens, issues, chapter_map)
     table_registry: dict[str, TableIR] = {
         t.table_id: t
         for t in table_irs
@@ -469,8 +469,10 @@ def build(
         # ---- ParagraphToken → ParagraphIR ----
         if isinstance(t, ParagraphToken):
             _flush_list_buffer()
-            # 检测是否属于表来源行（已被 resolve_tables 关联消费的段落）
-            # 由于 resolve_tables 可能已将来源行段落标记消费，此处不做额外处理
+            # 跳过已被 resolve_tables 消费的题注段落（避免与 TableIR 题注重复渲染）
+            if id(t) in consumed_caption_ids:
+                in_table_span = False
+                continue
             in_table_span = False
             token_to_element_map[token_idx] = len(elements)
             elements.append(
