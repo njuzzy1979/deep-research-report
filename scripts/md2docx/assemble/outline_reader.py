@@ -172,6 +172,38 @@ def normalize_outline_structure(
     if not isinstance(structure, dict):
         return structure
 
+    # v2→v1 格式转换：扁平 chapters 数组 → 旧三区段
+    # v2 格式（chapters）在下游仍以旧格式（bodymatter/appendix）消费，
+    # 在此统一转换为旧格式，确保所有调用方无需改动。
+    if "chapters" in structure:
+        frontmatter_items = []
+        body_items = []
+        appendix_items = []
+        for ch in structure.get("chapters", []) or []:
+            if not isinstance(ch, dict):
+                continue
+            is_app = ch.get("is_appendix", False)
+            ch_no = ch.get("chapter_no")
+            if is_app:
+                appendix_items.append({
+                    "appendix_letter": str(ch_no),
+                    "appendix_title": ch.get("chapter_title", ""),
+                    "sections": ch.get("sections", []),
+                    "kind": ch.get("kind"),
+                })
+            else:
+                body_items.append({
+                    "chapter_no": ch_no,
+                    "chapter_title": ch.get("chapter_title", ""),
+                    "sections": ch.get("sections", []),
+                })
+        structure = {
+            "title": structure.get("title", ""),
+            "frontmatter": frontmatter_items,
+            "bodymatter": body_items,
+            "appendix": appendix_items,
+        }
+
     _input_path = outline_path if outline_path is not None else "outline.md"
     legacy_hits: list[str] = []
     out = {k: v for k, v in structure.items()}

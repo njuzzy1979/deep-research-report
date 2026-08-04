@@ -35,14 +35,7 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
     HeadingKind.CHAPTER: 1,
     HeadingKind.APPENDIX: 1,
     HeadingKind.MAIN_TITLE: 1,
-    HeadingKind.REFERENCES: 1,  # 报告级组成部分，与 CHAPTER/APPENDIX 同级
     HeadingKind.SECTION: 2,
-    HeadingKind.ABSTRACT: 2,
-    # FRONT_MATTER（前言/导论区的无编号标题，§C.3 R-FM）：默认 Heading 2，
-    # 若 HeadingIR.markdown_level 已设置（来自 assemble 层），render_heading()
-    # 会优先使用 markdown_level 作为 Word 标题级别，以保留 TOC 层级关系。
-    # 此处登记的值 2 仅作为 markdown_level 缺失时的兜底。
-    HeadingKind.FRONT_MATTER: 1,
     HeadingKind.SUBSECTION: 3,
     HeadingKind.PLAIN: 4,
 }
@@ -56,23 +49,11 @@ _KIND_TO_LEVEL: dict[HeadingKind, int] = {
 # 显式覆盖，否则会被样式级的默认编号"污染"：
 #   - APPENDIX 复用 Heading 1（与 CHAPTER 同级），须覆盖为独立的附录字母列表
 #   - MAIN_TITLE 复用 Heading 1，不应显示章节编号 → 覆盖为关闭编号（numId=0）
-#   - REFERENCES 复用 Heading 1（与 CHAPTER 同级），不应显示"第X章"编号，
-#     也不像 APPENDIX 那样需要字母编号（参考文献全篇只有一节）→ 覆盖为
-#     关闭编号（numId=0），与 MAIN_TITLE 同款处理
-#   - ABSTRACT 复用 Heading 2（与 SECTION 同级），不应显示
-#     "X.Y" 节编号 → 覆盖为关闭编号（numId=0）
-#   - FRONT_MATTER 复用 Heading 2/3/4（取决于 markdown_level），
-#     不应显示编号 → 由 render_heading() 动态计算 ilvl 并设置
-#     numId=0（不在本表中静态登记）
 #
 # PLAIN 映射到 Heading 4，该样式未绑定任何 numPr，无需覆盖（自然无编号）。
 _NUMPR_OVERRIDE: dict[HeadingKind, tuple[int, int]] = {
     HeadingKind.APPENDIX: (0, _numbering.APPENDIX_NUM_ID),
     HeadingKind.MAIN_TITLE: (0, _numbering.NO_NUMBERING_ID),
-    HeadingKind.REFERENCES: (0, _numbering.NO_NUMBERING_ID),
-    HeadingKind.ABSTRACT: (1, _numbering.NO_NUMBERING_ID),
-    # FRONT_MATTER 不在本表中 —— 其 numPr 由 render_heading() 根据
-    # heading.markdown_level 动态计算 ilvl，再统一设置 numId=NO_NUMBERING_ID。
 }
 
 
@@ -86,12 +67,8 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
 
     编号由 Word 原生多级列表驱动（Phase 6.2）：CHAPTER/SECTION/SUBSECTION
     三类直接继承 Heading 1/2/3 样式级绑定的默认 numPr；其余复用同一样式但
-    不应显示章节编号的 kind（APPENDIX/MAIN_TITLE/ABSTRACT/FRONT_MATTER）
-    在段落级显式覆盖 numPr。段落本身只写入纯标题文字。
-
-    FRONT_MATTER 标题的 Word 级别由其 markdown_level 决定（若 assemble 层
-    已设置），以在 TOC 中保留原始文档层级关系；markdown_level 缺失时退回
-    _KIND_TO_LEVEL 硬编码值 2（Heading 2）。
+    不应显示章节编号的 kind（APPENDIX/MAIN_TITLE）在段落级显式覆盖 numPr。
+    段落本身只写入纯标题文字。
 
     Args:
         doc: python-docx Document 对象
@@ -99,14 +76,6 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
         styles: 样式名→样式对象字典（render/styles.py register_styles() 产出）
     """
     level = _KIND_TO_LEVEL.get(heading.kind, 4)
-    # FRONT_MATTER: 优先使用 markdown_level（保留 TOC 层级关系），
-    # 缺失时退回 _KIND_TO_LEVEL 的固定值 2。
-    # markdown_level=1（H1 前端件如"# 摘要"）上封顶为 2，
-    # 避免 Word Heading 1 吞并后续 Heading 2 形成虚假父子关系。
-    if heading.kind == HeadingKind.FRONT_MATTER and heading.markdown_level is not None:
-        # 将markdown层级减1映射到Word层级: ##→Heading1, ###→Heading2
-        # "前言"等前置件章节在语义上与正文Chapter同级(Heading 1)
-        level = max(1, heading.markdown_level - 1)
     style_name = f"Heading {level}"
     style = styles.get(style_name)
     if style is not None:
@@ -116,16 +85,10 @@ def render_heading(doc, heading: HeadingIR, styles: dict) -> None:
         p = doc.add_paragraph()
         p.style = doc.styles[style_name]
 
-    # 静态 numPr 覆盖（APPENDIX / MAIN_TITLE / ABSTRACT）
+    # 静态 numPr 覆盖（APPENDIX / MAIN_TITLE）
     override = _NUMPR_OVERRIDE.get(heading.kind)
     if override is not None:
         ilvl, num_id = override
         _numbering.set_heading_numPr(p, ilvl=ilvl, num_id=num_id)
-
-    # FRONT_MATTER: 动态关闭编号（ilvl = level - 1，随 markdown_level 变化；
-    # markdown_level 缺失时 level 来自 _KIND_TO_LEVEL 兜底值 2 → ilvl=1）
-    if heading.kind == HeadingKind.FRONT_MATTER:
-        ilvl = level - 1
-        _numbering.set_heading_numPr(p, ilvl=ilvl, num_id=_numbering.NO_NUMBERING_ID)
 
     add_run_segments(p, heading.text)

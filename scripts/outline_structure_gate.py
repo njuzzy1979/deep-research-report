@@ -13,16 +13,16 @@ R-B（规范依赖人工执行而无机器门禁）在阶段 4 的实例——�
 
 六项检查：
 
-======  ==========================================================  ========
- 编号    判据                                                        级别
-======  ==========================================================  ========
- S1     YAML ``structure`` 存在且归一化后 ``bodymatter`` 非空        FATAL
- S2     每个 ``bodymatter[*]`` 有非空 ``chapter_title``              FATAL
- S3     每个 ``bodymatter[*].sections`` 条目数 >= 2                  FATAL
+======  =============================================================  ========
+ 编号    判据                                                           级别
+======  =============================================================  ========
+ S1     YAML ``structure`` 存在且归一化后 ``chapters`` 非空             FATAL
+ S2     每个 ``chapters[*]`` 有非空 ``chapter_title``                   FATAL
+ S3     每个 ``chapters[*]``（非 appendix）的 ``sections`` 条目数 >= 2  FATAL
  S4     每个 ``sections[*]`` 有非空 ``section_no`` 与 ``section_title`` FATAL
- S5     YAML 章标题集合 == Markdown 正文 ``##`` 标题集合（去编号）    WARNING
- S6     ``section_title`` 不含编号前缀（复用 headings._strip_section） WARNING
-======  ==========================================================  ========
+ S5     YAML 章标题集合 == Markdown 正文 ``##`` 标题集合（去编号）       WARNING
+ S6     ``section_title`` 不含编号前缀（复用 headings._strip_section）   WARNING
+======  =============================================================  ========
 
 S3 阈值取 >=2 而非 >=1 的理由：只有 1 个节的章，其节标题必然与章标题语义
 重复，是"为过门禁而填一行"的典型形态。
@@ -33,6 +33,8 @@ S3 阈值取 >=2 而非 >=1 的理由：只有 1 个节的章，其节标题必�
     python scripts/outline_structure_gate.py --outline research/outline.md --json
     python scripts/outline_structure_gate.py --outline research/outline.md \\
         --structure-gate strict
+    python scripts/outline_structure_gate.py --outline research/outline.md \\
+        --normalize > research/outline-v2.md
 
 退出码：0 = 通过（warn 模式下 S1-S4 违规也返回 0，仅告警）；
        1 = strict 模式下存在 S1-S4 违规；
@@ -104,6 +106,69 @@ def _strip_chapter_num(text: str) -> str:
     return _RE_CHAPTER_NUM_PREFIX.sub("", str(text or "")).strip()
 
 
+def normalize_outline_v1_to_v2(structure: dict) -> dict:
+    """将旧格式三区段 outline（frontmatter/bodymatter/appendix）转换为新格式扁平 chapters 数组。
+
+    旧格式（v1）结构：
+        {"title": "...", "frontmatter": [{...}], "bodymatter": [{...}], "appendix": [{...}]}
+
+    新格式（v2）结构：
+        {"title": "...", "chapters": [
+            {"chapter_no": 1, "chapter_title": "...", "sections": [...]},
+            ...
+            {"chapter_no": "A", "chapter_title": "...", "sections": [...], "is_appendix": True},
+        ]}
+
+    若已为新格式（已含 ``chapters`` 键），直接返回原 structure（幂等）。
+    """
+    if not isinstance(structure, dict):
+        return structure
+    if "chapters" in structure:
+        return structure  # 已是新格式，幂等
+
+    chapters: list = []
+    chapter_no: int = 0
+
+    # 前导章节（frontmatter）
+    for ch in structure.get("frontmatter") or []:
+        if not isinstance(ch, dict):
+            continue
+        chapter_no += 1
+        chapters.append({
+            "chapter_no": chapter_no,
+            "chapter_title": str(ch.get("chapter_title") or ch.get("appendix_title") or ""),
+            "sections": ch.get("sections") or [],
+        })
+
+    # 正文章节（bodymatter）
+    for ch in structure.get("bodymatter") or []:
+        if not isinstance(ch, dict):
+            continue
+        chapter_no += 1
+        chapters.append({
+            "chapter_no": chapter_no,
+            "chapter_title": str(ch.get("chapter_title") or ch.get("appendix_title") or ""),
+            "sections": ch.get("sections") or [],
+        })
+
+    # 附录章节（appendix），编号使用大写字母
+    _APPENDIX_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    appendix_idx = 0
+    for ch in structure.get("appendix") or []:
+        if not isinstance(ch, dict):
+            continue
+        letter = _APPENDIX_LABELS[appendix_idx] if appendix_idx < len(_APPENDIX_LABELS) else f"APP{appendix_idx}"
+        appendix_idx += 1
+        chapters.append({
+            "chapter_no": letter,
+            "chapter_title": str(ch.get("chapter_title") or ch.get("appendix_title") or ""),
+            "sections": ch.get("sections") or [],
+            "is_appendix": True,
+        })
+
+    return {"title": str(structure.get("title") or ""), "chapters": chapters}
+
+
 def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
     """执行 S1-S6 六项检查，返回结构化结果。
 
@@ -145,16 +210,26 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
         return result
 
     structure = normalize_outline_structure(parsed["structure"], str(path))
-    bodymatter = structure.get("bodymatter") or []
+    structure = normalize_outline_v1_to_v2(structure)
+    chapters = structure.get("chapters") or []
     issues = IssueCollector()
 
-    # ── S1：structure 存在且归一化后 bodymatter 非空 ──────────────────────
+    # 辅助：判断章节是否为附录
+    def _is_appendix(ch: dict) -> bool:
+        if ch.get("is_appendix"):
+            return True
+        c_no = ch.get("chapter_no")
+        if isinstance(c_no, str) and c_no and c_no[0].isalpha():
+            return True
+        return False
+
+    # ── S1：structure 存在且归一化后 chapters 非空 ──────────────────────────
     s1_violations: list = []
-    if not bodymatter:
-        s1_violations.append("structure.bodymatter 为空——大纲未声明任何正文章节")
+    if not chapters:
+        s1_violations.append("structure.chapters 为空——大纲未声明任何章节")
     result["checks"]["S1"] = {
         "level": "FATAL",
-        "desc": "structure 存在且归一化后 bodymatter 非空",
+        "desc": "structure 存在且归一化后 chapters 非空",
         "passed": not s1_violations,
         "violations": s1_violations,
     }
@@ -162,21 +237,23 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
     # ── S2：每章有非空 chapter_title ──────────────────────────────────────
     s2_violations = [
         f"第 {ch.get('chapter_no', i + 1)} 章缺少非空 chapter_title"
-        for i, ch in enumerate(bodymatter)
+        for i, ch in enumerate(chapters)
         if isinstance(ch, dict) and not str(ch.get("chapter_title") or "").strip()
     ]
     result["checks"]["S2"] = {
         "level": "FATAL",
-        "desc": "每个 bodymatter[*] 有非空 chapter_title",
+        "desc": "每个 chapters[*] 有非空 chapter_title",
         "passed": not s2_violations,
         "violations": s2_violations,
     }
 
-    # ── S3：每章 sections 条目数 >= 2 ─────────────────────────────────────
+    # ── S3：每章（非 appendix）sections 条目数 >= 2 ────────────────────────
     s3_violations = []
-    for i, ch in enumerate(bodymatter):
+    for i, ch in enumerate(chapters):
         if not isinstance(ch, dict):
             continue
+        if _is_appendix(ch):
+            continue  # 附录不要求 sections >= 2
         secs = ch.get("sections") or []
         if len(secs) < MIN_SECTIONS_PER_CHAPTER:
             s3_violations.append(
@@ -186,14 +263,14 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
             )
     result["checks"]["S3"] = {
         "level": "FATAL",
-        "desc": f"每个 bodymatter[*].sections 条目数 >= {MIN_SECTIONS_PER_CHAPTER}",
+        "desc": f"每个 chapters[*]（非 appendix）的 sections 条目数 >= {MIN_SECTIONS_PER_CHAPTER}",
         "passed": not s3_violations,
         "violations": s3_violations,
     }
 
     # ── S4：每个 section 有非空 section_no 与 section_title ───────────────
     s4_violations = []
-    for i, ch in enumerate(bodymatter):
+    for i, ch in enumerate(chapters):
         if not isinstance(ch, dict):
             continue
         c_no = ch.get("chapter_no", i + 1)
@@ -215,7 +292,7 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
     # ── S5：YAML 章标题集合 == Markdown 正文 ## 标题集合（去编号后）───────
     yaml_titles = {
         _strip_chapter_num(ch.get("chapter_title"))
-        for ch in bodymatter
+        for ch in chapters
         if isinstance(ch, dict) and str(ch.get("chapter_title") or "").strip()
     }
     md_titles = {_strip_chapter_num(m) for m in _RE_MD_H2.findall(body or "")}
@@ -233,7 +310,7 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
 
     # ── S6：section_title 不含编号前缀（复用 headings.py 的剥离函数）──────
     s6_violations = []
-    for i, ch in enumerate(bodymatter):
+    for i, ch in enumerate(chapters):
         if not isinstance(ch, dict):
             continue
         c_no = ch.get("chapter_no", i + 1)
@@ -263,6 +340,82 @@ def run_structure_gate(outline_path: str, gate_mode: str = "warn") -> dict:
     # warn 模式下即使 S1-S4 违规也判 passed（只报告不阻断），与 U3/U4/U6 同口径
     result["passed"] = s1_s4 if gate_mode == "strict" else True
     return result
+
+
+def _structure_to_yaml_value(struct: dict) -> dict:
+    """将 v2 structure 转为 YAML 友好的纯数据 dict，便于 yaml.dump 输出。
+
+    确保 YAML 输出使用中文友好的块风格，不使用 !!python 标签。
+    """
+    if not isinstance(struct, dict):
+        return struct
+    result: dict = {}
+    if "title" in struct:
+        result["title"] = struct["title"]
+    if "chapters" in struct:
+        chapters_out = []
+        for ch in struct["chapters"]:
+            if not isinstance(ch, dict):
+                chapters_out.append(ch)
+                continue
+            c = {"chapter_no": ch.get("chapter_no"), "chapter_title": ch.get("chapter_title", "")}
+            if ch.get("is_appendix"):
+                c["is_appendix"] = True
+            sections = ch.get("sections") or []
+            if sections:
+                c["sections"] = [
+                    {"section_no": s.get("section_no"), "section_title": s.get("section_title", "")}
+                    if isinstance(s, dict) else s
+                    for s in sections
+                ]
+            else:
+                c["sections"] = []
+            chapters_out.append(c)
+        result["chapters"] = chapters_out
+    return result
+
+
+def normalize_and_print(outline_path: str) -> None:
+    """--normalize 模式：读取旧 outline，输出 v2 格式 YAML front matter + 正文到 stdout。"""
+    import yaml
+
+    path = Path(outline_path)
+    if not path.exists():
+        print(f"错误：outline.md 不存在: {outline_path}", file=sys.stderr)
+        sys.exit(2)
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    parsed, body = extract_yaml_front_matter(text, str(path))
+    if not isinstance(parsed, dict):
+        print("错误：outline.md 缺少有效的 YAML front matter", file=sys.stderr)
+        sys.exit(2)
+
+    raw_structure = parsed.get("structure")
+    if not isinstance(raw_structure, dict):
+        print("错误：YAML front matter 中缺少 structure 节点", file=sys.stderr)
+        sys.exit(2)
+
+    # 两级归一化：先补键名，再转换格式
+    structure = normalize_outline_structure(raw_structure, str(path))
+    structure_v2 = normalize_outline_v1_to_v2(structure)
+
+    # 构建新的 front matter（保留原 front matter 中除 structure 外的其他字段）
+    new_parsed = {k: v for k, v in parsed.items() if k != "structure"}
+    new_parsed["structure"] = _structure_to_yaml_value(structure_v2)
+
+    # 输出：---\n YAML \n---\n 正文
+    yaml_text = yaml.dump(
+        new_parsed,
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+        width=120,
+    )
+    print("---")
+    print(yaml_text.rstrip("\n"))
+    print("---")
+    if body:
+        print(body)
 
 
 def format_text_report(result: dict) -> str:
@@ -325,7 +478,17 @@ def main() -> None:
              "strict S1-S4 违规即阻断",
     )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
+    parser.add_argument(
+        "--normalize", action="store_true",
+        help="格式转换模式：读旧格式 outline（frontmatter/bodymatter/appendix），"
+             "输出 v2 格式（扁平 chapters 数组）YAML front matter + 正文到 stdout，"
+             "不做门禁检查",
+    )
     args = parser.parse_args()
+
+    if args.normalize:
+        normalize_and_print(args.outline)
+        return
 
     result = run_structure_gate(args.outline, args.gate_mode)
 

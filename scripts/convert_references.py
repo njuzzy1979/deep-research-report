@@ -2,7 +2,8 @@
 """跨项目通用的引用转换脚本 —— [SRC-XXX] → [N] 纯数字引用 + 生成统一参考文献列表。
 
 将 Writer 阶段产出的 [SRC-XXX] 工作格式引用转换为交付阶段的 [N] 纯数字引用，
-同时基于 source-index.csv 生成全报告统一的 GB/T 7714-2015 格式参考文献列表（bibliography.md）。
+同时基于 source-index.csv 生成全报告统一的 GB/T 7714-2015 格式参考文献列表文本（供
+finalize_pipeline.py 的 step_inject_bibliography 注入终稿，不再独立输出 bibliography.md）。
 
 用法：
   python scripts/convert_references.py \
@@ -17,6 +18,13 @@
     --output research/drafts \
     --in-place research/drafts/final-report.md
 
+  # 仅生成参考文献文本并输出到 stdout（供外部管道消费）
+  python scripts/convert_references.py \
+    --drafts-dir research/drafts \
+    --source-index research/sources/source-index.csv \
+    --output research/drafts \
+    --generate-bib-text
+
 功能：
   1. 扫描 --drafts-dir 中所有 .md 文件，提取所有 [SRC-XXX] 引用
   2. 从 --source-index 读取来源元数据（source_id → 文献题名/作者/出版信息）
@@ -24,7 +32,7 @@
   4. 将所有 [SRC-XXX] 替换为 [N]（逗号分隔多引用：SRC-001,SRC-003 → [1,3]）
   5. 检测并报错斜杠分隔引用（[SRC-001/026]）——不支持，提示手动修复
   6. 幂等性保护：已是 [N] 纯数字格式的引用跳过转换
-  7. 生成 bibliography.md（GB/T 7714-2015 格式参考文献列表）
+  7. 生成 GB/T 7714-2015 格式参考文献列表文本（供 finalize_pipeline 注入终稿）
   8. 输出转换报告：转换的引用数 / 未找到的来源 / 斜杠引用数
 
 退出码：0 = 成功；1 = 存在斜杠分隔引用需手动修复；2 = source-index.csv 缺失或格式错误。
@@ -248,6 +256,29 @@ def generate_bibliography(num_to_src: dict, source_index: dict, missing: set) ->
     return "\n".join(lines)
 
 
+def generate_bibliography_text(source_index_path: str, refs: list[str]) -> str:
+    """生成参考文献列表的纯文本（不写文件）。
+
+    供 finalize_pipeline.py 的 step_inject_bibliography 调用。从 source-index.csv
+    加载元数据，按 refs 传入的顺序分配编号 [1]..[N]，生成 GB/T 7714-2015 格式文本。
+
+    Args:
+        source_index_path: source-index.csv 文件路径。
+        refs: 来源 ID 列表（如 ['SRC-001', 'SRC-003', 'SRC-012']），顺序决定编号。
+
+    Returns:
+        GB/T 7714-2015 格式的参考文献列表纯文本字符串。
+    """
+    source_index = load_source_index(source_index_path)
+    num_to_src = OrderedDict()
+    missing = set()
+    for i, sid in enumerate(refs, 1):
+        num_to_src[i] = sid
+        if sid not in source_index:
+            missing.add(sid)
+    return generate_bibliography(num_to_src, source_index, missing)
+
+
 # 附录边界定位：与 md2docx/config.py::N_07_APPENDIX 的宽松度对齐（允许"附录"
 # 与后续编号/标题之间存在空白），避免出现"手写附录标题带空格时被静默判定
 # 为无附录、参考文献误插入文末"这一不一致（design-auditor 复审要求）。
@@ -292,11 +323,13 @@ def main():
     parser = argparse.ArgumentParser(description="引用转换：[SRC-XXX] → [N] 纯数字 + 生成统一参考文献")
     parser.add_argument("--drafts-dir", required=True, help="草稿文件目录（如 research/drafts）")
     parser.add_argument("--source-index", required=True, help="来源索引 CSV 路径（如 research/sources/source-index.csv）")
-    parser.add_argument("--output", required=True, help="输出目录（转换后的 _converted.md 文件和 bibliography.md 将保存到此）")
+    parser.add_argument("--output", required=True, help="输出目录（转换后的 _converted.md 文件将保存到此）")
     parser.add_argument("--dry-run", action="store_true", help="只检测不写入文件")
     parser.add_argument("--force", action="store_true", help="强制重写已转换文件（默认幂等跳过）")
     parser.add_argument("--in-place", default=None, metavar="FILE",
                         help="原地转换单个文件（先备份为 .bak，再覆写）。用于 merge_drafts.py 管道阶段 F")
+    parser.add_argument("--generate-bib-text", action="store_true",
+                        help="生成参考文献列表文本并输出到 stdout（不写文件）。供外部管道消费")
     args = parser.parse_args()
 
     drafts_dir = args.drafts_dir
@@ -374,12 +407,16 @@ def main():
     #    before_appendix() 需要同时拿到"待插入正文"和"bib_text"两个参数；此前若把
     #    该生成动作放在替换之后会导致 --in-place 分支在插入时 bib_text 尚未产出）
     bib_text = generate_bibliography(num_to_src, source_index, missing)
-    bib_path = os.path.join(output_dir, "bibliography.md")
     if not args.dry_run:
-        # 独立存档：供人工核查，即便后续插入步骤失败也保留诊断依据
-        with open(bib_path, "w", encoding="utf-8") as f:
-            f.write(bib_text)
-        print(f"[OK] 参考文献列表已生成: {bib_path}")
+        if args.generate_bib_text:
+            # 输出参考文献文本到 stdout，供外部管道（如 finalize_pipeline）消费
+            print(bib_text)
+        else:
+            # 不再生成独立的 bibliography.md——参考文献由 finalize_pipeline 自动注入终稿
+            print("[INFO] 参考文献文本已由 finalize_pipeline 自动注入终稿")
+    if args.generate_bib_text:
+        # --generate-bib-text 模式：仅输出参考文献文本后退出，不执行文件替换
+        return
 
     # 8. 替换引用 + （in-place 模式下）插入参考文献节
     total_cl_cleared = 0
@@ -411,7 +448,6 @@ def main():
     print(f"  source-index 缺失来源: {len(missing)} 个")
     if not args.dry_run:
         print(f"  转换后文件: *_converted.md（{len(draft_files)} 个）")
-        print(f"  参考文献列表: {bib_path}")
     print(f"  输出目录: {output_dir}")
     print("=== 转换完成 ===")
 

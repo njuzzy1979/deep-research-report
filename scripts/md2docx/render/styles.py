@@ -303,6 +303,17 @@ def register_styles(doc: Document) -> dict[str, BaseStyle]:
         style_map["Heading 3"], ilvl=2, num_id=_numbering.CHAPTER_NUM_ID
     )
 
+    # ---- 4b. TOC Heading 显式关闭编号 ----
+    # python-docx 默认模板中 TOC Heading 样式 defined basedOn="Heading1"，
+    # 而 Heading 1 已在步骤 4 被绑定了章节编号（numId=10, ilvl=0）。
+    # TOC Heading 自身 pPr 中仅有 w:outlineLvl w:val="9"，无 w:numPr，
+    # 因此通过 basedOn 继承链从 Heading 1 获得编号，导致"目录"被编号为
+    # "第1章 目录"、正文第一章被挤到"第3章"。
+    # 显式设置 numId=0 关闭编号，恢复其"不入章序、不占编号"的设计意图。
+    _numbering.bind_style_numPr(
+        style_map["TOC Heading"], ilvl=0, num_id=_numbering.NO_NUMBERING_ID
+    )
+
     return style_map
 
 

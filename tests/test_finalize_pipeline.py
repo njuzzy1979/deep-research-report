@@ -264,10 +264,12 @@ def test_failure_step_contract_check_reproduces_pure_num_conflict(tmp_path, monk
         output_path=str(tmp_path / "final-report.md"),
         skip_contract_check=True,
     )
-    # 直接对合并产物调用 check_contract() 验证 C6 行为（管道内 contract_check 已 skip）
+    # 直接对合并产物调用 check_contract() 验证 C6 行为（管道内 contract_check 已 skip；
+    # 管道在 delivery_checklist 失败后产物保留为 .partial，读取 partial 即可）
     import contract_check as cc
     from contract_check import read_text
-    ccr = cc.check_contract(read_text(str(tmp_path / "final-report.md")), merged=True, expect_figures=None, stage="stage9")
+    partial = tmp_path / "final-report.md.partial"
+    ccr = cc.check_contract(read_text(str(partial)), merged=True, expect_figures=None, stage="stage9")
     c6 = ccr["contract"]["C6_reference_format"]
     # 纯数字引用在 stage9 合并终稿中被识别为预期产出，不再判负
     assert c6["pure_num_expected"] is True

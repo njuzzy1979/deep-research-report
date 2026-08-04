@@ -321,9 +321,6 @@ def build(
         tokens,
         heading_irs,
         appendix_page_break=flags.appendix_page_break,
-        generate_figures_table_toc=flags.generate_figures_table_toc,
-        figure_count=len(figure_irs),
-        body_table_count=body_table_count,
         issues=issues,
     )
 

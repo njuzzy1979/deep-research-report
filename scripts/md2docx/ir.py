@@ -49,12 +49,15 @@ class HeadingKind(Enum):
 
     MAIN_TITLE = "main_title"  # md H1 唯一 → 封面标题（不渲染为正文标题）
     ABSTRACT = "abstract"  # "摘要"/"执行摘要" H2 → 无编号，罗马页码节
+    # @deprecated: v2 起摘要内容并入第一章（H3），无需独立分类。保留以兼容旧引用。
     FRONT_MATTER = "front_matter"  # 前言/导论章内的 H2/H3 → 不参与正文编号（V2.1 新增）
+    # @deprecated: v2 起前言=第一章（CHAPTER），无需独立分类。保留以兼容旧引用。
     CHAPTER = "chapter"  # 正文章 H2 → "第X章"（中文数字）
     SECTION = "section"  # H3 → "X.Y"
     SUBSECTION = "subsection"  # H4 → "X.Y.Z"（样本 0 处，规范支持）
     APPENDIX = "appendix"  # "附录X：" H2 → 字母编号
     REFERENCES = "references"  # "参考文献" H2 → Heading 1，无编号（报告级组成部分，
+    # @deprecated: v2 起参考文献=附录B（APPENDIX），无需独立分类。保留以兼容旧引用。
     # 与附录同级但不参与字母编号；此前误复用 ABSTRACT 分类导致被渲染为
     # Heading 2、落入"第X章"的子级——参考文献是与正文/附录并列的报告级
     # 组成部分（研究报告格式规范.md "一、文档结构" 序号6），不应从属任何章）
@@ -74,7 +77,9 @@ class HeadingIR:
     number: HeadingNumber  # 结构化编号，供连续性校验；无编号或解析失败为 None
     display_number: str  # 渲染文本："第三章" / "3.1" / "附录A" / ""（Assembler 算好，Renderer 只拼接）
     source_line: int
-    markdown_level: int | None = None  # 原始 Markdown H 级别（1-6），仅 FRONT_MATTER/ABSTRACT 需要；正文标题为 None
+    markdown_level: int | None = None  # 原始 Markdown 标题层级（1..6），供渲染器降级参考
+    is_appendix: bool = False  # v2: 是否为附录章（替代 kind == HeadingKind.APPENDIX 的判断）
+    auto_fill_kind: str | None = None  # v2: "bibliography"/"figure_index"/None——标记管线自动填充章
 
 
 # ---------------------------------------------------------------------------
@@ -178,10 +183,10 @@ class PageBreakIR:
 
 
 class SectionKind(Enum):
-    """04-interface-spec.md §2.4 I1：四节方案（架构默认三节草案的回填细化）。"""
+    """04-interface-spec.md I1：三节方案（COVER / TOC / BODY）。"""
 
     COVER = "cover"
-    ABSTRACT = "abstract"
+    ABSTRACT = "abstract"  # @deprecated: v2 起统一三节方案（COVER/TOC/BODY），不再需要独立摘要节
     TOC = "toc"  # 含目录 + 图表目录（若生成）
     BODY = "body"  # 正文各章 + 附录
 

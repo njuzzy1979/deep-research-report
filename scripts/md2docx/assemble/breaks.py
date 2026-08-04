@@ -1,7 +1,7 @@
 """分页/分节规划器：PageBreakIR 唯一生成点（C-05c，D5/V-03）。
 
 将 Token 流中的 HrToken 转换为 PageBreakIR，按 H2 边界规则自动补插分页，
-去重相邻分页，移除文末尾页，并生成 SectionPlan（四节/三节方案）。
+去重相邻分页，移除文末尾页，并生成 SectionPlan（三节方案）。
 
 设计依据：02-algorithms.md §D.4、R4/R14/R18、04-interface-spec.md §2.4 I1、
 01-architecture.md §5.1、M1/M9。
@@ -30,9 +30,6 @@ def plan_breaks_and_sections(
     tokens: list,
     heading_irs: list,
     appendix_page_break: bool = True,
-    generate_figures_table_toc: str = "auto",
-    figure_count: int = 0,
-    body_table_count: int = 0,
     issues: IssueCollector | None = None,
 ) -> tuple[list, SectionPlan]:
     """分页/分节规划器：唯一产生 PageBreakIR 的位置（D5/V-03）。
@@ -44,9 +41,6 @@ def plan_breaks_and_sections(
         tokens: 全部 Token 流（parse 阶段产出）。
         heading_irs: classify_and_number() 的输出（供 H2 语义判定）。
         appendix_page_break: --appendix-page-break 开关（默认 True）。
-        generate_figures_table_toc: 图表目录策略（"auto"/"always"/"never"）。
-        figure_count: 图表数量（供 M1 判定）。
-        body_table_count: 正文表数量（供 M1 判定）。
         issues: IssueCollector 实例；为 None 时静默略过。
 
     Returns:
@@ -279,26 +273,19 @@ def plan_breaks_and_sections(
         deduped = cleaned
 
     # ------------------------------------------------------------------
-    # SectionPlan 生成（四节/三节方案，04 §2.4 I1 + M9 降级）
+    # SectionPlan 生成（三节方案：COVER / TOC / BODY，04 §2.4 I1）
     # ------------------------------------------------------------------
 
-    # 定位摘要 H2 与首章 H2 在已处理 Token 流中的索引
-    abstract_idx: int | None = None
+    # 定位首章 H2 在已处理 Token 流中的索引
     first_chapter_idx: int | None = None
     for i, t in enumerate(deduped):
         if isinstance(t, HeadingToken) and t.level == 2:
-            if (
-                abstract_idx is None
-                and t.source_line == first_abstract_line
-            ):
-                abstract_idx = i
             if (
                 first_chapter_idx is None
                 and t.source_line == first_chapter_line
             ):
                 first_chapter_idx = i
 
-    has_abstract = abstract_idx is not None
     sections: list[SectionSpec] = []
 
     # 第一节：COVER（始终存在）
@@ -312,122 +299,30 @@ def plan_breaks_and_sections(
         )
     )
 
-    if has_abstract:
-        # ---- 四节方案：COVER / ABSTRACT / TOC / BODY ----
-        sections.append(
-            SectionSpec(
-                kind=SectionKind.ABSTRACT,
-                page_num_fmt=PageNumFormat.LOWER_ROMAN,
-                page_num_restart=True,
-                header_mode=HeaderMode.TITLE_SHORT,
-                start_element_index=abstract_idx,
-            )
+    # ---- 三节方案：COVER / TOC / BODY ----
+    body_start = (
+        first_chapter_idx if first_chapter_idx is not None else 0
+    )
+    sections.append(
+        SectionSpec(
+            kind=SectionKind.TOC,
+            page_num_fmt=PageNumFormat.LOWER_ROMAN,
+            page_num_restart=True,
+            header_mode=HeaderMode.NONE,
+            start_element_index=0,
         )
-        # TOC 节：无页眉，罗马页码续接。
-        # TOC 内容由渲染器自动生成，无对应的 Token 流元素；
-        # start_element_index 取 BODY 起始索引（TOC 自动插入于
-        # ABSTRACT 之后、BODY 之前），渲染器按节序先后处理。
-        body_start = (
-            first_chapter_idx if first_chapter_idx is not None else 0
+    )
+    sections.append(
+        SectionSpec(
+            kind=SectionKind.BODY,
+            page_num_fmt=PageNumFormat.DECIMAL,
+            page_num_restart=True,
+            header_mode=HeaderMode.TITLE_SHORT,
+            start_element_index=body_start,
         )
-        sections.append(
-            SectionSpec(
-                kind=SectionKind.TOC,
-                page_num_fmt=PageNumFormat.LOWER_ROMAN,
-                page_num_restart=False,
-                header_mode=HeaderMode.NONE,
-                start_element_index=body_start,
-            )
-        )
-        sections.append(
-            SectionSpec(
-                kind=SectionKind.BODY,
-                page_num_fmt=PageNumFormat.DECIMAL,
-                page_num_restart=True,
-                header_mode=HeaderMode.TITLE_SHORT,
-                start_element_index=body_start,
-            )
-        )
-    else:
-        # ---- 三节方案（M9 降级）：COVER / TOC / BODY ----
-        # 无摘要时，TOC 直接接在封面之后，罗马页码 start=1。
-        body_start = (
-            first_chapter_idx if first_chapter_idx is not None else 0
-        )
-        sections.append(
-            SectionSpec(
-                kind=SectionKind.TOC,
-                page_num_fmt=PageNumFormat.LOWER_ROMAN,
-                page_num_restart=True,
-                header_mode=HeaderMode.NONE,
-                start_element_index=0,
-            )
-        )
-        sections.append(
-            SectionSpec(
-                kind=SectionKind.BODY,
-                page_num_fmt=PageNumFormat.DECIMAL,
-                page_num_restart=True,
-                header_mode=HeaderMode.TITLE_SHORT,
-                start_element_index=body_start,
-            )
-        )
+    )
 
     section_plan = SectionPlan(sections=sections)
-
-    # ------------------------------------------------------------------
-    # M1：图表目录 TOC 节的处理
-    # ------------------------------------------------------------------
-    # 若 generate_figures_table_toc="auto" 且（图数 + 正文表数 >= 10）→ 嵌入图表目录页。
-    # 在目录与图表目录之间插入 AUTO_TOC 换页标记。
-    should_gen_fig_toc = False
-    if generate_figures_table_toc == "always":
-        should_gen_fig_toc = True
-    elif generate_figures_table_toc == "auto":
-        if figure_count + body_table_count >= 10:
-            should_gen_fig_toc = True
-
-    if should_gen_fig_toc:
-        # 将 AUTO_TOC 换页标记插入到 TOC 节起始位置（即 BODY start 之前），
-        # 渲染器将在目录与图表目录之间看到此 PageBreakIR。
-        insert_pos = body_start
-        if insert_pos >= len(deduped):
-            insert_pos = len(deduped)
-        deduped.insert(
-            insert_pos,
-            PageBreakIR(origin=BreakOrigin.AUTO_TOC, source_line=None),
-        )
-        # 插入后，后续元素的索引偏移 +1，需调整 BODY 节起始索引
-        for sec in section_plan.sections:
-            if sec.kind == SectionKind.BODY:
-                # 使用 replace 语义更新 start_element_index
-                # SectionSpec 是 frozen dataclass 则无法直接赋值；
-                # 此处依赖 SectionSpec 为非 frozen 的默认行为
-                pass  # SectionSpec 不是 frozen dataclass，可直接赋值
-        # 更新 BODY 节起始索引（因插入了一个 PageBreakIR）
-        for i, sec in enumerate(section_plan.sections):
-            if sec.kind == SectionKind.BODY:
-                section_plan.sections[i] = SectionSpec(
-                    kind=sec.kind,
-                    page_num_fmt=sec.page_num_fmt,
-                    page_num_restart=sec.page_num_restart,
-                    header_mode=sec.header_mode,
-                    start_element_index=sec.start_element_index + 1,
-                )
-        if issues is not None:
-            issues.append(
-                Issue(
-                    level=Level.INFO,
-                    code="I-TOC-01",
-                    stage="assemble",
-                    message=(
-                        f"「目录→图表目录」换页：图{ figure_count }个 + "
-                        f"正文表{ body_table_count }个 = "
-                        f"{ figure_count + body_table_count } >= 10，"
-                        f"已插入 AUTO_TOC 换页标记"
-                    ),
-                )
-            )
 
     return (deduped, section_plan)
 
@@ -583,8 +478,8 @@ if __name__ == "__main__":
     else:
         check("有 I-PB-02", any(i.code == "I-PB-02" for i in c4))
 
-    # ---- 测试5：SectionPlan — 四节方案（有摘要） ----
-    print("\n=== 测试5：SectionPlan 四节方案（有摘要）===")
+    # ---- 测试5：SectionPlan — 三节方案（有摘要仍为三节） ----
+    print("\n=== 测试5：SectionPlan 三节方案（有摘要）===")
     c5 = IssueCollector()
     heading_irs5 = [
         HeadingIR(
@@ -612,23 +507,22 @@ if __name__ == "__main__":
         tokens5, heading_irs5, issues=c5
     )
     kinds = [s.kind for s in sp5.sections]
-    check("四节方案", len(sp5.sections) == 4, f"实际 {len(sp5.sections)} 节")
-    check("节序: COVER→ABSTRACT→TOC→BODY", kinds == [
+    check("三节方案（有摘要）", len(sp5.sections) == 3, f"实际 {len(sp5.sections)} 节")
+    check("节序: COVER→TOC→BODY", kinds == [
         SectionKind.COVER,
-        SectionKind.ABSTRACT,
         SectionKind.TOC,
         SectionKind.BODY,
     ], str(kinds))
-    # ABSTRACT 节页码格式
-    abstract_sec = sp5.sections[1]
+    # TOC 节页码格式
+    toc_sec = sp5.sections[1]
     check(
-        "ABSTRACT 节罗马页码",
-        abstract_sec.page_num_fmt == PageNumFormat.LOWER_ROMAN,
-        str(abstract_sec.page_num_fmt),
+        "TOC 节罗马页码",
+        toc_sec.page_num_fmt == PageNumFormat.LOWER_ROMAN,
+        str(toc_sec.page_num_fmt),
     )
-    check("ABSTRACT 节重启页码", abstract_sec.page_num_restart)
+    check("TOC 节重启页码", toc_sec.page_num_restart)
     # BODY 节页码格式
-    body_sec = sp5.sections[3]
+    body_sec = sp5.sections[2]
     check(
         "BODY 节阿拉伯页码",
         body_sec.page_num_fmt == PageNumFormat.DECIMAL,
@@ -636,8 +530,8 @@ if __name__ == "__main__":
     )
     check("BODY 节重启页码", body_sec.page_num_restart)
 
-    # ---- 测试6：SectionPlan — 三节方案（M9 无摘要降级） ----
-    print("\n=== 测试6：SectionPlan 三节方案（M9 无摘要）===")
+    # ---- 测试6：SectionPlan — 三节方案（无摘要） ----
+    print("\n=== 测试6：SectionPlan 三节方案（无摘要）===")
     c6 = IssueCollector()
     heading_irs6 = [
         HeadingIR(
@@ -662,69 +556,6 @@ if __name__ == "__main__":
         SectionKind.TOC,
         SectionKind.BODY,
     ], str(kinds6))
-
-    # ---- 测试7：M1 图表目录 TOC ----
-    print("\n=== 测试7：M1 图表 >= 10 → 插入 AUTO_TOC PageBreakIR ===")
-    c7 = IssueCollector()
-    heading_irs7 = [
-        HeadingIR(
-            kind=HeadingKind.CHAPTER,
-            raw_text="第一章",
-            text="第一章",
-            number=1,
-            display_number="第一章",
-            source_line=10,
-        ),
-    ]
-    tokens7 = [
-        HeadingToken(level=2, raw_text="第一章", source_line=10),
-    ]
-    result7, sp7 = plan_breaks_and_sections(
-        tokens7, heading_irs7,
-        generate_figures_table_toc="auto",
-        figure_count=9,
-        body_table_count=3,
-        issues=c7,
-    )
-    check(
-        "9图+3表=12>=10 → 有 AUTO_TOC PageBreakIR",
-        any(
-            isinstance(t, PageBreakIR) and t.origin == BreakOrigin.AUTO_TOC
-            for t in result7
-        ),
-    )
-    check("有 I-TOC-01", any(i.code == "I-TOC-01" for i in c7))
-
-    # ---- 测试8：M1 图表不足 10 → 不触发 ----
-    print("\n=== 测试8：M1 图表 < 10 → 不触发 ===")
-    c8 = IssueCollector()
-    heading_irs8 = [
-        HeadingIR(
-            kind=HeadingKind.CHAPTER,
-            raw_text="第一章",
-            text="第一章",
-            number=1,
-            display_number="第一章",
-            source_line=10,
-        ),
-    ]
-    tokens8 = [
-        HeadingToken(level=2, raw_text="第一章", source_line=10),
-    ]
-    result8, sp8 = plan_breaks_and_sections(
-        tokens8, heading_irs8,
-        generate_figures_table_toc="auto",
-        figure_count=3,
-        body_table_count=2,
-        issues=c8,
-    )
-    check(
-        "3图+2表=5<10 → 无 AUTO_TOC PageBreakIR",
-        not any(
-            isinstance(t, PageBreakIR) and t.origin == BreakOrigin.AUTO_TOC
-            for t in result8
-        ),
-    )
 
     # ---- 测试9：空列表 ----
     print("\n=== 测试9：空列表 ===")

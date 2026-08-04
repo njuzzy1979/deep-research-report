@@ -84,6 +84,7 @@ WARN = "[WARN]"
 # 顺序即执行顺序）。verify_docx 只在传入 --verify-docx 时执行。
 FAILURE_STEPS = (
     "strip_markers", "h1_check", "merge", "convert_refs",
+    "inject_bibliography", "generate_figure_index",
     "contract_check", "delivery_checklist", "verify_docx",
 )
 
@@ -109,6 +110,170 @@ def _replace_h1_with_h2(text: str) -> tuple:
         else:
             new_lines.append(line)
     return "\n".join(new_lines), count
+
+
+def _get_chapters_from_structure(outline_structure: dict) -> list:
+    """从 outline structure 中提取章节列表，兼容 chapters/bodymatter 两种键名。"""
+    if not outline_structure:
+        return []
+    return outline_structure.get("chapters") or outline_structure.get("bodymatter") or []
+
+
+def step_inject_bibliography(body_text: str, bib_text: str, outline_structure: dict) -> str:
+    """将参考文献列表注入到 outline 中 kind="bibliography" 的附录章。
+
+    1. 从 outline_structure 中找到 kind="bibliography" 的章标题
+    2. 在 body_text 中找到该 H2 的位置
+    3. 将该 H2 下的原有内容替换为 bib_text（幂等：如果已有>=50条参考文献条目则跳过）
+    4. 如果没有 kind="bibliography" 的章，回退到在文末追加
+    """
+    if not bib_text or not bib_text.strip():
+        return body_text
+
+    chapters = _get_chapters_from_structure(outline_structure)
+    bib_chapter = None
+    for ch in chapters:
+        if ch.get("kind") == "bibliography":
+            bib_chapter = ch
+            break
+
+    if not bib_chapter:
+        # 回退：没有声明参考文献附录章 → 文末追加
+        return body_text.rstrip() + "\n\n## 参考文献\n\n" + bib_text + "\n"
+
+    title = bib_chapter.get("chapter_title", "参考文献")
+    # 在 body_text 中查找对应 H2 —— 支持两种形式：
+    # (a) "## 参考文献列表"（纯标题形式）
+    # (b) "## 附录B：参考文献列表"（附录前缀形式）
+    pattern = re.compile(
+        rf"^##\s+(?:[^\n]*[:：]\s*)?{re.escape(title)}\s*$", re.MULTILINE
+    )
+    m = pattern.search(body_text)
+    if not m:
+        # 退而搜索纯标题形式
+        pattern2 = re.compile(rf"^##\s+{re.escape(title)}\s*$", re.MULTILINE)
+        m = pattern2.search(body_text)
+    if not m:
+        return body_text.rstrip() + "\n\n## " + title + "\n\n" + bib_text + "\n"
+
+    # 检查是否已有真实参考文献（幂等保护）
+    h2_end = m.end()
+    next_h2 = re.search(r"^##\s+", body_text[h2_end:], re.MULTILINE)
+    section_end = h2_end + next_h2.start() if next_h2 else len(body_text)
+    existing_content = body_text[h2_end:section_end]
+
+    # 数一下已有的参考文献条目（以 [N] 开头的行）
+    ref_count = len(re.findall(r"^\s*\[\d+\]", existing_content, re.MULTILINE))
+    if ref_count >= 50:
+        return body_text  # 幂等：已有真实参考文献，不重复注入
+
+    # 替换该 H2 节的内容
+    before = body_text[:h2_end]
+    after = body_text[section_end:]
+    return before + "\n\n" + bib_text + "\n\n" + after
+
+
+def step_generate_figure_index(body_text: str, figures_manifest: dict,
+                               outline_structure: dict = None) -> str:
+    """从 figures_manifest 生成图表索引，注入到 kind="figure_index" 的附录章。
+
+    1. 从 figures_manifest 提取所有图（架构图+数据图）
+    2. 按章分组
+    3. 生成 Markdown 表格
+    4. 找到 kind="figure_index" 的附录章并注入（幂等：已有>=3行表格则跳过）
+    5. 没有对应章时回退到文末追加
+    """
+    if not figures_manifest:
+        return body_text
+
+    # 提取 figures 列表：支持直接传 list 或 {"figures": [...]} 或
+    # outline.md figures_manifest 的 architecture_figures/data_figures 子键
+    if isinstance(figures_manifest, list):
+        figures = figures_manifest
+    elif isinstance(figures_manifest, dict):
+        figures = figures_manifest.get("figures", [])
+        if not figures:
+            arch = figures_manifest.get("architecture_figures", [])
+            data = figures_manifest.get("data_figures", [])
+            figures = (arch or []) + (data or [])
+    else:
+        figures = []
+    if not figures:
+        return body_text
+
+    # 类型中文映射
+    type_map = {"architecture": "架构图", "data_chart": "数据图", "data": "数据图",
+                "table": "表格", "flowchart": "流程图", "map": "示意图"}
+
+    # 生成 Markdown 表格（按章排序后输出）
+    sorted_figures = sorted(figures, key=lambda f: (
+        f.get("chapter_title") or f.get("chapter") or "",
+        f.get("figure_id") or f.get("id") or "",
+    ))
+
+    lines = ["| 编号 | 标题 | 类型 | 所属章节 |",
+             "|------|------|------|----------|"]
+    for fig in sorted_figures:
+        fid = fig.get("figure_id") or fig.get("id") or ""
+        ftitle = fig.get("title") or fig.get("caption") or ""
+        ftype_raw = fig.get("type", "")
+        ftype = type_map.get(ftype_raw, ftype_raw)
+        fchapter = fig.get("chapter_title") or fig.get("chapter") or ""
+        lines.append(f"| {fid} | {ftitle} | {ftype} | {fchapter} |")
+    table_text = "\n".join(lines)
+
+    # 查找 outline 中 kind="figure_index" 的章标题
+    chapters = _get_chapters_from_structure(outline_structure)
+    fig_chapter = None
+    for ch in chapters:
+        if ch.get("kind") == "figure_index":
+            fig_chapter = ch
+            break
+
+    # 确定目标 H2 标题
+    if fig_chapter:
+        target_title = fig_chapter.get("chapter_title", "图表索引")
+    else:
+        target_title = None
+
+    # 如果没有从 outline 找到，尝试常见标题
+    if not target_title:
+        for candidate in ["图表索引", "附图索引", "图索引", "插图索引"]:
+            if re.search(rf"^##\s+{re.escape(candidate)}\s*$", body_text, re.MULTILINE):
+                target_title = candidate
+                break
+
+    if not target_title:
+        # 回退：文末追加
+        return body_text.rstrip() + "\n\n## 图表索引\n\n" + table_text + "\n"
+
+    # 查找 H2 位置 —— 支持两种形式：
+    # (a) "## 图表索引"（纯标题形式）
+    # (b) "## 附录D：图表索引"（附录前缀形式）
+    pattern = re.compile(
+        rf"^##\s+(?:[^\n]*[:：]\s*)?{re.escape(target_title)}\s*$", re.MULTILINE
+    )
+    m = pattern.search(body_text)
+    if not m:
+        # 退而搜索纯标题形式
+        pattern2 = re.compile(rf"^##\s+{re.escape(target_title)}\s*$", re.MULTILINE)
+        m = pattern2.search(body_text)
+    if not m:
+        return body_text.rstrip() + "\n\n## " + target_title + "\n\n" + table_text + "\n"
+
+    # 幂等检查：如果已有 >=30 行表格行则跳过（提高阈值避免误判手写占位符）
+    h2_end = m.end()
+    next_h2 = re.search(r"^##\s+", body_text[h2_end:], re.MULTILINE)
+    section_end = h2_end + next_h2.start() if next_h2 else len(body_text)
+    existing_content = body_text[h2_end:section_end]
+    table_row_count = len(re.findall(r"^\|.+\|$", existing_content, re.MULTILINE))
+    if table_row_count >= 30:
+        return body_text  # 幂等：已有完整图表索引
+
+    # 替换该 H2 节的内容
+    before = body_text[:h2_end]
+    after = body_text[section_end:]
+    return before + "\n\n" + table_text + "\n\n" + after
 
 
 def _promote_partial(partial_path: Path, final_path: Path) -> None:
@@ -448,6 +613,7 @@ def run_finalize_pipeline(
     *,
     glossary_path: Optional[str] = None,
     figures_dir: Optional[str] = None,
+    figures_manifest: Optional[dict] = None,
     redteam_diff_path: Optional[str] = None,
     log_path: Optional[str] = None,
     delivery_dir: Optional[str] = None,
@@ -567,7 +733,7 @@ def run_finalize_pipeline(
         from convert_references import (
             load_source_index, scan_drafts, find_slash_refs_in_file,
             find_all_refs_in_file, build_numbering, replace_refs_in_file,
-            generate_bibliography, insert_bibliography_before_appendix,
+            generate_bibliography,
         )
     except ImportError as e:
         return _finish("convert_refs", f"convert_references 模块不可用（import 失败）: {e}")
@@ -606,6 +772,7 @@ def run_finalize_pipeline(
             if refs:
                 refs_by_file.append((fp, refs))
 
+        bib_text = None
         if refs_by_file:
             src_to_num, num_to_src, missing = build_numbering(refs_by_file, source_index)
 
@@ -630,22 +797,21 @@ def run_finalize_pipeline(
             bib_path = os.path.join(str(Path(output_path).parent), "bibliography.md")
             Path(bib_path).write_text(bib_text, encoding="utf-8")
 
-            # 4) 定位并插入（最后一章之后、附录之前；无附录则文末）
-            inserted_text, insert_pos = insert_bibliography_before_appendix(replaced_text, bib_text)
-
-            # 5) 写回 work_path
-            Path(work_path).write_text(inserted_text, encoding="utf-8")
+            # 4) 参考文献注入已下沉到步骤 4.5（step_inject_bibliography），
+            #    该步骤基于 outline structure 定位 kind="bibliography" 的章节，
+            #    比 insert_bibliography_before_appendix 的启发式定位更可靠。
+            #    此处只负责生成 bib_text 并写 bibliography.md 存档。
 
             convert_detail = {
                 "unique_sources": len(src_to_num),
                 "missing_sources": sorted(missing),
                 "bibliography_path": bib_path,
                 "bibliography_note": (
-                    "该文件为参考文献审阅存档；正式参考文献节已内嵌入合并终稿"
-                    "（插入位置见 bibliography_insert_position）"
+                    "该文件为参考文献审阅存档；正式参考文献注入由步骤 4.5"
+                    "（inject_bibliography）基于 outline structure 完成"
                 ),
-                "bibliography_inserted": True,
-                "bibliography_insert_position": insert_pos,
+                "bibliography_inserted": False,
+                "bibliography_insert_position": "deferred_to_step_inject_bibliography",
                 "bibliography_h1_defensive_fix_count": bib_h1_fix_count,
             }
         else:
@@ -657,6 +823,32 @@ def run_finalize_pipeline(
     except Exception as e:  # noqa: BLE001
         return _finish("convert_refs", f"引用转换执行异常: {e}")
     steps["convert_refs"] = {"status": "pass", **convert_detail}
+
+    # ── 步骤 4.5: inject_bibliography —— 基于 outline structure 注入参考文献 ──
+    try:
+        body_text = Path(work_path).read_text(encoding="utf-8")
+        body_text = step_inject_bibliography(body_text, bib_text, structure)
+        Path(work_path).write_text(body_text, encoding="utf-8")
+        steps["inject_bibliography"] = {
+            "status": "pass",
+            "bibliography_injected": bool(bib_text and bib_text.strip()),
+            "method": "outline_structure_kind=bibliography",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _finish("inject_bibliography", f"参考文献注入异常: {e}")
+
+    # ── 步骤 4.6: generate_figure_index —— 从 figures_manifest 生成图表索引 ──
+    try:
+        body_text = Path(work_path).read_text(encoding="utf-8")
+        body_text = step_generate_figure_index(body_text, figures_manifest, structure)
+        Path(work_path).write_text(body_text, encoding="utf-8")
+        steps["generate_figure_index"] = {
+            "status": "pass",
+            "figure_index_generated": bool(figures_manifest),
+            "method": "outline_structure_kind=figure_index",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _finish("generate_figure_index", f"图表索引生成异常: {e}")
 
     # ── 步骤 5: contract_check —— check_contract(merged=True, stage="stage9") ──
     if skip_contract_check:

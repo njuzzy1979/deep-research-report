@@ -46,6 +46,36 @@ portability: core
 
 **outline.md 必须以 YAML front matter 开头**（格式见 stage-4-outline.md §4.1.y），包含机器可读的结构清单（`structure` 节点）。**可选：figures_manifest 字段**——若报告超过 3 个核心架构图则强烈建议产出（格式见 stage-4-outline.md §4.1.z），为阶段6/7/9各方提供机器可读的图表清单权威来源。YAML 之后是 Markdown 正文（人类可读大纲）。两类内容描述的是同一份结构——YAML 是机器可读版（供转换器 `--outline` 参数和 `finalizer_agent` 消费），Markdown 正文是人类可读版（供写作/审计 Agent 消费）。
 
+**YAML `structure` 新格式（v2）—— 扁平 chapters 数组（推荐）**：
+
+从 v2 起，推荐使用扁平 `chapters` 数组替代旧的三区段格式。前言是第一章（正常编号），附录在末尾（字母编号 A/B/C/D）。YAML 示例：
+
+```yaml
+structure:
+  title: "报告题名"
+  chapters:
+    - chapter_no: 1
+      chapter_title: "前言"
+      sections: [...]
+    - chapter_no: 2
+      chapter_title: "第一章标题"
+      sections: [...]
+    # ...正文各章...
+    - chapter_no: "A"
+      chapter_title: "术语表"
+      is_appendix: true
+    - chapter_no: "B"
+      chapter_title: "参考文献列表"
+      is_appendix: true
+      kind: "bibliography"   # 管线自动填充，大纲中只需声明占位
+    - chapter_no: "C"
+      chapter_title: "图表索引"
+      is_appendix: true
+      kind: "figure_index"   # 管线自动填充
+```
+
+旧格式（frontmatter/bodymatter/appendix 三区段）仍然可用——`outline_structure_gate.py` 会自动转换为新格式。
+
 **YAML `structure.bodymatter[*].sections` 必须逐章产出，不得留空（D1-9 硬性要求）**：
 
 这是本契约此前的一个**产出端缺口**——旧版只规定了 `section_title` 的**格式**（不许带编号前缀），却**从未要求必须产出 section 级条目**。实测后果：某次真实运行中 16 个章的 `subsections` **16/16 全为空列表**、YAML 声明 0 个 section，而终稿实际产出了 113 个 `Heading 2`——节标题全部由 Writer 在阶段 7 即兴补齐，结构与大纲无法核对，图表章号与分页规划也随之失准。

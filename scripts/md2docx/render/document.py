@@ -279,16 +279,8 @@ def render_document(
         elif section_spec.kind == SectionKind.TOC:
             # 阶段 5.7：目录渲染（委托 toc.py）
             render_toc(doc, ir, styles_map, _oxml)
-            # 图表目录（G-02：add_page_break 唯一消费点）
-            if should_render_chart_directory(ir):
-                doc.add_page_break()
-                figures = [e for e in ir.elements if isinstance(e, FigureIR)]
-                body_tables = [
-                    e for e in ir.elements
-                    if isinstance(e, TableIR) and e.kind == TableKind.BODY and e.table_id is not None
-                ]
-                toc_heading_style = styles_map.get("TOC Heading")
-                render_chart_directory(doc, figures, body_tables, toc_heading_style, _oxml)
+            # v2: 图表目录已由管线 step_generate_figure_index 注入到附录中，
+            # 不再在此处自动渲染图表目录页。
 
         elif section_spec.kind == SectionKind.BODY:
             # 阶段 5.8：正文 + 附录渲染

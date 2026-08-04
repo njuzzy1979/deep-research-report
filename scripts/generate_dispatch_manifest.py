@@ -7,13 +7,17 @@
 
 派生规则（参照 ``references/stage-4-outline.md`` YAML structure schema）：
 
-1. **frontmatter**（如果存在）→ 1 个 Writer
-2. **bodymatter**（每章）→ 1 个 Writer + 1 个 Auditor
-3. **appendix**（如果存在）→ 1 个 Writer
+新版 schema（扁平 ``chapters`` 数组）：
+1. 遍历 ``structure.chapters``，每个章（非 auto-filled）→ 1 个 Writer
+2. 非附录章 → +1 个 Auditor
+3. ``kind`` 为 "bibliography" / "figure_index" 的章 → 不分派 Writer（管线自动填充）
 4. **architecture_figures**（来自 figures_manifest）→ 每张图 1 个 architecture_chart_agent
 5. **data_figures**（来自 figures_manifest）→ 每张图 1 个 data_chart_agent
 6. **固定分派**: card_synthesizer_agent ×1, redteam_agent ×4 (2×Opus + 2×Sonnet),
    redteam_synthesizer_agent ×1, finalizer_agent ×1
+
+旧版 schema（frontmatter/bodymatter/appendix）兼容：
+- 内部自动转换为新 chapters 数组后按上述规则处理。
 
 用法::
 
@@ -162,6 +166,61 @@ def _build_data_chart_dispatch(fig: dict) -> dict:
     }
 
 
+def _convert_old_to_new(structure: dict) -> list[dict]:
+    """将旧格式 (frontmatter/bodymatter/appendix) 转换为新 chapters 数组。
+
+    旧格式有三个独立的区段列表，新格式使用单一扁平 ``chapters`` 数组。
+    此函数在消费端入口处做兼容转换，使下游代码只需处理新格式。
+    """
+    chapters: list[dict] = []
+
+    # frontmatter → chapters（chapter_no 固定为 "frontmatter"）
+    for fm in (structure.get("frontmatter") or []):
+        if not isinstance(fm, dict):
+            continue
+        c_title = str(fm.get("chapter_title") or "").strip()
+        if not c_title:
+            continue
+        chapters.append({
+            "chapter_no": "frontmatter",
+            "chapter_title": c_title,
+            "is_appendix": False,
+            "kind": None,
+            "sections": fm.get("sections") or [],
+        })
+
+    # bodymatter → chapters（chapter_no 为整数章号）
+    for ch in (structure.get("bodymatter") or []):
+        if not isinstance(ch, dict):
+            continue
+        chapters.append({
+            "chapter_no": ch.get("chapter_no"),
+            "chapter_title": str(ch.get("chapter_title") or "").strip(),
+            "is_appendix": False,
+            "kind": None,
+            "sections": ch.get("sections") or [],
+        })
+
+    # appendix → chapters（is_appendix=True；旧格式无 kind 概念，统一为 None）
+    for apx in (structure.get("appendix") or []):
+        if not isinstance(apx, dict):
+            continue
+        letter = str(apx.get("appendix_letter") or "").strip()
+        a_title = str(apx.get("appendix_title") or "").strip()
+        if not a_title:
+            continue
+        head = f"附录{letter}：{a_title}" if letter else a_title
+        chapters.append({
+            "chapter_no": letter if letter else "appendix",
+            "chapter_title": head,
+            "is_appendix": True,
+            "kind": None,
+            "sections": [],
+        })
+
+    return chapters
+
+
 def generate_manifest(
     outline_path: str,
 ) -> dict:
@@ -192,18 +251,27 @@ def generate_manifest(
     structure = normalize_outline_structure(parsed["structure"], str(op))
     report_title = str(parsed.get("title") or parsed.get("report_title") or "").strip()
 
-    # ── 提取各区数据 ──────────────────────────────────────────────────────
-    frontmatter = structure.get("frontmatter") or []
-    bodymatter = structure.get("bodymatter") or []
-    appendix = structure.get("appendix") or []
+    # ── 格式检测：新格式 (chapters) vs 旧格式 (frontmatter/bodymatter/appendix) ──
+    if "chapters" in structure:
+        chapters: list[dict] = list(structure["chapters"])
+    else:
+        chapters = _convert_old_to_new(structure)
 
-    if not bodymatter:
+    # 筛选正文章节（非 frontmatter、非 appendix）
+    body_chapters: list[dict] = [
+        ch for ch in chapters
+        if isinstance(ch, dict)
+        and not ch.get("is_appendix", False)
+        and ch.get("chapter_no") != "frontmatter"
+    ]
+    if not body_chapters:
         print(
-            f"{FAIL} structure.bodymatter 为空——大纲未声明任何正文章节",
+            f"{FAIL} structure 中未声明任何正文章节",
             file=sys.stderr,
         )
         sys.exit(2)
 
+    # ── 提取各区数据 ──────────────────────────────────────────────────────
     figures_manifest = parsed.get("figures_manifest") or {}
     arch_figures = figures_manifest.get("architecture_figures") or []
     data_figures = figures_manifest.get("data_figures") or []
@@ -218,6 +286,7 @@ def generate_manifest(
     redteam_count = 0
     synthesizer_count = 0
     finalizer_count = 0
+    auto_filled_count = 0
 
     # ── Stage 5: 卡片综合 ─────────────────────────────────────────────────
     stage5_agents: list = [
@@ -231,7 +300,7 @@ def generate_manifest(
                 "report_title": report_title,
                 "bodymatter_chapters": [
                     {"chapter_no": ch.get("chapter_no"), "chapter_title": ch.get("chapter_title")}
-                    for ch in bodymatter
+                    for ch in body_chapters
                     if isinstance(ch, dict)
                 ],
             },
@@ -251,63 +320,41 @@ def generate_manifest(
     stage7_writers: list = []
     stage7_auditors: list = []
     stage7_data_charts: list = []
-
-    # frontmatter writers
     writer_dispatch_ids: list = []
-    for fm in frontmatter:
-        if not isinstance(fm, dict):
-            continue
-        c_title = str(fm.get("chapter_title") or "").strip()
-        if not c_title:
-            continue
-        secs = fm.get("sections") or []
-        wid = "writer-frontmatter"
-        stage7_writers.append(
-            _build_writer_dispatch("frontmatter", c_title, secs, wid)
-        )
-        writer_dispatch_ids.append(wid)
-        writer_count += 1
 
-    # bodymatter writers + auditors
-    for ch in bodymatter:
+    for ch in chapters:
         if not isinstance(ch, dict):
             continue
-        c_no = ch.get("chapter_no")
-        if c_no is None:
+
+        chapter_no = ch.get("chapter_no")
+        chapter_title = str(ch.get("chapter_title") or "").strip()
+        if not chapter_title:
             continue
-        c_title = str(ch.get("chapter_title") or f"第{c_no}章").strip()
+
+        is_appendix = ch.get("is_appendix", False)
+        kind = ch.get("kind")  # None / "bibliography" / "figure_index"
+
+        # 跳过管线自动填充的章（不分派 Writer）
+        if kind in ("bibliography", "figure_index"):
+            auto_filled_count += 1
+            continue
+
         secs = ch.get("sections") or []
-        wid = f"writer-ch{c_no}"
-        stage7_writers.append(_build_writer_dispatch(c_no, c_title, secs, wid))
-        writer_dispatch_ids.append(wid)
+        dispatch_id = f"writer-{'appendix-' if is_appendix else ''}ch{chapter_no}"
+
+        stage7_writers.append(
+            _build_writer_dispatch(chapter_no, chapter_title, secs, dispatch_id)
+        )
+        writer_dispatch_ids.append(dispatch_id)
         writer_count += 1
 
-        aid = f"auditor-ch{c_no}"
-        stage7_auditors.append(_build_auditor_dispatch(c_no, c_title, aid, wid))
-        auditor_count += 1
-
-    # appendix writer（所有附录项合并为 1 个 Writer）
-    if appendix:
-        appendix_sections = []
-        appendix_title = "附录"
-        for apx in appendix:
-            if not isinstance(apx, dict):
-                continue
-            letter = str(apx.get("appendix_letter") or "").strip()
-            a_title = str(apx.get("appendix_title") or "").strip()
-            if not apx:
-                continue
-            head = f"附录{letter}：{a_title}" if letter else a_title
-            appendix_sections.append(
-                {"section_no": "", "section_title": head}
+        # 非附录章才有 Auditor
+        if not is_appendix:
+            aid = f"auditor-ch{chapter_no}"
+            stage7_auditors.append(
+                _build_auditor_dispatch(chapter_no, chapter_title, aid, dispatch_id)
             )
-        if appendix_sections:
-            wid = "writer-appendix"
-            stage7_writers.append(
-                _build_writer_dispatch("appendix", appendix_title, appendix_sections, wid)
-            )
-            writer_dispatch_ids.append(wid)
-            writer_count += 1
+            auditor_count += 1
 
     # data charts (in stage 7)
     for fig in data_figures:
@@ -421,6 +468,7 @@ def generate_manifest(
             "redteam": redteam_count,
             "synthesizers": synthesizer_count,
             "finalizers": finalizer_count,
+            "auto_filled_chapters": auto_filled_count,
         },
     }
 
@@ -435,10 +483,13 @@ def format_text_report(manifest: dict) -> str:
     lines.append("")
 
     totals = manifest["totals"]
+    auto_filled = totals.get("auto_filled_chapters", 0)
     lines.append("阶段分派统计:")
     lines.append(f"  Stage 5 (卡片综合)    : card_synthesizer_agent ×{totals['synthesizers'] - 1}")
     lines.append(f"  Stage 6 (架构图)      : architecture_chart_agent ×{totals['architects']}")
     lines.append(f"  Stage 7 (写作+数据图)  : writer ×{totals['writers']} + auditor ×{totals['auditors']} + data_chart ×{totals['data_charts']}")
+    if auto_filled > 0:
+        lines.append(f"                        (另有 {auto_filled} 章为管线自动填充，不分派 Writer)")
     lines.append(f"  Stage 8 (红队审查)    : redteam_agent ×{totals['redteam']} + redteam_synthesizer ×1")
     lines.append(f"  Stage 9 (终稿编排)    : finalizer_agent ×{totals['finalizers']}")
     lines.append(f"  ────────────────────")

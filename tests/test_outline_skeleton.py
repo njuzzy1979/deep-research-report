@@ -175,10 +175,9 @@ def test_artifact_naming_and_placement(tmp_path):
 def test_docx_hierarchy_maps_chapters_to_heading1(tmp_path):
     """层级映射实测：## -> Heading 1（章）、### -> Heading 2（节）。
 
-    骨架生成器固定在正文章节之后、附录之前插入"参考文献"占位节
-    （outline_skeleton.py 的既定行为，模拟真实 finalize_pipeline.py 的插入
-    位置）。它是报告级组成部分，正确渲染为 Heading 1（与章同级，见
-    md2docx HeadingKind.REFERENCES），故预期的 h1 列表须包含它。
+    骨架生成器固定在正文章节之后、附录之前插入"参考文献"占位节。
+    2026-08-04：HeadingKind.REFERENCES 已从 _KIND_TO_LEVEL 移除，
+    参考文献不再渲染为 Heading 1（改为普通 H2→Heading 2），h1 列表不包含它。
     """
     pytest.importorskip("docx")
     from docx import Document
@@ -187,7 +186,7 @@ def test_docx_hierarchy_maps_chapters_to_heading1(tmp_path):
     d = Document(r["skeleton_docx"])
     h1 = [p.text for p in d.paragraphs if p.style.name == "Heading 1"]
     h2 = [p.text for p in d.paragraphs if p.style.name == "Heading 2"]
-    assert h1 == ["空间智能演化态势", "理论体系构建", "参考文献"]
+    assert h1 == ["空间智能演化态势", "理论体系构建"]
     assert h2 == ["研究背景与意义", "研究目标与范围", "六层认知升维模型", "七维问题空间"]
 
 
